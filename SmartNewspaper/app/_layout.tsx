@@ -1,12 +1,11 @@
-import { ThemeProvider } from '@react-navigation/native';
+import { DarkTheme, DefaultTheme, ThemeProvider } from '@react-navigation/native';
 import { useFonts } from 'expo-font';
 import { Stack } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
-import { useEffect, useState } from 'react';
+import { useEffect } from 'react';
 import 'react-native-reanimated';
 
-import { useTheme } from '@/hooks/useTheme';
-import { isOnboardingComplete } from '@/services/auth';
+import { useColorScheme } from '@/components/useColorScheme';
 
 export {
   // Catch any errors thrown by the Layout component.
@@ -25,7 +24,6 @@ export default function RootLayout() {
   const [loaded, error] = useFonts({
     SpaceMono: require('../assets/fonts/SpaceMono-Regular.ttf'),
   });
-  const [onboardingComplete, setOnboardingComplete] = useState<boolean | null>(null);
 
   // Expo Router uses Error Boundaries to catch errors in the navigation tree.
   useEffect(() => {
@@ -33,90 +31,25 @@ export default function RootLayout() {
   }, [error]);
 
   useEffect(() => {
-    const checkOnboarding = async () => {
-      const isComplete = await isOnboardingComplete();
-      setOnboardingComplete(isComplete);
-    };
-    checkOnboarding();
-  }, []);
-
-  useEffect(() => {
-    if (loaded && onboardingComplete !== null) {
+    if (loaded) {
       SplashScreen.hideAsync();
     }
-  }, [loaded, onboardingComplete]);
+  }, [loaded]);
 
-  if (!loaded || onboardingComplete === null) {
+  if (!loaded) {
     return null;
   }
 
-  return <RootLayoutNav initialRouteName={onboardingComplete ? '(tabs)' : 'onboarding'} />;
+  return <RootLayoutNav />;
 }
 
-interface RootLayoutNavProps {
-  initialRouteName: string;
-}
-
-function RootLayoutNav({ initialRouteName }: RootLayoutNavProps) {
-  const { colors } = useTheme();
-
-  const customTheme = {
-    dark: false,
-    colors: {
-      primary: colors.accent,
-      background: colors.background,
-      card: colors.surface,
-      text: colors.textPrimary,
-      border: colors.border,
-      notification: colors.error,
-    },
-    fonts: {
-      regular: { fontFamily: 'System', fontWeight: '400' as const },
-      medium: { fontFamily: 'System', fontWeight: '500' as const },
-      bold: { fontFamily: 'System', fontWeight: '700' as const },
-      heavy: { fontFamily: 'System', fontWeight: '900' as const },
-    },
-  };
+function RootLayoutNav() {
+  const colorScheme = useColorScheme();
 
   return (
-    <ThemeProvider value={customTheme}>
-      <Stack
-        initialRouteName={initialRouteName}
-        screenOptions={{
-          contentStyle: {
-            backgroundColor: colors.background,
-          },
-          headerStyle: {
-            backgroundColor: colors.surface,
-          },
-          headerTintColor: colors.textPrimary,
-          headerTitleAlign: 'center',
-          headerTitleStyle: {
-            color: colors.textPrimary,
-            fontSize: 18,
-            fontWeight: '700',
-          },
-          headerShadowVisible: false,
-        }}
-      >
-        <Stack.Screen name="onboarding" options={{ headerShown: false }} />
+    <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
+      <Stack>
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-        <Stack.Screen
-          name="events/[id]"
-          options={{
-            title: 'Etkinlik Detayi',
-            headerTintColor: colors.textPrimary,
-            headerStyle: {
-              backgroundColor: colors.surface,
-            },
-            headerTitleAlign: 'center',
-            headerTitleStyle: {
-              color: colors.textPrimary,
-              fontSize: 18,
-              fontWeight: '700',
-            },
-          }}
-        />
         <Stack.Screen name="modal" options={{ presentation: 'modal' }} />
       </Stack>
     </ThemeProvider>
