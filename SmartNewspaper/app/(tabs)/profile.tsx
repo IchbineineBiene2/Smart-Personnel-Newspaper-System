@@ -1,13 +1,15 @@
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
-import { useEffect, useState } from 'react';
+import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { useCallback, useState } from 'react';
 import { Ionicons } from '@expo/vector-icons';
+import { useFocusEffect } from '@react-navigation/native';
+import { useRouter } from 'expo-router';
 
 import { usePreferences } from '@/hooks/usePreferences';
 import { useBookmarks } from '@/hooks/useBookmarks';
 import { useTheme } from '@/hooks/useTheme';
 import { useLanguage, LANGUAGE_LABELS, LANGUAGES } from '@/hooks/useLanguage';
 import { NEWS, CATEGORIES, NEWSPAPERS } from '@/services/content';
-import { UserProfile, getUserProfile } from '@/services/auth';
+import { UserProfile, getUserProfile, logoutUser, resetUserPassword } from '@/services/auth';
 import { THEME_NAMES, THEME_LABELS } from '@/services/themes';
 import {
   MOCK_NEWS_SOURCES,
@@ -23,6 +25,7 @@ type TabType = 'preferences' | 'bookmarks' | 'settings' | 'admin';
 type AdminSection = 'overview' | 'sources' | 'users' | 'logs';
 
 export default function Profile() {
+  const router = useRouter();
   const {
     loading: prefsLoading,
     preferredCategories,
@@ -36,24 +39,91 @@ export default function Profile() {
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const [activeTab, setActiveTab] = useState<TabType>('preferences');
   const [adminSection, setAdminSection] = useState<AdminSection>('overview');
+  const [authChecking, setAuthChecking] = useState(true);
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmNewPassword, setConfirmNewPassword] = useState('');
+  const [passwordMessage, setPasswordMessage] = useState<string | null>(null);
+  const [passwordError, setPasswordError] = useState<string | null>(null);
   const savedNews = NEWS.filter((item) => savedIds.includes(item.id));
 
-  useEffect(() => {
-    const loadProfile = async () => {
-      const profile = await getUserProfile();
-      if (!profile) {
-        setUserProfile({
-          id: 'demo-user',
-          name: 'Ahmet Kullanıcı',
-          email: 'ahmet@example.com',
-          createdAt: new Date().toISOString(),
-        });
-      } else {
+  useFocusEffect(
+    useCallback(() => {
+      let active = true;
+
+      const loadProfile = async () => {
+        setAuthChecking(true);
+
+        const profile = await getUserProfile();
+        if (!active) {
+          return;
+        }
+
+        if (!profile) {
+          setUserProfile(null);
+          setAuthChecking(false);
+          router.replace('/auth/login');
+          return;
+        }
+
         setUserProfile(profile);
-      }
-    };
-    loadProfile();
-  }, []);
+        setAuthChecking(false);
+      };
+
+      loadProfile();
+
+      return () => {
+        active = false;
+      };
+    }, [router])
+  );
+
+  const handleLogout = async () => {
+    await logoutUser();
+    router.replace('/auth/login');
+  };
+
+  const handlePasswordReset = async () => {
+    setPasswordMessage(null);
+    setPasswordError(null);
+
+    if (!userProfile) {
+      setPasswordError('Kullanıcı bilgisi bulunamadı.');
+      return;
+    }
+
+    if (!newPassword.trim() || !confirmNewPassword.trim()) {
+      setPasswordError('Lütfen iki şifre alanını da doldurun.');
+      return;
+    }
+
+    if (newPassword.length < 6) {
+      setPasswordError('Yeni şifre en az 6 karakter olmalı.');
+      return;
+    }
+
+    if (newPassword !== confirmNewPassword) {
+      setPasswordError('Yeni şifreler eşleşmiyor.');
+      return;
+    }
+
+    const success = await resetUserPassword(userProfile.email, newPassword);
+    if (!success) {
+      setPasswordError('Şifre güncellenemedi. Lütfen tekrar deneyin.');
+      return;
+    }
+
+    setNewPassword('');
+    setConfirmNewPassword('');
+    setPasswordMessage('Şifren başarıyla güncellendi.');
+  };
+
+  if (authChecking || !userProfile) {
+    return (
+      <View style={st(colors).loadingWrap}>
+        <Text style={st(colors).info}>Giriş kontrolü yapılıyor...</Text>
+      </View>
+    );
+  }
 
   const stats = MOCK_USAGE_STATS;
 
@@ -61,21 +131,21 @@ export default function Profile() {
     if (adminSection === 'overview') {
       return (
         <>
-          <Text style={st(colors).sectionTitle}>Sistem Ozeti</Text>
+          <Text style={st(colors).sectionTitle}>Sistem Özeti</Text>
 
           {/* FR25: Kullanim istatistikleri */}
           <View style={st(colors).statsGrid}>
             <View style={st(colors).adminStatCard}>
               <Text style={st(colors).adminStatValue}>{stats.totalUsers}</Text>
-              <Text style={st(colors).adminStatLabel}>Toplam Kullanici</Text>
+              <Text style={st(colors).adminStatLabel}>Toplam Kullanıcı</Text>
             </View>
             <View style={st(colors).adminStatCard}>
               <Text style={st(colors).adminStatValue}>{stats.activeToday}</Text>
-              <Text style={st(colors).adminStatLabel}>Bugun Aktif</Text>
+              <Text style={st(colors).adminStatLabel}>Bugün Aktif</Text>
             </View>
             <View style={st(colors).adminStatCard}>
               <Text style={st(colors).adminStatValue}>{stats.totalNewsAccess}</Text>
-              <Text style={st(colors).adminStatLabel}>Haber Erisimi</Text>
+              <Text style={st(colors).adminStatLabel}>Haber Erişimi</Text>
             </View>
             <View style={st(colors).adminStatCard}>
               <Text style={st(colors).adminStatValue}>{stats.totalBookmarks}</Text>
@@ -83,7 +153,7 @@ export default function Profile() {
             </View>
           </View>
 
-          <Text style={st(colors).sectionTitle}>Populer Kategoriler</Text>
+          <Text style={st(colors).sectionTitle}>Popüler Kategoriler</Text>
           {stats.topCategories.map((item) => (
             <View key={item.category} style={st(colors).barRow}>
               <Text style={st(colors).barLabel}>{item.category}</Text>
@@ -99,7 +169,7 @@ export default function Profile() {
             </View>
           ))}
 
-          <Text style={st(colors).sectionTitle}>Gunluk Aktivite</Text>
+          <Text style={st(colors).sectionTitle}>Günlük Aktivite</Text>
           {stats.dailyActivity.map((day) => (
             <View key={day.date} style={st(colors).activityRow}>
               <Text style={st(colors).activityDate}>{day.date}</Text>
@@ -123,7 +193,7 @@ export default function Profile() {
       return (
         <>
           {/* FR24: Haber kaynaklari ve kategorileri yonetimi */}
-          <Text style={st(colors).sectionTitle}>Haber Kaynaklari</Text>
+          <Text style={st(colors).sectionTitle}>Haber Kaynakları</Text>
           {MOCK_NEWS_SOURCES.map((source) => (
             <View key={source.id} style={st(colors).adminCard}>
               <View style={st(colors).adminCardHeader}>
@@ -157,7 +227,7 @@ export default function Profile() {
       return (
         <>
           {/* FR24: Kullanici rolleri ve yetkileri yonetimi */}
-          <Text style={st(colors).sectionTitle}>Kullanicilar</Text>
+          <Text style={st(colors).sectionTitle}>Kullanıcılar</Text>
           {MOCK_USERS.map((user) => (
             <View key={user.id} style={st(colors).adminCard}>
               <View style={st(colors).adminCardHeader}>
@@ -174,11 +244,11 @@ export default function Profile() {
               <View style={st(colors).adminCardFooter}>
                 <View style={st(colors).roleBadge}>
                   <Text style={st(colors).roleBadgeText}>
-                    {user.role === 'admin' ? 'Yonetici' : user.role === 'editor' ? 'Editor' : 'Kullanici'}
+                    {user.role === 'admin' ? 'Yönetici' : user.role === 'editor' ? 'Editör' : 'Kullanıcı'}
                   </Text>
                 </View>
                 <Text style={[st(colors).adminCardMeta, { color: user.status === 'active' ? colors.success : colors.error }]}>
-                  {user.status === 'active' ? 'Aktif' : 'Askiya Alindi'}
+                  {user.status === 'active' ? 'Aktif' : 'Askıya Alındı'}
                 </Text>
               </View>
             </View>
@@ -191,7 +261,7 @@ export default function Profile() {
       return (
         <>
           {/* FR25: Sistem log kayitlari */}
-          <Text style={st(colors).sectionTitle}>Sistem Loglari</Text>
+          <Text style={st(colors).sectionTitle}>Sistem Logları</Text>
           {MOCK_LOGS.map((log) => (
             <View key={log.id} style={st(colors).logCard}>
               <View style={st(colors).logHeader}>
@@ -226,18 +296,16 @@ export default function Profile() {
   return (
     <ScrollView style={[st(colors).container]} contentContainerStyle={st(colors).content}>
       {/* User Info Card */}
-      {userProfile && (
-        <View style={st(colors).heroCard}>
-          <View style={st(colors).avatarBadge}>
-            <Text style={st(colors).avatarText}>{userProfile.name.charAt(0)}</Text>
-          </View>
-          <View style={st(colors).heroTextArea}>
-            <Text style={st(colors).pageTitle}>{userProfile.name}</Text>
-            <Text style={st(colors).email}>{userProfile.email}</Text>
-            <Text style={st(colors).meta}>Uye Oldugu Tarih: {new Date(userProfile.createdAt).toLocaleDateString('tr-TR')}</Text>
-          </View>
+      <View style={st(colors).heroCard}>
+        <View style={st(colors).avatarBadge}>
+          <Text style={st(colors).avatarText}>{userProfile.name.charAt(0)}</Text>
         </View>
-      )}
+        <View style={st(colors).heroTextArea}>
+          <Text style={st(colors).pageTitle}>{userProfile.name}</Text>
+          <Text style={st(colors).email}>{userProfile.email}</Text>
+          <Text style={st(colors).meta}>Üye Olduğu Tarih: {new Date(userProfile.createdAt).toLocaleDateString('tr-TR')}</Text>
+        </View>
+      </View>
 
       <View style={st(colors).statsRow}>
         <View style={st(colors).statCard}>
@@ -262,7 +330,7 @@ export default function Profile() {
               preferences: 'Tercihler',
               bookmarks: 'Kaydedilenler',
               settings: 'Ayarlar',
-              admin: 'Yonetim',
+              admin: 'Yönetim',
             };
             return (
               <Pressable
@@ -282,8 +350,8 @@ export default function Profile() {
       {/* Preferences Tab */}
       {activeTab === 'preferences' && (
         <>
-          <Text style={st(colors).sectionTitle}>Ilgi Duydugun Kategoriler</Text>
-          {prefsLoading ? <Text style={st(colors).info}>Yukleniyor...</Text> : null}
+          <Text style={st(colors).sectionTitle}>İlgi Duyduğun Kategoriler</Text>
+          {prefsLoading ? <Text style={st(colors).info}>Yükleniyor...</Text> : null}
 
           <View style={st(colors).chipGroup}>
             {CATEGORIES.map((category) => {
@@ -303,15 +371,15 @@ export default function Profile() {
           </View>
 
           <View style={st(colors).summaryCard}>
-            <Text style={st(colors).summaryTitle}>Secilen Kategoriler</Text>
+            <Text style={st(colors).summaryTitle}>Seçilen Kategoriler</Text>
             <Text style={st(colors).summaryBody}>
               {preferredCategories.length
                 ? preferredCategories.join(', ')
-                : 'Henuz kategori secilmedi.'}
+                : 'Henüz kategori seçilmedi.'}
             </Text>
           </View>
 
-          <Text style={st(colors).sectionTitle}>Takip Etmek Istedigin Gazeteler</Text>
+          <Text style={st(colors).sectionTitle}>Takip Etmek İstediğin Gazeteler</Text>
           <View style={st(colors).chipGroup}>
             {NEWSPAPERS.map((newspaper) => {
               const selected = preferredNewspapers.includes(newspaper);
@@ -330,11 +398,11 @@ export default function Profile() {
           </View>
 
           <View style={st(colors).summaryCard}>
-            <Text style={st(colors).summaryTitle}>Secilen Gazeteler</Text>
+            <Text style={st(colors).summaryTitle}>Seçilen Gazeteler</Text>
             <Text style={st(colors).summaryBody}>
               {preferredNewspapers.length
                 ? preferredNewspapers.join(', ')
-                : 'Henuz gazete secilmedi.'}
+                : 'Henüz gazete seçilmedi.'}
             </Text>
           </View>
         </>
@@ -344,10 +412,10 @@ export default function Profile() {
       {activeTab === 'bookmarks' && (
         <>
           <Text style={st(colors).sectionTitle}>Kaydedilen Haberler</Text>
-          {bookmarksLoading ? <Text style={st(colors).info}>Yukleniyor...</Text> : null}
+          {bookmarksLoading ? <Text style={st(colors).info}>Yükleniyor...</Text> : null}
 
           {!bookmarksLoading && !savedNews.length ? (
-            <Text style={st(colors).info}>Henuz kaydedilmis haber bulunmuyor.</Text>
+            <Text style={st(colors).info}>Henüz kaydedilmiş haber bulunmuyor.</Text>
           ) : null}
 
           {savedNews.map((news) => (
@@ -363,9 +431,9 @@ export default function Profile() {
       {/* Settings Tab */}
       {activeTab === 'settings' && (
         <>
-          <Text style={st(colors).sectionTitle}>Gorunum Ayarlari</Text>
+          <Text style={st(colors).sectionTitle}>Görünüm Ayarları</Text>
 
-          <Text style={st(colors).settingLabel}>Tema Sec</Text>
+          <Text style={st(colors).settingLabel}>Tema Seç</Text>
           <View style={st(colors).themeGrid}>
             {THEME_NAMES.map((theme) => (
               <Pressable
@@ -389,11 +457,11 @@ export default function Profile() {
           </View>
 
           <View style={st(colors).settingCard}>
-            <Text style={st(colors).settingCardTitle}>Secili Tema</Text>
+            <Text style={st(colors).settingCardTitle}>Seçili Tema</Text>
             <Text style={st(colors).settingCardValue}>{THEME_LABELS[themeName]}</Text>
           </View>
 
-          <Text style={st(colors).settingLabel}>Dil Sec</Text>
+          <Text style={st(colors).settingLabel}>Dil Seç</Text>
           <View style={st(colors).themeGrid}>
             {LANGUAGES.map((item) => (
               <Pressable
@@ -417,9 +485,43 @@ export default function Profile() {
           </View>
 
           <View style={st(colors).settingCard}>
-            <Text style={st(colors).settingCardTitle}>Secili Dil</Text>
+            <Text style={st(colors).settingCardTitle}>Seçili Dil</Text>
             <Text style={st(colors).settingCardValue}>{LANGUAGE_LABELS[language]}</Text>
           </View>
+
+          <Text style={st(colors).sectionTitle}>Şifre Sıfırlama</Text>
+          <View style={st(colors).settingCard}>
+            <Text style={st(colors).settingCardTitle}>Yeni Şifre Belirle</Text>
+            <Text style={st(colors).settingHint}>Profil hesabın için yeni şifre tanımlayabilirsin.</Text>
+
+            <TextInput
+              value={newPassword}
+              onChangeText={setNewPassword}
+              secureTextEntry
+              placeholder="Yeni şifre"
+              placeholderTextColor={colors.textMuted}
+              style={st(colors).input}
+            />
+            <TextInput
+              value={confirmNewPassword}
+              onChangeText={setConfirmNewPassword}
+              secureTextEntry
+              placeholder="Yeni şifre tekrar"
+              placeholderTextColor={colors.textMuted}
+              style={st(colors).input}
+            />
+
+            {passwordError ? <Text style={st(colors).errorText}>{passwordError}</Text> : null}
+            {passwordMessage ? <Text style={st(colors).successText}>{passwordMessage}</Text> : null}
+
+            <Pressable style={st(colors).actionButton} onPress={handlePasswordReset}>
+              <Text style={st(colors).actionButtonText}>Şifreyi Güncelle</Text>
+            </Pressable>
+          </View>
+
+          <Pressable style={st(colors).logoutButton} onPress={handleLogout}>
+            <Text style={st(colors).logoutButtonText}>Çıkış Yap</Text>
+          </Pressable>
         </>
       )}
 
@@ -430,9 +532,9 @@ export default function Profile() {
           <ScrollView horizontal showsHorizontalScrollIndicator={false}>
             <View style={st(colors).adminNav}>
               {([
-                { key: 'overview', label: 'Genel Bakis', icon: 'stats-chart-outline' },
+                { key: 'overview', label: 'Genel Bakış', icon: 'stats-chart-outline' },
                 { key: 'sources', label: 'Kaynaklar', icon: 'globe-outline' },
-                { key: 'users', label: 'Kullanicilar', icon: 'people-outline' },
+                { key: 'users', label: 'Kullanıcılar', icon: 'people-outline' },
                 { key: 'logs', label: 'Loglar', icon: 'list-outline' },
               ] as { key: AdminSection; label: string; icon: keyof typeof Ionicons.glyphMap }[]).map((item) => (
                 <Pressable
@@ -461,6 +563,13 @@ export default function Profile() {
 }
 
 const st = (colors: any) => StyleSheet.create({
+  loadingWrap: {
+    flex: 1,
+    backgroundColor: colors.background,
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: Spacing.lg,
+  },
   container: {
     flex: 1,
     backgroundColor: colors.background,
@@ -689,6 +798,54 @@ const st = (colors: any) => StyleSheet.create({
   settingCardValue: {
     color: colors.accent,
     fontSize: Typography.fontSize.lg,
+    fontWeight: Typography.fontWeight.bold,
+  },
+  settingHint: {
+    color: colors.textSecondary,
+    fontSize: Typography.fontSize.sm,
+    marginBottom: Spacing.sm,
+  },
+  input: {
+    backgroundColor: colors.surfaceHigh,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: Radius.md,
+    paddingVertical: Spacing.sm,
+    paddingHorizontal: Spacing.md,
+    color: colors.textPrimary,
+  },
+  actionButton: {
+    marginTop: Spacing.sm,
+    borderRadius: Radius.md,
+    backgroundColor: colors.accent,
+    paddingVertical: Spacing.md,
+    alignItems: 'center',
+  },
+  actionButtonText: {
+    color: colors.white,
+    fontSize: Typography.fontSize.base,
+    fontWeight: Typography.fontWeight.bold,
+  },
+  errorText: {
+    color: colors.error,
+    fontSize: Typography.fontSize.sm,
+  },
+  successText: {
+    color: colors.success,
+    fontSize: Typography.fontSize.sm,
+  },
+  logoutButton: {
+    borderRadius: Radius.md,
+    borderWidth: 1,
+    borderColor: colors.error,
+    backgroundColor: colors.surface,
+    paddingVertical: Spacing.md,
+    alignItems: 'center',
+    marginTop: Spacing.sm,
+  },
+  logoutButtonText: {
+    color: colors.error,
+    fontSize: Typography.fontSize.base,
     fontWeight: Typography.fontWeight.bold,
   },
 

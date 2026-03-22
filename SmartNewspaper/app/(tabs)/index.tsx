@@ -7,7 +7,7 @@ import { useTheme } from '@/hooks/useTheme';
 import { Spacing, Typography, Colors } from '@/constants/theme';
 import { useState } from 'react';
 
-export default function TabOneScreen() {
+/*export default function TabOneScreen() {
   const { colors } = useTheme();
 
   return (
@@ -17,7 +17,7 @@ export default function TabOneScreen() {
       <EditScreenInfo path="app/(tabs)/index.tsx" />
     </View>
   );
-}
+}*/
 
 // styles fonksiyonu en üste taşındı
 const styles = (colors: any) => StyleSheet.create({

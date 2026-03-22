@@ -101,6 +101,8 @@ function RootLayoutNav({ initialRouteName }: RootLayoutNavProps) {
       >
         <Stack.Screen name="onboarding" options={{ headerShown: false }} />
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+        <Stack.Screen name="auth/login" options={{ title: 'Giriş Yap' }} />
+        <Stack.Screen name="auth/register" options={{ title: 'Kayıt Ol' }} />
         <Stack.Screen
           name="events/[id]"
           options={{
