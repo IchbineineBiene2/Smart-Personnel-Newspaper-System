@@ -34,8 +34,6 @@ export default function Discover() {
 
   return (
     <ScrollView style={[styles(colors).container]} contentContainerStyle={styles(colors).content}>
-      <Text style={styles(colors).pageTitle}>Etkinlikler ve Duyurular</Text>
-
       <Text style={styles(colors).sectionTitle}>Yaklasan Etkinlikler</Text>
       {EVENTS.map((event) => (
         <Pressable
@@ -77,7 +75,7 @@ export default function Discover() {
               style={[styles(colors).actionButton, isSaved ? styles(colors).actionButtonActive : null]}
               onPress={() => toggleSaved(news.id)}
             >
-              <Text style={styles(colors).actionButtonText}>
+              <Text style={[styles(colors).actionButtonText, isSaved ? styles(colors).actionButtonTextActive : null]}>
                 {isSaved ? 'Kaydedildi' : 'Kaydet'}
               </Text>
             </Pressable>
@@ -95,13 +93,8 @@ const styles = (colors: any) => StyleSheet.create({
   },
   content: {
     padding: Spacing.lg,
-    paddingBottom: Spacing.xxl,
+    paddingBottom: 100,
     gap: Spacing.md,
-  },
-  pageTitle: {
-    fontSize: Typography.fontSize.xl,
-    color: colors.textPrimary,
-    fontWeight: Typography.fontWeight.bold,
   },
   sectionTitle: {
     marginTop: Spacing.sm,
@@ -147,5 +140,8 @@ const styles = (colors: any) => StyleSheet.create({
   actionButtonText: {
     color: colors.textPrimary,
     fontWeight: Typography.fontWeight.medium,
+  },
+  actionButtonTextActive: {
+    color: colors.white,
   },
 });

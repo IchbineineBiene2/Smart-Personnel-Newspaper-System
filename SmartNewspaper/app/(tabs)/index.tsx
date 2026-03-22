@@ -7,7 +7,7 @@ import { Spacing, Typography } from '@/constants/theme';
 
 export default function TabOneScreen() {
   const { colors } = useTheme();
-  
+
   return (
     <View style={[styles(colors).container]}>
       <Text style={styles(colors).title}>Ana Sayfa</Text>
