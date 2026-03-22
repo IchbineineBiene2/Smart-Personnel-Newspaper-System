@@ -2,9 +2,22 @@
 import { StyleSheet, FlatList, TouchableOpacity, Modal, Pressable, Platform, Alert } from 'react-native';
 import { Text, View } from '@/components/Themed';
 
+
 import { useTheme } from '@/hooks/useTheme';
 import { Spacing, Typography, Colors } from '@/constants/theme';
 import { useState } from 'react';
+
+export default function TabOneScreen() {
+  const { colors } = useTheme();
+
+  return (
+    <View style={[styles(colors).container]}>
+      <Text style={styles(colors).title}>Ana Sayfa</Text>
+      <View style={[styles(colors).separator]} lightColor="#eee" darkColor="rgba(255,255,255,0.1)" />
+      <EditScreenInfo path="app/(tabs)/index.tsx" />
+    </View>
+  );
+}
 
 // styles fonksiyonu en üste taşındı
 const styles = (colors: any) => StyleSheet.create({
