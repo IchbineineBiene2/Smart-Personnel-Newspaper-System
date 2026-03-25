@@ -1,373 +1,578 @@
 
-import { StyleSheet, FlatList, TouchableOpacity, Modal, Pressable, Platform, Alert } from 'react-native';
-import { Text, View } from '@/components/Themed';
+import { useMemo, useState } from 'react';
+import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
-
+import { Radius, Spacing, Typography } from '@/constants/theme';
+import { usePreferences } from '@/hooks/usePreferences';
 import { useTheme } from '@/hooks/useTheme';
-import { Spacing, Typography, Colors } from '@/constants/theme';
-import { useState } from 'react';
+import { ContentCategory } from '@/services/content';
 
-/*export default function TabOneScreen() {
-  const { colors } = useTheme();
+type PeriodFilter = 'daily' | 'weekly';
+type SortKey = 'newest' | 'popularity' | 'relevance';
 
-  return (
-    <View style={[styles(colors).container]}>
-      <Text style={styles(colors).title}>Ana Sayfa</Text>
-      <View style={[styles(colors).separator]} lightColor="#eee" darkColor="rgba(255,255,255,0.1)" />
-      <EditScreenInfo path="app/(tabs)/index.tsx" />
-    </View>
-  );
-}*/
+type PersonalizedNewsItem = {
+  id: string;
+  title: string;
+  summary: string;
+  source: string;
+  publicationDate: string;
+  category: ContentCategory;
+  popularity: number;
+  relevance: number;
+  period: 'daily' | 'weekly' | 'both';
+};
 
-// styles fonksiyonu en üste taşındı
-const styles = (colors: any) => StyleSheet.create({
-  sortRow: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 12,
-    gap: 8,
-  },
-  sortButton: {
-    backgroundColor: Colors.surface,
-    borderRadius: 8,
-    paddingVertical: 6,
-    paddingHorizontal: 18,
-    marginHorizontal: 4,
-    borderWidth: 1,
-    borderColor: Colors.border,
-  },
-  sortButtonActive: {
-    backgroundColor: Colors.accentLight,
-    borderColor: Colors.accent,
-  },
-  sortButtonText: {
-    color: Colors.textSecondary,
-    fontWeight: Typography.fontWeight.medium,
-  },
-  sortButtonTextActive: {
-    color: Colors.textPrimary,
-    fontWeight: Typography.fontWeight.bold,
-  },
-  container: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'flex-start',
-    backgroundColor: Colors.background,
-    paddingTop: 40,
-    paddingHorizontal: 10,
-  },
-  title: {
-    fontSize: Typography.fontSize.lg,
-    fontWeight: Typography.fontWeight.bold,
-    color: Colors.textPrimary,
-    marginBottom: 16,
-  },
-  filterRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-around',
-    width: '100%',
-    marginBottom: 16,
-  },
-  filterButton: {
-    backgroundColor: Colors.surface,
-    borderRadius: 8,
-    paddingVertical: 8,
-    paddingHorizontal: 16,
-    marginHorizontal: 4,
-    borderWidth: 1,
-    borderColor: Colors.border,
-  },
-  filterButtonActive: {
-    backgroundColor: Colors.accentLight,
-    borderColor: Colors.accent,
-  },
-  filterButtonText: {
-    color: Colors.textSecondary,
-    fontWeight: Typography.fontWeight.medium,
-  },
-  filterButtonTextActive: {
-    color: Colors.textPrimary,
-    fontWeight: Typography.fontWeight.bold,
-  },
-  newsCard: {
-    backgroundColor: Colors.surfaceHigh,
-    borderRadius: 8,
-    marginBottom: 12,
-    shadowColor: Colors.black,
-    shadowOpacity: 0.08,
-    shadowRadius: 4,
-    elevation: 2,
-    borderWidth: 1,
-    borderColor: Colors.borderSubtle,
-  },
-  newsTitle: {
-    fontSize: Typography.fontSize.md,
-    fontWeight: Typography.fontWeight.bold,
-    marginBottom: 4,
-    color: Colors.textPrimary,
-  },
-  newsSummary: {
-    color: Colors.textMuted,
-    marginBottom: 4,
-  },
-  meta: {
-    fontSize: 12,
-    color: Colors.textSecondary,
-    marginTop: 8,
-  },
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.3)',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  modalContent: {
-    backgroundColor: Colors.background,
-    borderRadius: 12,
-    padding: 24,
-    width: '85%',
-    alignItems: 'center',
-    shadowColor: '#000',
-    shadowOpacity: 0.15,
-    shadowRadius: 8,
-    elevation: 4,
-  },
-  modalTitle: {
-    fontSize: Typography.fontSize.lg,
-    fontWeight: Typography.fontWeight.bold,
-    color: Colors.textPrimary,
-    marginBottom: 8,
-    textAlign: 'center',
-  },
-  modalSummary: {
-    color: Colors.textMuted,
-    marginBottom: 12,
-    textAlign: 'center',
-  },
-  pdfButton: {
-    backgroundColor: Colors.accent,
-    borderRadius: 8,
-    paddingVertical: 10,
-    paddingHorizontal: 24,
-    marginBottom: 12,
-  },
-  pdfButtonText: {
-    color: Colors.white,
-    fontWeight: Typography.fontWeight.bold,
-    fontSize: Typography.fontSize.md,
-  },
-  closeButton: {
-    backgroundColor: Colors.surface,
-    borderRadius: 8,
-    paddingVertical: 8,
-    paddingHorizontal: 24,
-  },
-  closeButtonText: {
-    color: Colors.textPrimary,
-    fontWeight: Typography.fontWeight.medium,
-    fontSize: Typography.fontSize.base,
-  },
-});
-
-// Daha fazla örnek haber verisi
-const newsData = [
+const PERSONALIZED_NEWS: PersonalizedNewsItem[] = [
   {
-    id: '1',
-    title: 'Yapay Zeka Gazeteciliği Değiştiriyor',
-    summary: 'Yapay zeka, haber üretim süreçlerinde devrim yaratıyor.',
-    source: 'TeknoHaber',
-    date: '2026-03-21',
+    id: 'pn-1',
+    title: 'Yapay zeka destekli haber odaları yeni editor rolü oluşturuyor',
+    summary: 'Yerli medya kuruluşlari, otomasyon ve insan editor dengesini yeniden tanımlıyor.',
+    source: 'Cumhuriyet',
+    publicationDate: '2026-03-25',
     category: 'Teknoloji',
-    popularity: 5,
+    popularity: 88,
+    relevance: 94,
+    period: 'daily',
   },
   {
-    id: '2',
-    title: 'Spor Dünyasında Yeni Rekor',
-    summary: 'Atletizmde yeni dünya rekoru kırıldı.',
-    source: 'SporX',
-    date: '2026-03-22',
+    id: 'pn-2',
+    title: 'Super Lig final haftasına girerken takım performansları dikkat çekiyor',
+    summary: 'Son 5 haftanın verileri, şampiyonluk yarışı için kritik sinyaller veriyor.',
+    source: 'Hürriyet',
+    publicationDate: '2026-03-24',
     category: 'Spor',
-    popularity: 8,
+    popularity: 92,
+    relevance: 78,
+    period: 'daily',
   },
   {
-    id: '3',
-    title: 'Ekonomi Gündemi: Enflasyon',
-    summary: 'Enflasyon oranları beklentilerin üzerinde geldi.',
-    source: 'EkonomiTürk',
-    date: '2026-03-20',
+    id: 'pn-3',
+    title: 'Piyasalarda haftalık beklenti: enflasyon verisine odakli yeni senaryo',
+    summary: 'Analistler, haftanın ikinci yarısında oynakligin artabilecegini belirtiyor.',
+    source: 'Milliyet',
+    publicationDate: '2026-03-23',
     category: 'Ekonomi',
-    popularity: 7,
+    popularity: 79,
+    relevance: 86,
+    period: 'both',
   },
   {
-    id: '4',
-    title: 'Uzay Turizmi Başladı',
-    summary: 'İlk ticari uzay turizmi uçuşu başarıyla tamamlandı.',
-    source: 'BilimDergi',
-    date: '2026-03-19',
+    id: 'pn-4',
+    title: 'Erken tanı programlarıyla toplum sağlığında yeni pilot dönem',
+    summary: 'Aile sağlığı merkezlerinde dijital tarama uygulamalari yaygınlaştırılıyor.',
+    source: 'Sabah',
+    publicationDate: '2026-03-22',
+    category: 'Saglık',
+    popularity: 71,
+    relevance: 83,
+    period: 'weekly',
+  },
+  {
+    id: 'pn-5',
+    title: 'Kültür rotası: haftanın açık hava etkinlikleri açıklandı',
+    summary: 'Sahne sanatları ve kent festivalleri için yeni program takvimi paylaşıldı.',
+    source: 'Sözcü',
+    publicationDate: '2026-03-21',
+    category: 'Kultur',
+    popularity: 68,
+    relevance: 74,
+    period: 'weekly',
+  },
+  {
+    id: 'pn-6',
+    title: 'Siber guvenlik ekipleri mobil haber uygulamalarinda yeni riskleri izliyor',
+    summary: 'Guvenlik uzmanlari, kimlik avina karsi kullanicilarin dikkatli olmasini oneriyor.',
+    source: 'Cumhuriyet',
+    publicationDate: '2026-03-20',
     category: 'Teknoloji',
-    popularity: 9,
+    popularity: 74,
+    relevance: 89,
+    period: 'both',
   },
   {
-    id: '5',
-    title: 'Futbol Ligi Şampiyonu Belli Oldu',
-    summary: 'Süper Lig’de sezonun şampiyonu belli oldu.',
-    source: 'FutbolGazetesi',
-    date: '2026-03-18',
+    id: 'pn-7',
+    title: 'Yerel liglerde izlenme artisiyla sponsorluk modelleri degisiyor',
+    summary: 'Kulupler, dijital abonelik gelirlerini yeni finansman kaynagi olarak kullaniyor.',
+    source: 'Hürriyet',
+    publicationDate: '2026-03-19',
     category: 'Spor',
-    popularity: 6,
-  },
-  {
-    id: '6',
-    title: 'Borsa Yükselişte',
-    summary: 'Borsa İstanbul haftaya yükselişle başladı.',
-    source: 'FinansHaber',
-    date: '2026-03-17',
-    category: 'Ekonomi',
-    popularity: 7,
-  },
-  {
-    id: '7',
-    title: 'Yenilenebilir Enerji Yatırımları Artıyor',
-    summary: 'Türkiye’de yenilenebilir enerji yatırımlarında büyük artış yaşanıyor.',
-    source: 'EnerjiGünlüğü',
-    date: '2026-03-16',
-    category: 'Ekonomi',
-    popularity: 8,
-  },
-  {
-    id: '8',
-    title: 'Basketbol Milli Takımı Avrupa’da',
-    summary: 'Basketbol milli takımı Avrupa Şampiyonası’nda yarı finale yükseldi.',
-    source: 'BasketDünya',
-    date: '2026-03-15',
-    category: 'Spor',
-    popularity: 7,
-  },
-  {
-    id: '9',
-    title: 'Yerli Akıllı Telefon Tanıtıldı',
-    summary: 'Türkiye’nin ilk yerli akıllı telefonu tanıtıldı.',
-    source: 'TeknoHaber',
-    date: '2026-03-14',
-    category: 'Teknoloji',
-    popularity: 6,
-  },
-  {
-    id: '10',
-    title: 'Kripto Para Piyasasında Dalgalanma',
-    summary: 'Kripto para piyasasında sert dalgalanmalar yaşanıyor.',
-    source: 'KriptoFinans',
-    date: '2026-03-13',
-    category: 'Ekonomi',
-    popularity: 5,
+    popularity: 76,
+    relevance: 72,
+    period: 'weekly',
   },
 ];
 
+function formatDate(isoDate: string) {
+  return new Date(isoDate).toLocaleDateString('tr-TR', {
+    day: '2-digit',
+    month: 'long',
+    year: 'numeric',
+  });
+}
 
 export default function PersonalizedNewsScreen() {
   const { colors } = useTheme();
-  const [filter, setFilter] = useState<string | null>(null);
-  const [sortType, setSortType] = useState<'date' | 'popularity'>('date');
-  const [selectedNews, setSelectedNews] = useState<any | null>(null);
-  const [modalVisible, setModalVisible] = useState(false);
+  const { preferredCategories } = usePreferences();
 
-  // Filtrelenmiş haberler
-  let filteredNews = filter
-    ? newsData.filter((item) => item.category === filter)
-    : newsData;
+  const [activePeriod, setActivePeriod] = useState<PeriodFilter>('daily');
+  const [sortKey, setSortKey] = useState<SortKey>('newest');
+  const [selectedCategory, setSelectedCategory] = useState<ContentCategory | null>(null);
+  const [selectedSource, setSelectedSource] = useState<string>('all');
 
-  // Sıralama
-  filteredNews = [...filteredNews].sort((a, b) => {
-    if (sortType === 'date') {
-      return b.date.localeCompare(a.date); // yeni → eski
-    } else {
-      return b.popularity - a.popularity; // popüler → az popüler
-    }
-  });
+  const defaultCategories: ContentCategory[] = ['Teknoloji', 'Spor', 'Ekonomi'];
 
-  // PDF butonu (şimdilik bilgi mesajı)
-  const handleDownloadPDF = () => {
-    if (Platform.OS === 'web') {
-      alert('PDF olarak indirme özelliği yakında eklenecek!');
-    } else {
-      Alert.alert('PDF olarak indirme özelliği yakında eklenecek!');
-    }
-  };
+  const interestCategories = preferredCategories.length ? preferredCategories : defaultCategories;
+
+  const categoryOptions = useMemo(() => {
+    return Array.from(new Set(interestCategories));
+  }, [interestCategories]);
+
+  const sourceOptions = useMemo(() => {
+    return Array.from(new Set(PERSONALIZED_NEWS.map((item) => item.source))).sort((a, b) =>
+      a.localeCompare(b, 'tr')
+    );
+  }, []);
+
+  const sortedNews = useMemo(() => {
+    const periodFiltered = PERSONALIZED_NEWS.filter(
+      (item) => item.period === 'both' || item.period === activePeriod
+    );
+
+    const categoryFiltered = selectedCategory
+      ? periodFiltered.filter((item) => item.category === selectedCategory)
+      : periodFiltered;
+
+    const sourceFiltered =
+      selectedSource === 'all'
+        ? categoryFiltered
+        : categoryFiltered.filter((item) => item.source === selectedSource);
+
+    const withPreferenceBoost = sourceFiltered.map((item) => {
+      const preferenceBoost = interestCategories.includes(item.category) ? 8 : 0;
+      return {
+        ...item,
+        boostedRelevance: item.relevance + preferenceBoost,
+      };
+    });
+
+    const result = [...withPreferenceBoost].sort((a, b) => {
+      if (sortKey === 'newest') {
+        return new Date(b.publicationDate).getTime() - new Date(a.publicationDate).getTime();
+      }
+
+      if (sortKey === 'popularity') {
+        return b.popularity - a.popularity;
+      }
+
+      return b.boostedRelevance - a.boostedRelevance;
+    });
+
+    return result;
+  }, [activePeriod, interestCategories, selectedCategory, selectedSource, sortKey]);
+
+  const featured = sortedNews[0];
+  const listItems = sortedNews.slice(1);
 
   return (
-    <View style={styles(colors).container}>
+    <ScrollView style={styles(colors).container} contentContainerStyle={styles(colors).content}>
       <Text style={styles(colors).title}>Kişisel Gazete</Text>
-      <View style={styles(colors).sortRow}>
-        <TouchableOpacity
-          style={[styles(colors).sortButton, sortType === 'date' && styles(colors).sortButtonActive]}
-          onPress={() => setSortType('date')}
-        >
-          <Text style={[styles(colors).sortButtonText, sortType === 'date' && styles(colors).sortButtonTextActive]}>En Yeni</Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={[styles(colors).sortButton, sortType === 'popularity' && styles(colors).sortButtonActive]}
-          onPress={() => setSortType('popularity')}
-        >
-          <Text style={[styles(colors).sortButtonText, sortType === 'popularity' && styles(colors).sortButtonTextActive]}>En Popüler</Text>
-        </TouchableOpacity>
-      </View>
-      <View style={styles(colors).filterRow}>
-        {[
-          { label: 'Tümü', value: null },
-          { label: 'Teknoloji', value: 'Teknoloji' },
-          { label: 'Spor', value: 'Spor' },
-          { label: 'Ekonomi', value: 'Ekonomi' },
-        ].map((btn) => (
-          <TouchableOpacity
-            key={btn.label}
-            onPress={() => setFilter(btn.value)}
-            style={[styles(colors).filterButton, filter === btn.value && styles(colors).filterButtonActive]}
-          >
-            <Text style={[styles(colors).filterButtonText, filter === btn.value && styles(colors).filterButtonTextActive]}>
-              {btn.label}
-            </Text>
-          </TouchableOpacity>
-        ))}
-      </View>
-      <FlatList
-        data={filteredNews}
-        keyExtractor={(item) => item.id}
-        renderItem={({ item }) => (
-          <TouchableOpacity onPress={() => { setSelectedNews(item); setModalVisible(true); }}>
-            <View style={styles(colors).newsCard}>
-              <Text style={styles(colors).newsTitle}>{item.title}</Text>
-              <Text style={styles(colors).newsSummary}>{item.summary}</Text>
-              <Text style={styles(colors).meta}>{item.source} | {item.date}</Text>
-            </View>
-          </TouchableOpacity>
-        )}
-        style={{ width: '100%' }}
-      />
+      <Text style={styles(colors).subtitle}>For You</Text>
 
-      {/* Açılır Pencere */}
-      <Modal
-        visible={modalVisible}
-        animationType="slide"
-        transparent={true}
-        onRequestClose={() => setModalVisible(false)}
+      <View style={styles(colors).periodToggleRow}>
+        <Pressable
+          style={[
+            styles(colors).periodToggleButton,
+            activePeriod === 'daily' ? styles(colors).periodToggleButtonActive : null,
+          ]}
+          onPress={() => setActivePeriod('daily')}
+        >
+          <Text
+            style={[
+              styles(colors).periodToggleText,
+              activePeriod === 'daily' ? styles(colors).periodToggleTextActive : null,
+            ]}
+          >
+            Daily
+          </Text>
+        </Pressable>
+        <Pressable
+          style={[
+            styles(colors).periodToggleButton,
+            activePeriod === 'weekly' ? styles(colors).periodToggleButtonActive : null,
+          ]}
+          onPress={() => setActivePeriod('weekly')}
+        >
+          <Text
+            style={[
+              styles(colors).periodToggleText,
+              activePeriod === 'weekly' ? styles(colors).periodToggleTextActive : null,
+            ]}
+          >
+            Weekly
+          </Text>
+        </Pressable>
+      </View>
+
+      <Text style={styles(colors).sectionTitle}>Based on Your Interests</Text>
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        contentContainerStyle={styles(colors).chipsRow}
       >
-        <View style={styles(colors).modalOverlay}>
-          <View style={styles(colors).modalContent}>
-            <Text style={styles(colors).modalTitle}>{selectedNews?.title}</Text>
-            <Text style={styles(colors).modalSummary}>{selectedNews?.summary}</Text>
-            <Text style={styles(colors).meta}>{selectedNews?.source} | {selectedNews?.date}</Text>
-            <Pressable style={styles(colors).pdfButton} onPress={handleDownloadPDF}>
-              <Text style={styles(colors).pdfButtonText}>PDF olarak indir</Text>
+        <Pressable
+          style={[
+            styles(colors).chip,
+            selectedCategory === null ? styles(colors).chipActive : null,
+          ]}
+          onPress={() => setSelectedCategory(null)}
+        >
+          <Text
+            style={[
+              styles(colors).chipText,
+              selectedCategory === null ? styles(colors).chipTextActive : null,
+            ]}
+          >
+            Tümü
+          </Text>
+        </Pressable>
+
+        {categoryOptions.map((category) => {
+          const isActive = selectedCategory === category;
+
+          return (
+            <Pressable
+              key={category}
+              style={[styles(colors).chip, isActive ? styles(colors).chipActive : null]}
+              onPress={() => setSelectedCategory(category)}
+            >
+              <Text
+                style={[styles(colors).chipText, isActive ? styles(colors).chipTextActive : null]}
+              >
+                {category}
+              </Text>
             </Pressable>
-            <Pressable style={styles(colors).closeButton} onPress={() => setModalVisible(false)}>
-              <Text style={styles(colors).closeButtonText}>Kapat</Text>
+          );
+        })}
+      </ScrollView>
+
+      <Text style={styles(colors).sectionTitle}>Source Filter</Text>
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        contentContainerStyle={styles(colors).chipsRow}
+      >
+        <Pressable
+          style={[
+            styles(colors).chip,
+            selectedSource === 'all' ? styles(colors).chipActive : null,
+          ]}
+          onPress={() => setSelectedSource('all')}
+        >
+          <Text
+            style={[
+              styles(colors).chipText,
+              selectedSource === 'all' ? styles(colors).chipTextActive : null,
+            ]}
+          >
+            All Sources
+          </Text>
+        </Pressable>
+
+        {sourceOptions.map((source) => {
+          const isActive = selectedSource === source;
+
+          return (
+            <Pressable
+              key={source}
+              style={[styles(colors).chip, isActive ? styles(colors).chipActive : null]}
+              onPress={() => setSelectedSource(source)}
+            >
+              <Text style={[styles(colors).chipText, isActive ? styles(colors).chipTextActive : null]}>
+                {source}
+              </Text>
             </Pressable>
+          );
+        })}
+      </ScrollView>
+
+      <Text style={styles(colors).sectionTitle}>Sort By</Text>
+      <View style={styles(colors).sortOptionsRow}>
+        {([
+          { key: 'newest' as const, label: 'Newest' },
+          { key: 'popularity' as const, label: 'Most Popular' },
+          { key: 'relevance' as const, label: 'Most Relevant' },
+        ]).map((option) => {
+          const active = sortKey === option.key;
+
+            return (
+              <Pressable
+                key={option.key}
+                style={[styles(colors).sortOption, active ? styles(colors).sortOptionActive : null]}
+                onPress={() => setSortKey(option.key)}
+              >
+                <Text
+                  style={[
+                    styles(colors).sortOptionText,
+                    active ? styles(colors).sortOptionTextActive : null,
+                  ]}
+                >
+                  {option.label}
+                </Text>
+              </Pressable>
+            );
+          })}
+      </View>
+
+      {featured ? (
+        <View style={styles(colors).featuredCard}>
+          <Text style={styles(colors).featuredTag}>Featured</Text>
+          <Text style={styles(colors).featuredTitle}>{featured.title}</Text>
+          <Text style={styles(colors).featuredSummary}>{featured.summary}</Text>
+          <View style={styles(colors).metaRow}>
+            <Text style={styles(colors).metaText}>{featured.source}</Text>
+            <Text style={styles(colors).metaDivider}>|</Text>
+            <Text style={styles(colors).metaText}>{formatDate(featured.publicationDate)}</Text>
+          </View>
+          <View style={styles(colors).categoryBadge}>
+            <Text style={styles(colors).categoryBadgeText}>{featured.category}</Text>
           </View>
         </View>
-      </Modal>
-    </View>
+      ) : (
+        <View style={styles(colors).emptyState}>
+          <Text style={styles(colors).emptyStateText}>Secili filtreler icin haber bulunamadi.</Text>
+        </View>
+      )}
+
+      {listItems.map((item) => (
+        <View key={item.id} style={styles(colors).newsCard}>
+          <View style={styles(colors).cardHeader}>
+            <Text style={styles(colors).cardCategory}>{item.category}</Text>
+            <Text style={styles(colors).cardDate}>{formatDate(item.publicationDate)}</Text>
+          </View>
+          <Text style={styles(colors).newsTitle}>{item.title}</Text>
+          <Text style={styles(colors).newsSummary}>{item.summary}</Text>
+          <Text style={styles(colors).cardSource}>Source: {item.source}</Text>
+        </View>
+      ))}
+    </ScrollView>
   );
 }
+
+const styles = (colors: any) =>
+  StyleSheet.create({
+    container: {
+      flex: 1,
+      backgroundColor: colors.background,
+    },
+    content: {
+      paddingHorizontal: Spacing.lg,
+      paddingTop: Spacing.xl,
+      paddingBottom: Spacing.xxl,
+      gap: Spacing.md,
+    },
+    title: {
+      fontSize: Typography.fontSize.xl,
+      fontWeight: Typography.fontWeight.bold,
+      color: colors.textPrimary,
+    },
+    subtitle: {
+      fontSize: Typography.fontSize.base,
+      color: colors.textSecondary,
+      marginTop: -4,
+    },
+    sectionTitle: {
+      fontSize: Typography.fontSize.md,
+      color: colors.accent,
+      fontWeight: Typography.fontWeight.bold,
+      marginTop: Spacing.xs,
+    },
+    periodToggleRow: {
+      flexDirection: 'row',
+      gap: Spacing.sm,
+      marginTop: Spacing.xs,
+    },
+    periodToggleButton: {
+      backgroundColor: colors.surface,
+      borderWidth: 1,
+      borderColor: colors.border,
+      borderRadius: Radius.md,
+      paddingHorizontal: Spacing.lg,
+      paddingVertical: Spacing.sm,
+    },
+    periodToggleButtonActive: {
+      backgroundColor: colors.accentLight,
+      borderColor: colors.accent,
+    },
+    periodToggleText: {
+      color: colors.textSecondary,
+      fontWeight: Typography.fontWeight.medium,
+      fontSize: Typography.fontSize.base,
+    },
+    periodToggleTextActive: {
+      color: colors.textPrimary,
+      fontWeight: Typography.fontWeight.bold,
+    },
+    chipsRow: {
+      flexDirection: 'row',
+      gap: Spacing.sm,
+      paddingRight: Spacing.lg,
+    },
+    chip: {
+      backgroundColor: colors.surface,
+      borderWidth: 1,
+      borderColor: colors.borderSubtle,
+      borderRadius: Radius.full,
+      paddingVertical: Spacing.sm,
+      paddingHorizontal: Spacing.md,
+    },
+    chipActive: {
+      backgroundColor: colors.accent,
+      borderColor: colors.accent,
+    },
+    chipText: {
+      color: colors.textSecondary,
+      fontWeight: Typography.fontWeight.medium,
+      fontSize: Typography.fontSize.sm,
+    },
+    chipTextActive: {
+      color: colors.white,
+    },
+    sortOptionsRow: {
+      flexDirection: 'row',
+      flexWrap: 'wrap',
+      gap: Spacing.sm,
+    },
+    sortOption: {
+      borderRadius: Radius.full,
+      borderWidth: 1,
+      borderColor: colors.border,
+      paddingVertical: Spacing.xs,
+      paddingHorizontal: Spacing.md,
+      backgroundColor: colors.background,
+    },
+    sortOptionActive: {
+      borderColor: colors.accent,
+      backgroundColor: colors.accentLight,
+    },
+    sortOptionText: {
+      textTransform: 'capitalize',
+      color: colors.textSecondary,
+      fontSize: Typography.fontSize.sm,
+      fontWeight: Typography.fontWeight.medium,
+    },
+    sortOptionTextActive: {
+      color: colors.textPrimary,
+      fontWeight: Typography.fontWeight.bold,
+    },
+    featuredCard: {
+      backgroundColor: colors.surfaceHigh,
+      borderRadius: Radius.lg,
+      borderWidth: 1,
+      borderColor: colors.border,
+      padding: Spacing.lg,
+      gap: Spacing.sm,
+    },
+    featuredTag: {
+      alignSelf: 'flex-start',
+      color: colors.accent,
+      fontWeight: Typography.fontWeight.bold,
+      fontSize: Typography.fontSize.sm,
+      backgroundColor: colors.background,
+      borderRadius: Radius.full,
+      borderWidth: 1,
+      borderColor: colors.border,
+      paddingVertical: 4,
+      paddingHorizontal: Spacing.sm,
+    },
+    featuredTitle: {
+      color: colors.textPrimary,
+      fontSize: Typography.fontSize.lg,
+      fontWeight: Typography.fontWeight.bold,
+      lineHeight: 25,
+    },
+    featuredSummary: {
+      color: colors.textSecondary,
+      fontSize: Typography.fontSize.base,
+      lineHeight: 21,
+    },
+    metaRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: Spacing.sm,
+    },
+    metaText: {
+      color: colors.textMuted,
+      fontSize: Typography.fontSize.sm,
+    },
+    metaDivider: {
+      color: colors.textMuted,
+      fontSize: Typography.fontSize.sm,
+    },
+    categoryBadge: {
+      alignSelf: 'flex-start',
+      backgroundColor: colors.surface,
+      borderRadius: Radius.full,
+      borderWidth: 1,
+      borderColor: colors.borderSubtle,
+      paddingVertical: 4,
+      paddingHorizontal: Spacing.sm,
+    },
+    categoryBadgeText: {
+      color: colors.textSecondary,
+      fontWeight: Typography.fontWeight.medium,
+      fontSize: Typography.fontSize.sm,
+    },
+    newsCard: {
+      backgroundColor: colors.surface,
+      borderRadius: Radius.lg,
+      borderWidth: 1,
+      borderColor: colors.borderSubtle,
+      padding: Spacing.md,
+      gap: Spacing.xs,
+    },
+    cardHeader: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      marginBottom: 2,
+    },
+    cardCategory: {
+      color: colors.accent,
+      fontSize: Typography.fontSize.sm,
+      fontWeight: Typography.fontWeight.bold,
+    },
+    cardDate: {
+      color: colors.textMuted,
+      fontSize: Typography.fontSize.sm,
+    },
+    newsTitle: {
+      color: colors.textPrimary,
+      fontSize: Typography.fontSize.md,
+      fontWeight: Typography.fontWeight.bold,
+      lineHeight: 22,
+    },
+    newsSummary: {
+      color: colors.textSecondary,
+      fontSize: Typography.fontSize.base,
+      lineHeight: 20,
+    },
+    cardSource: {
+      marginTop: Spacing.xs,
+      color: colors.textMuted,
+      fontSize: Typography.fontSize.sm,
+      fontWeight: Typography.fontWeight.medium,
+    },
+    emptyState: {
+      backgroundColor: colors.surface,
+      borderRadius: Radius.lg,
+      borderWidth: 1,
+      borderColor: colors.borderSubtle,
+      padding: Spacing.lg,
+    },
+    emptyStateText: {
+      color: colors.textSecondary,
+      fontSize: Typography.fontSize.base,
+    },
+  });
 
 
