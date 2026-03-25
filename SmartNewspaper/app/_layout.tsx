@@ -1,9 +1,9 @@
+
 import { ThemeProvider } from '@react-navigation/native';
 import { useFonts } from 'expo-font';
 import { Stack } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { useEffect, useState } from 'react';
-import 'react-native-reanimated';
 
 import { useTheme } from '@/hooks/useTheme';
 import { isOnboardingComplete } from '@/services/auth';
@@ -101,6 +101,8 @@ function RootLayoutNav({ initialRouteName }: RootLayoutNavProps) {
       >
         <Stack.Screen name="onboarding" options={{ headerShown: false }} />
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+        <Stack.Screen name="auth/login" options={{ title: 'Giriş Yap' }} />
+        <Stack.Screen name="auth/register" options={{ title: 'Kayıt Ol' }} />
         <Stack.Screen
           name="events/[id]"
           options={{
