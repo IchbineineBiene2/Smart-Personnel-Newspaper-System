@@ -34,7 +34,9 @@ export type NewspaperSource =
   | 'Cumhuriyet'
   | 'Hurriyet'
   | 'Sozcu'
-  | 'Milliyet';
+  | 'Milliyet'
+  | 'Reuters'
+  | 'BBC';
 
 export const CATEGORIES: ContentCategory[] = [
   'Teknoloji',
@@ -50,6 +52,8 @@ export const NEWSPAPERS: NewspaperSource[] = [
   'Hurriyet',
   'Sozcu',
   'Milliyet',
+  'Reuters',
+  'BBC',
 ];
 
 export const EVENTS: EventItem[] = [
@@ -130,5 +134,17 @@ export const NEWS: NewsItem[] = [
     title: 'Acik Hava Tiyatro Sezonu Basliyor',
     excerpt: 'Bu yilki programda 20 farkli ekip sahne alacak.',
     category: 'Kultur',
+  },
+  {
+    id: 'news-306',
+    title: 'Global AI Regulation Talks Enter New Phase',
+    excerpt: 'Policy makers from multiple regions discussed a common framework for AI safety.',
+    category: 'Teknoloji',
+  },
+  {
+    id: 'news-307',
+    title: 'Markets React to Updated Inflation Outlook',
+    excerpt: 'Analysts expect short-term volatility as investors reassess growth forecasts.',
+    category: 'Ekonomi',
   },
 ];
