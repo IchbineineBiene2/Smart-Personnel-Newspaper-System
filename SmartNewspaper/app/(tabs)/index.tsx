@@ -1,51 +1,10 @@
-<<<<<<< Updated upstream
-import { StyleSheet } from 'react-native';
-
-import EditScreenInfo from '@/components/EditScreenInfo';
-import { Text, View } from '@/components/Themed';
-=======
-﻿import { useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { Radius, Spacing, Typography } from '@/constants/theme';
 import { usePreferences } from '@/hooks/usePreferences';
->>>>>>> Stashed changes
 import { useTheme } from '@/hooks/useTheme';
-import { Spacing, Typography } from '@/constants/theme';
 
-<<<<<<< Updated upstream
-export default function TabOneScreen() {
-  const { colors } = useTheme();
-  
-  return (
-    <View style={[styles(colors).container]}>
-      <Text style={styles(colors).title}>Ana Sayfa</Text>
-      <View style={[styles(colors).separator]} lightColor="#eee" darkColor="rgba(255,255,255,0.1)" />
-      <EditScreenInfo path="app/(tabs)/index.tsx" />
-    </View>
-  );
-}
-
-const styles = (colors: any) => StyleSheet.create({
-  container: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: colors.background,
-  },
-  title: {
-    fontSize: Typography.fontSize.lg,
-    fontWeight: Typography.fontWeight.bold,
-    color: colors.textPrimary,
-  },
-  separator: {
-    marginVertical: Spacing.lg,
-    height: 1,
-    width: '80%',
-    backgroundColor: colors.border,
-  },
-});
-=======
 type PeriodFilter = 'daily' | 'weekly';
 type SortKey = 'newest' | 'popularity' | 'relevance';
 type CountryFilter = 'all' | 'Turkiye' | 'Global';
@@ -203,7 +162,7 @@ function formatDate(isoDate: string) {
 function normalizeFilterValue(value: string) {
   return value
     .toLocaleLowerCase('tr-TR')
-    .replace(/ı/g, 'i')
+    .replace(/Ä±/g, 'i')
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '');
 }
@@ -1047,4 +1006,3 @@ const styles = (colors: any) =>
       fontSize: Typography.fontSize.base,
     },
   });
->>>>>>> Stashed changes

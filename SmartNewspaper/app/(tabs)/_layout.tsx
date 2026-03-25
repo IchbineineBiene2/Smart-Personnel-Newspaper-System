@@ -1,11 +1,9 @@
-import { Tabs } from 'expo-router';
-<<<<<<< Updated upstream
-=======
+﻿import { Tabs } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { BottomTabBar, BottomTabBarProps } from '@react-navigation/bottom-tabs';
 import { Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
->>>>>>> Stashed changes
+
 import { useTheme } from '@/hooks/useTheme';
 import AppHeader from '@/components/AppHeader';
 
@@ -51,13 +49,9 @@ function WebSidebarTabBar({ tabProps, colors }: { tabProps: BottomTabBarProps; c
 
 export default function TabLayout() {
   const { colors } = useTheme();
-<<<<<<< Updated upstream
-  
-=======
   const insets = useSafeAreaInsets();
   const isWeb = Platform.OS === 'web';
 
->>>>>>> Stashed changes
   return (
     <Tabs
       tabBar={(props) =>
@@ -91,14 +85,6 @@ export default function TabLayout() {
           paddingHorizontal: isWeb ? 12 : 0,
         },
         tabBarStyle: {
-<<<<<<< Updated upstream
-          backgroundColor: colors.surface,
-          borderTopColor: colors.borderSubtle,
-          borderTopWidth: 1,
-          height: 62,
-          paddingTop: 6,
-          paddingBottom: 6,
-=======
           backgroundColor: isWeb ? 'transparent' : colors.surface,
           borderColor: colors.borderSubtle,
           borderTopWidth: isWeb ? 0 : 1,
@@ -109,7 +95,6 @@ export default function TabLayout() {
           paddingBottom: isWeb ? 8 : insets.bottom,
           elevation: 0,
           shadowOpacity: 0,
->>>>>>> Stashed changes
         },
         headerStyle: {
           backgroundColor: colors.surface,
@@ -124,11 +109,6 @@ export default function TabLayout() {
         headerShadowVisible: false,
       }}
     >
-<<<<<<< Updated upstream
-      <Tabs.Screen name="index" options={{ title: 'Ana Sayfa' }} />
-      <Tabs.Screen name="discover" options={{ title: 'Etkinlikler' }} />
-      <Tabs.Screen name="profile" options={{ title: 'Profil' }} />
-=======
       <Tabs.Screen
         name="index"
         options={{
@@ -166,7 +146,11 @@ export default function TabLayout() {
 
                 return (
                   <Pressable
-                    {...props}
+                    onPress={props.onPress}
+                    onLongPress={props.onLongPress}
+                    testID={props.testID}
+                    accessibilityLabel={props.accessibilityLabel}
+                    accessibilityState={props.accessibilityState}
                     style={[
                       props.style,
                       styles.mobileCenterFab,
@@ -198,13 +182,13 @@ export default function TabLayout() {
           ),
         }}
       />
->>>>>>> Stashed changes
       <Tabs.Screen name="newspaper" options={{ href: null }} />
+      <Tabs.Screen name="publisherpage" options={{ href: null }} />
+      <Tabs.Screen name="publisherprofile" options={{ href: null }} />
+      <Tabs.Screen name="publishernews" options={{ href: null }} />
+      <Tabs.Screen name="pdfpreview" options={{ href: null }} />
     </Tabs>
   );
-<<<<<<< Updated upstream
-}
-=======
 }
 
 const styles = StyleSheet.create({
@@ -296,4 +280,3 @@ const styles = StyleSheet.create({
     elevation: 5,
   },
 });
->>>>>>> Stashed changes
