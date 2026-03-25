@@ -85,6 +85,10 @@ export default function TabLayout() {
         }}
       />
       <Tabs.Screen name="newspaper" options={{ href: null }} />
+        <Tabs.Screen name="publisherpage" options={{ href: null }} />
+        <Tabs.Screen name="publisherprofile" options={{ href: null }} />
+        <Tabs.Screen name="publishernews" options={{ href: null }} />
+        <Tabs.Screen name="pdfpreview" options={{ href: null }} />
     </Tabs>
   );
 }
