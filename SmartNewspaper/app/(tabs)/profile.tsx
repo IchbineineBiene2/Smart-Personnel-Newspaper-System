@@ -1,4 +1,4 @@
-import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, TextInput, View, useWindowDimensions } from 'react-native';
 import { useCallback, useState } from 'react';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
@@ -44,7 +44,9 @@ export default function Profile() {
   const [confirmNewPassword, setConfirmNewPassword] = useState('');
   const [passwordMessage, setPasswordMessage] = useState<string | null>(null);
   const [passwordError, setPasswordError] = useState<string | null>(null);
+  const { width: viewportWidth } = useWindowDimensions();
   const savedNews = NEWS.filter((item) => savedIds.includes(item.id));
+  const sidebarWidth = viewportWidth < 420 ? 160 : viewportWidth < 768 ? 188 : 240;
 
   useFocusEffect(
     useCallback(() => {
@@ -126,6 +128,60 @@ export default function Profile() {
   }
 
   const stats = MOCK_USAGE_STATS;
+
+  const tabLabels: Record<TabType, string> = {
+    preferences: 'Tercihler',
+    bookmarks: 'Kaydedilenler',
+    settings: 'Ayarlar',
+    admin: 'Yönetim',
+  };
+
+  const adminNavItems = [
+    { key: 'overview', label: 'Genel Bakış', icon: 'stats-chart-outline' },
+    { key: 'sources', label: 'Kaynaklar', icon: 'globe-outline' },
+    { key: 'users', label: 'Kullanıcılar', icon: 'people-outline' },
+    { key: 'logs', label: 'Loglar', icon: 'list-outline' },
+  ] as { key: AdminSection; label: string; icon: keyof typeof Ionicons.glyphMap }[];
+
+  const sidebarGroups = [
+    {
+      key: 'preferences' as TabType,
+      label: tabLabels.preferences,
+      icon: 'options-outline' as keyof typeof Ionicons.glyphMap,
+      subItems: [
+        { key: 'categories', label: 'Kategori Tercihleri', icon: 'grid-outline' as keyof typeof Ionicons.glyphMap },
+        { key: 'newspapers', label: 'Gazete Tercihleri', icon: 'newspaper-outline' as keyof typeof Ionicons.glyphMap },
+      ],
+    },
+    {
+      key: 'bookmarks' as TabType,
+      label: tabLabels.bookmarks,
+      icon: 'bookmark-outline' as keyof typeof Ionicons.glyphMap,
+      subItems: [
+        { key: 'saved', label: 'Kaydedilen Haberler', icon: 'albums-outline' as keyof typeof Ionicons.glyphMap },
+      ],
+    },
+    {
+      key: 'settings' as TabType,
+      label: tabLabels.settings,
+      icon: 'settings-outline' as keyof typeof Ionicons.glyphMap,
+      subItems: [
+        { key: 'theme', label: 'Tema', icon: 'color-palette-outline' as keyof typeof Ionicons.glyphMap },
+        { key: 'language', label: 'Dil', icon: 'language-outline' as keyof typeof Ionicons.glyphMap },
+        { key: 'security', label: 'Güvenlik', icon: 'key-outline' as keyof typeof Ionicons.glyphMap },
+      ],
+    },
+    {
+      key: 'admin' as TabType,
+      label: tabLabels.admin,
+      icon: 'shield-outline' as keyof typeof Ionicons.glyphMap,
+      subItems: adminNavItems.map((item) => ({
+        key: item.key,
+        label: item.label,
+        icon: item.icon,
+      })),
+    },
+  ];
 
   const renderAdminContent = () => {
     if (adminSection === 'overview') {
@@ -294,61 +350,46 @@ export default function Profile() {
   };
 
   return (
-    <ScrollView style={[st(colors).container]} contentContainerStyle={st(colors).content}>
-      {/* User Info Card */}
-      <View style={st(colors).heroCard}>
-        <View style={st(colors).avatarBadge}>
-          <Text style={st(colors).avatarText}>{userProfile.name.charAt(0)}</Text>
-        </View>
-        <View style={st(colors).heroTextArea}>
-          <Text style={st(colors).pageTitle}>{userProfile.name}</Text>
-          <Text style={st(colors).email}>{userProfile.email}</Text>
-          <Text style={st(colors).meta}>Üye Olduğu Tarih: {new Date(userProfile.createdAt).toLocaleDateString('tr-TR')}</Text>
-        </View>
-      </View>
+    <View style={st(colors).screenRoot}>
+      <View style={st(colors).layoutRow}>
+        <ScrollView style={[st(colors).container, st(colors).contentPane]} contentContainerStyle={st(colors).content}>
+          {/* User Info Card */}
+          <View style={st(colors).heroCard}>
+          <View style={st(colors).avatarBadge}>
+            <Text style={st(colors).avatarText}>{userProfile.name.charAt(0)}</Text>
+          </View>
+          <View style={st(colors).heroTextArea}>
+            <Text style={st(colors).pageTitle}>{userProfile.name}</Text>
+            <Text style={st(colors).email}>{userProfile.email}</Text>
+            <Text style={st(colors).meta}>Üye Olduğu Tarih: {new Date(userProfile.createdAt).toLocaleDateString('tr-TR')}</Text>
+          </View>
+          </View>
 
-      <View style={st(colors).statsRow}>
-        <View style={st(colors).statCard}>
-          <Text style={st(colors).statValue}>{preferredCategories.length}</Text>
-          <Text style={st(colors).statLabel}>Kategori</Text>
+        <View style={st(colors).statsRow}>
+          <View style={st(colors).statCard}>
+            <Text style={st(colors).statValue}>{preferredCategories.length}</Text>
+            <Text style={st(colors).statLabel}>Kategori</Text>
+          </View>
+          <View style={st(colors).statCard}>
+            <Text style={st(colors).statValue}>{preferredNewspapers.length}</Text>
+            <Text style={st(colors).statLabel}>Gazete</Text>
+          </View>
+          <View style={st(colors).statCard}>
+            <Text style={st(colors).statValue}>{savedNews.length}</Text>
+            <Text style={st(colors).statLabel}>Kaydedilen</Text>
+          </View>
         </View>
-        <View style={st(colors).statCard}>
-          <Text style={st(colors).statValue}>{preferredNewspapers.length}</Text>
-          <Text style={st(colors).statLabel}>Gazete</Text>
-        </View>
-        <View style={st(colors).statCard}>
-          <Text style={st(colors).statValue}>{savedNews.length}</Text>
-          <Text style={st(colors).statLabel}>Kaydedilen</Text>
-        </View>
-      </View>
 
-      {/* Tabs */}
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={st(colors).tabsScroll}>
-        <View style={st(colors).tabsContainer}>
-          {(['preferences', 'bookmarks', 'settings', 'admin'] as TabType[]).map((tab) => {
-            const labels: Record<TabType, string> = {
-              preferences: 'Tercihler',
-              bookmarks: 'Kaydedilenler',
-              settings: 'Ayarlar',
-              admin: 'Yönetim',
-            };
-            return (
-              <Pressable
-                key={tab}
-                style={[st(colors).tabPill, activeTab === tab ? st(colors).tabPillActive : null]}
-                onPress={() => setActiveTab(tab)}
-              >
-                <Text style={[st(colors).tabText, activeTab === tab ? st(colors).tabTextActive : null]}>
-                  {labels[tab]}
-                </Text>
-              </Pressable>
-            );
-          })}
+        <View style={st(colors).activeSectionCard}>
+          <View>
+            <Text style={st(colors).activeSectionLabel}>Aktif Bölüm</Text>
+            <Text style={st(colors).activeSectionValue}>{tabLabels[activeTab]}</Text>
+          </View>
+          <Ionicons name="albums-outline" size={18} color={colors.accent} />
         </View>
-      </ScrollView>
 
-      {/* Preferences Tab */}
-      {activeTab === 'preferences' && (
+        {/* Preferences Tab */}
+        {activeTab === 'preferences' && (
         <>
           <Text style={st(colors).sectionTitle}>İlgi Duyduğun Kategoriler</Text>
           {prefsLoading ? <Text style={st(colors).info}>Yükleniyor...</Text> : null}
@@ -406,10 +447,10 @@ export default function Profile() {
             </Text>
           </View>
         </>
-      )}
+        )}
 
-      {/* Bookmarks Tab */}
-      {activeTab === 'bookmarks' && (
+        {/* Bookmarks Tab */}
+        {activeTab === 'bookmarks' && (
         <>
           <Text style={st(colors).sectionTitle}>Kaydedilen Haberler</Text>
           {bookmarksLoading ? <Text style={st(colors).info}>Yükleniyor...</Text> : null}
@@ -426,10 +467,10 @@ export default function Profile() {
             </View>
           ))}
         </>
-      )}
+        )}
 
-      {/* Settings Tab */}
-      {activeTab === 'settings' && (
+        {/* Settings Tab */}
+        {activeTab === 'settings' && (
         <>
           <Text style={st(colors).sectionTitle}>Görünüm Ayarları</Text>
 
@@ -523,20 +564,15 @@ export default function Profile() {
             <Text style={st(colors).logoutButtonText}>Çıkış Yap</Text>
           </Pressable>
         </>
-      )}
+        )}
 
-      {/* Admin Tab (FR24-FR25) */}
-      {activeTab === 'admin' && (
+        {/* Admin Tab (FR24-FR25) */}
+        {activeTab === 'admin' && (
         <>
           {/* Admin sub-navigation */}
           <ScrollView horizontal showsHorizontalScrollIndicator={false}>
             <View style={st(colors).adminNav}>
-              {([
-                { key: 'overview', label: 'Genel Bakış', icon: 'stats-chart-outline' },
-                { key: 'sources', label: 'Kaynaklar', icon: 'globe-outline' },
-                { key: 'users', label: 'Kullanıcılar', icon: 'people-outline' },
-                { key: 'logs', label: 'Loglar', icon: 'list-outline' },
-              ] as { key: AdminSection; label: string; icon: keyof typeof Ionicons.glyphMap }[]).map((item) => (
+              {adminNavItems.map((item) => (
                 <Pressable
                   key={item.key}
                   style={[st(colors).adminNavItem, adminSection === item.key ? st(colors).adminNavItemActive : null]}
@@ -557,12 +593,100 @@ export default function Profile() {
 
           {renderAdminContent()}
         </>
-      )}
-    </ScrollView>
+        )}
+        </ScrollView>
+
+        <View style={[st(colors).sidebarPanelStatic, { width: sidebarWidth }]}>
+          <View style={st(colors).sidebarHeader}>
+            <Text style={st(colors).sidebarTitle}>Profil Menüsü</Text>
+          </View>
+
+          <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={st(colors).sidebarScrollContent}>
+            {sidebarGroups.map((group) => {
+              const isActive = activeTab === group.key;
+              return (
+                <View key={group.key} style={st(colors).sidebarGroup}>
+                  <Pressable
+                    style={[st(colors).sidebarItem, isActive ? st(colors).sidebarItemActive : null]}
+                    onPress={() => {
+                      setActiveTab(group.key);
+                      if (group.key === 'admin') {
+                        setAdminSection('overview');
+                      }
+                    }}
+                  >
+                    <Ionicons
+                      name={group.icon}
+                      size={16}
+                      color={isActive ? colors.white : colors.textSecondary}
+                    />
+                    <Text style={[st(colors).sidebarItemText, isActive ? st(colors).sidebarItemTextActive : null]}>
+                      {group.label}
+                    </Text>
+                  </Pressable>
+
+                  {isActive ? (
+                    <View style={st(colors).sidebarSubList}>
+                      {group.subItems.map((subItem) => {
+                        const adminSelected =
+                          group.key === 'admin' &&
+                          adminSection === (subItem.key as AdminSection);
+
+                        return (
+                          <Pressable
+                            key={`${group.key}-${subItem.key}`}
+                            style={[
+                              st(colors).sidebarSubItem,
+                              adminSelected ? st(colors).sidebarSubItemActive : null,
+                            ]}
+                            onPress={() => {
+                              setActiveTab(group.key);
+                              if (group.key === 'admin') {
+                                setAdminSection(subItem.key as AdminSection);
+                              }
+                            }}
+                          >
+                            <Ionicons
+                              name={subItem.icon}
+                              size={14}
+                              color={adminSelected ? colors.accent : colors.textMuted}
+                            />
+                            <Text
+                              style={[
+                                st(colors).sidebarSubItemText,
+                                adminSelected ? st(colors).sidebarSubItemTextActive : null,
+                              ]}
+                            >
+                              {subItem.label}
+                            </Text>
+                          </Pressable>
+                        );
+                      })}
+                    </View>
+                  ) : null}
+                </View>
+              );
+            })}
+          </ScrollView>
+        </View>
+      </View>
+    </View>
   );
 }
 
 const st = (colors: any) => StyleSheet.create({
+  screenRoot: {
+    flex: 1,
+    backgroundColor: colors.background,
+  },
+  layoutRow: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'stretch',
+  },
+  contentPane: {
+    flex: 1,
+  },
   loadingWrap: {
     flex: 1,
     backgroundColor: colors.background,
@@ -609,6 +733,101 @@ const st = (colors: any) => StyleSheet.create({
   statsRow: {
     flexDirection: 'row',
     gap: Spacing.sm,
+  },
+  activeSectionCard: {
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.borderSubtle,
+    borderRadius: Radius.lg,
+    paddingVertical: Spacing.sm,
+    paddingHorizontal: Spacing.md,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  activeSectionLabel: {
+    color: colors.textMuted,
+    fontSize: Typography.fontSize.sm,
+  },
+  activeSectionValue: {
+    color: colors.textPrimary,
+    fontSize: Typography.fontSize.md,
+    fontWeight: Typography.fontWeight.bold,
+  },
+  sidebarPanelStatic: {
+    borderLeftWidth: 1,
+    borderLeftColor: colors.borderSubtle,
+    backgroundColor: colors.surface,
+    padding: Spacing.sm,
+    gap: Spacing.sm,
+  },
+  sidebarHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: Spacing.xs,
+  },
+  sidebarTitle: {
+    color: colors.textPrimary,
+    fontSize: Typography.fontSize.md,
+    fontWeight: Typography.fontWeight.bold,
+  },
+  sidebarScrollContent: {
+    gap: Spacing.xs,
+  },
+  sidebarGroup: {
+    gap: Spacing.xs,
+  },
+  sidebarItem: {
+    borderRadius: Radius.md,
+    borderWidth: 1,
+    borderColor: colors.borderSubtle,
+    backgroundColor: colors.surfaceHigh,
+    paddingVertical: Spacing.sm,
+    paddingHorizontal: Spacing.sm,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.xs,
+  },
+  sidebarItemActive: {
+    borderColor: colors.accent,
+    backgroundColor: colors.accent,
+  },
+  sidebarItemText: {
+    color: colors.textPrimary,
+    fontSize: Typography.fontSize.sm,
+    fontWeight: Typography.fontWeight.medium,
+  },
+  sidebarItemTextActive: {
+    color: colors.white,
+    fontWeight: Typography.fontWeight.bold,
+  },
+  sidebarSubList: {
+    marginLeft: Spacing.sm,
+    gap: 6,
+  },
+  sidebarSubItem: {
+    borderRadius: Radius.md,
+    paddingVertical: 6,
+    paddingHorizontal: Spacing.sm,
+    borderWidth: 1,
+    borderColor: colors.borderSubtle,
+    backgroundColor: colors.surface,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  sidebarSubItemActive: {
+    borderColor: colors.accentLight,
+    backgroundColor: colors.surfaceHigh,
+  },
+  sidebarSubItemText: {
+    color: colors.textSecondary,
+    fontSize: Typography.fontSize.sm,
+  },
+  sidebarSubItemTextActive: {
+    color: colors.accent,
+    fontWeight: Typography.fontWeight.bold,
   },
   statCard: {
     flex: 1,
