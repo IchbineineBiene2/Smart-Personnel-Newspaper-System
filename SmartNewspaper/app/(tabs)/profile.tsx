@@ -10,7 +10,7 @@ import { useTheme } from '@/hooks/useTheme';
 import { useLanguage, LANGUAGE_LABELS, LANGUAGES } from '@/hooks/useLanguage';
 import { NEWS, CATEGORIES, NEWSPAPERS } from '@/services/content';
 import { UserProfile, getUserProfile, logoutUser, resetUserPassword } from '@/services/auth';
-import { THEME_NAMES, THEME_LABELS } from '@/services/themes';
+import { THEME_NAMES, THEME_LABELS } from '@/theme/themes';
 import {
   MOCK_NEWS_SOURCES,
   MOCK_MANAGED_CATEGORIES,

@@ -1,4 +1,4 @@
-export type ThemeName = 'stone' | 'sunset' | 'midnight';
+export type ThemeName = 'sunset' | 'midnight' | 'vincent';
 
 export interface ThemeColors {
   // Arka planlar
@@ -31,28 +31,6 @@ export interface ThemeColors {
 }
 
 export const THEMES: Record<ThemeName, ThemeColors> = {
-  // Morning Paper — Chocolate Brown Theme
-  stone: {
-    background: '#FAF0D7',
-    surface: '#FDF6E3',
-    surfaceHigh: '#EDE0CC',
-    surfaceInput: '#EDE0CC',
-    border: '#D4B896',
-    borderSubtle: '#E8D5B0',
-    textPrimary: '#3B2A1A',
-    textSecondary: '#7A5C3A',
-    textMuted: '#A08060',
-    accent: '#3D2B1F',
-    accentLight: '#C4A882',
-    success: '#2D6A4F',
-    warning: '#DBBC7F',
-    error: '#C0450A',
-    info: '#1B3A6B',
-    white: '#FDF6E3',
-    black: '#1A0F08',
-    transparent: 'transparent',
-  },
-
   // Clean Slate Theme
   sunset: {
     background: '#ECEFF3',
@@ -96,12 +74,34 @@ export const THEMES: Record<ThemeName, ThemeColors> = {
     black: '#0F0F1A',
     transparent: 'transparent',
   },
+
+  // Vincent Theme
+  vincent: {
+    background: '#FDF6E3',
+    surface: '#EEE8D5',
+    surfaceHigh: '#F6EEDC',
+    surfaceInput: '#EEE8D5',
+    border: '#C4A88A',
+    borderSubtle: '#EEE8D5',
+    textPrimary: 'rgba(17, 17, 17, 0.82)',
+    textSecondary: '#555555',
+    textMuted: '#555555',
+    accent: '#073642',
+    accentLight: '#C4A88A',
+    success: '#073642',
+    warning: '#C4A88A',
+    error: '#3E2B1F',
+    info: '#073642',
+    white: '#FDF6E3',
+    black: '#3E2B1F',
+    transparent: 'transparent',
+  },
 };
 
-export const THEME_NAMES: ThemeName[] = ['stone', 'sunset', 'midnight'];
+export const THEME_NAMES: ThemeName[] = ['sunset', 'midnight', 'vincent'];
 
 export const THEME_LABELS: Record<ThemeName, string> = {
-  stone: 'Taş Kahve',
   sunset: 'Clean Slate',
   midnight: 'Gece Mürekkebi',
+  vincent: 'Vincent',
 };
