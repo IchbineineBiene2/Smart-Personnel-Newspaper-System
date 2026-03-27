@@ -1,5 +1,6 @@
 import { useMemo } from 'react';
 import {
+  ActivityIndicator,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -9,12 +10,12 @@ import {
 import { useRouter } from 'expo-router';
 
 import { useBookmarks } from '@/hooks/useBookmarks';
+import { useNews } from '@/hooks/useNews';
 import { usePreferences } from '@/hooks/usePreferences';
 import { useTheme } from '@/hooks/useTheme';
 import {
   ANNOUNCEMENTS,
   EVENTS,
-  NEWS,
 } from '@/services/content';
 import { Radius, Spacing, Typography } from '@/constants/theme';
 
@@ -23,14 +24,12 @@ export default function Discover() {
   const { colors } = useTheme();
   const { savedIds, toggleSaved } = useBookmarks();
   const { preferredCategories } = usePreferences();
+  const { news, loading: newsLoading, error: newsError } = useNews();
 
   const filteredNews = useMemo(() => {
-    if (!preferredCategories.length) {
-      return NEWS;
-    }
-
-    return NEWS.filter((item) => preferredCategories.includes(item.category));
-  }, [preferredCategories]);
+    if (!preferredCategories.length) return news;
+    return news.filter((item) => preferredCategories.includes(item.category));
+  }, [news, preferredCategories]);
 
   return (
     <ScrollView style={[styles(colors).container]} contentContainerStyle={styles(colors).content}>
@@ -63,17 +62,19 @@ export default function Discover() {
       ))}
 
       <Text style={styles(colors).sectionTitle}>Haberler</Text>
-      {filteredNews.map((news) => {
-        const isSaved = savedIds.includes(news.id);
+      {newsLoading && <ActivityIndicator color={colors.accent} style={{ marginVertical: Spacing.md }} />}
+      {newsError && <Text style={styles(colors).cardMeta}>Haberler yüklenemedi: {newsError}</Text>}
+      {filteredNews.map((item) => {
+        const isSaved = savedIds.includes(item.id);
 
         return (
-          <View key={news.id} style={styles(colors).card}>
-            <Text style={styles(colors).cardTitle}>{news.title}</Text>
-            <Text style={styles(colors).cardMeta}>{news.category}</Text>
-            <Text style={styles(colors).cardBody}>{news.excerpt}</Text>
+          <View key={item.id} style={styles(colors).card}>
+            <Text style={styles(colors).cardTitle}>{item.title}</Text>
+            <Text style={styles(colors).cardMeta}>{item.category}</Text>
+            <Text style={styles(colors).cardBody}>{item.excerpt}</Text>
             <Pressable
               style={[styles(colors).actionButton, isSaved ? styles(colors).actionButtonActive : null]}
-              onPress={() => toggleSaved(news.id)}
+              onPress={() => toggleSaved(item.id)}
             >
               <Text style={[styles(colors).actionButtonText, isSaved ? styles(colors).actionButtonTextActive : null]}>
                 {isSaved ? 'Kaydedildi' : 'Kaydet'}

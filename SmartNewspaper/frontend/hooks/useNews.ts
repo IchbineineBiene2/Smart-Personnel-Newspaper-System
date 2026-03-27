@@ -1,0 +1,102 @@
+import { useEffect, useState } from 'react';
+import { ApiArticle, fetchArticles, mapToContentCategory, proxyImageUrl } from '@/services/newsApi';
+import { ContentCategory, NewsItem } from '@/services/content';
+
+// Modül seviyesi cache — birden fazla ekran aynı veriyi paylaşır, tek istek yapılır
+let cachedArticles: ApiArticle[] = [];
+let pendingFetch: Promise<ApiArticle[]> | null = null;
+
+async function loadArticles(): Promise<ApiArticle[]> {
+  if (cachedArticles.length > 0) return cachedArticles;
+  if (pendingFetch) return pendingFetch;
+
+  pendingFetch = fetchArticles({ limit: 300 }).then((data) => {
+    cachedArticles = data;
+    pendingFetch = null;
+    return data;
+  });
+  return pendingFetch;
+}
+
+/** Ham API makalelerini döndürür */
+export function useApiNews() {
+  const [articles, setArticles] = useState<ApiArticle[]>(cachedArticles);
+  const [loading, setLoading] = useState(cachedArticles.length === 0);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (cachedArticles.length > 0) {
+      setArticles(cachedArticles);
+      setLoading(false);
+      return;
+    }
+    setLoading(true);
+    loadArticles()
+      .then((data) => {
+        setArticles(data);
+        setLoading(false);
+      })
+      .catch((err: Error) => {
+        setError(err.message);
+        setLoading(false);
+      });
+  }, []);
+
+  return { articles, loading, error };
+}
+
+/** Mevcut NewsItem tipine uygun olarak dönüştürülmüş haberleri döndürür */
+export function useNews(): { news: NewsItem[]; loading: boolean; error: string | null } {
+  const { articles, loading, error } = useApiNews();
+
+  const news: NewsItem[] = articles.map((a) => ({
+    id: a.id,
+    title: a.title,
+    excerpt: a.description,
+    category: mapToContentCategory(a.category, a.title, a.description),
+  }));
+
+  return { news, loading, error };
+}
+
+/** Belirli bir kategoriye göre filtrelenmiş haberler */
+export function useNewsByCategory(category: ContentCategory | null) {
+  const { news, loading, error } = useNews();
+  const filtered = category ? news.filter((n) => n.category === category) : news;
+  return { news: filtered, loading, error };
+}
+
+/** index.tsx (Kisisel Gazete) için PersonalizedNewsItem formatına dönüştürür */
+export function usePersonalizedNews() {
+  const { articles, loading, error } = useApiNews();
+
+  const now = Date.now();
+  const ONE_DAY = 24 * 60 * 60 * 1000;
+  const ONE_WEEK = 7 * ONE_DAY;
+
+  const personalized = articles.map((a, i) => {
+    const publishedAt = new Date(a.publishedAt).getTime();
+    const age = now - publishedAt;
+    const period: 'daily' | 'weekly' | 'both' =
+      age < ONE_DAY ? 'daily' : age < ONE_WEEK ? 'both' : 'weekly';
+
+    return {
+      id: a.id,
+      title: a.title,
+      // Tam metin varsa onu, yoksa kısa özeti kullan
+      summary: (a.content && a.content.length > a.description.length) ? a.content.slice(0, 400) : a.description,
+      source: a.source.name,
+      publicationDate: a.publishedAt.slice(0, 10),
+      category: mapToContentCategory(a.category, a.title, a.description),
+      // Gerçek veri yokken sıralama için skor — yeni haber = yüksek puan
+      popularity: Math.max(10, 100 - Math.floor(age / (60 * 60 * 1000))),
+      relevance: 50 + (i % 50),
+      period,
+      url: a.url,
+      imageUrl: proxyImageUrl(a.imageUrl),
+      language: a.language,
+    };
+  });
+
+  return { news: personalized, loading, error };
+}
