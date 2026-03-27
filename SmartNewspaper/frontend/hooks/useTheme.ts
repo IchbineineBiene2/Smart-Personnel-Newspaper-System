@@ -1,13 +1,13 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useCallback, useEffect, useState } from 'react';
 
-import { ThemeName, THEMES } from '@/services/themes';
+import { ThemeName, THEMES } from '@/theme/themes';
 
 const THEME_STORAGE_KEY = 'selected-theme';
 type ThemeListener = (name: ThemeName) => void;
 
 const listeners = new Set<ThemeListener>();
-let sharedThemeName: ThemeName = 'stone';
+let sharedThemeName: ThemeName = 'vincent';
 let hasLoadedTheme = false;
 
 function broadcastTheme(name: ThemeName) {
@@ -25,7 +25,7 @@ export function useTheme() {
       if (saved && (saved in THEMES)) {
         broadcastTheme(saved as ThemeName);
       } else {
-        broadcastTheme('stone');
+        broadcastTheme('vincent');
       }
     } finally {
       hasLoadedTheme = true;
