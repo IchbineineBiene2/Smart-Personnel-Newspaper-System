@@ -1,6 +1,8 @@
-import { useMemo, useState } from 'react';
-import { Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { ActivityIndicator, Animated, Image, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
+import { usePersonalizedNews } from '@/hooks/useNews';
+import { ContentCategory } from '@/services/content';
 import { Radius, Spacing, Typography } from '@/constants/theme';
 import { usePreferences } from '@/hooks/usePreferences';
 import { useTheme } from '@/hooks/useTheme';
@@ -9,6 +11,7 @@ type PeriodFilter = 'daily' | 'weekly';
 type SortKey = 'newest' | 'popularity' | 'relevance';
 type CountryFilter = 'all' | 'Turkiye' | 'Global';
 type LanguageFilter = 'all' | 'Turkce' | 'Ingilizce';
+type LangFilter = 'all' | 'tr' | 'en' | 'de';
 type MarketKind = 'Borsa' | 'Maden';
 
 type MarketWatchItem = {
@@ -30,119 +33,38 @@ type PersonalizedNewsItem = {
   popularity: number;
   relevance: number;
   period: 'daily' | 'weekly' | 'both';
+  url?: string;
+  imageUrl?: string;
+  language?: string;
 };
 
-const PERSONALIZED_NEWS: PersonalizedNewsItem[] = [
-  {
-    id: 'pn-1',
-    title: 'Yapay zeka destekli haber odalari yeni editor rolu olusturuyor',
-    summary: 'Yerli medya kuruluslari, otomasyon ve insan editor dengesini yeniden tanimliyor.',
-    source: 'Cumhuriyet',
-    publicationDate: '2026-03-25',
-    category: 'Teknoloji',
-    popularity: 88,
-    relevance: 94,
-    period: 'daily',
-  },
-  {
-    id: 'pn-2',
-    title: 'Super Lig final haftasina girerken takim performanslari dikkat cekiyor',
-    summary: 'Son 5 haftanin verileri, sampiyonluk yarisi icin kritik sinyaller veriyor.',
-    source: 'Hurriyet',
-    publicationDate: '2026-03-24',
-    category: 'Spor',
-    popularity: 92,
-    relevance: 78,
-    period: 'daily',
-  },
-  {
-    id: 'pn-3',
-    title: 'Piyasalarda haftalik beklenti: enflasyon verisine odakli yeni senaryo',
-    summary: 'Analistler, haftanin ikinci yarisinda oynakligin artabilecegini belirtiyor.',
-    source: 'Milliyet',
-    publicationDate: '2026-03-23',
-    category: 'Ekonomi',
-    popularity: 79,
-    relevance: 86,
-    period: 'both',
-  },
-  {
-    id: 'pn-4',
-    title: 'Erken tani programlariyla toplum sagliginda yeni pilot donem',
-    summary: 'Aile sagligi merkezlerinde dijital tarama uygulamalari yayginlastiriliyor.',
-    source: 'Sabah',
-    publicationDate: '2026-03-22',
-    category: 'Saglik',
-    popularity: 71,
-    relevance: 83,
-    period: 'weekly',
-  },
-  {
-    id: 'pn-5',
-    title: 'Kultur rotasi: haftanin acik hava etkinlikleri aciklandi',
-    summary: 'Sahne sanatlari ve kent festivalleri icin yeni program takvimi paylasildi.',
-    source: 'Sozcu',
-    publicationDate: '2026-03-21',
-    category: 'Kultur',
-    popularity: 68,
-    relevance: 74,
-    period: 'weekly',
-  },
-  {
-    id: 'pn-6',
-    title: 'Siber guvenlik ekipleri mobil haber uygulamalarinda yeni riskleri izliyor',
-    summary: 'Guvenlik uzmanlari, kimlik avina karsi kullanicilarin dikkatli olmasini oneriyor.',
-    source: 'Cumhuriyet',
-    publicationDate: '2026-03-20',
-    category: 'Teknoloji',
-    popularity: 74,
-    relevance: 89,
-    period: 'both',
-  },
-  {
-    id: 'pn-7',
-    title: 'Yerel liglerde izlenme artisiyla sponsorluk modelleri degisiyor',
-    summary: 'Kulupler, dijital abonelik gelirlerini yeni finansman kaynagi olarak kullaniyor.',
-    source: 'Hurriyet',
-    publicationDate: '2026-03-19',
-    category: 'Spor',
-    popularity: 76,
-    relevance: 72,
-    period: 'weekly',
-  },
-  {
-    id: 'pn-8',
-    title: 'Reuters: European editors accelerate AI-assisted publishing workflows',
-    summary: 'Newsrooms report faster draft preparation while preserving final editorial oversight.',
-    source: 'Reuters',
-    publicationDate: '2026-03-18',
-    category: 'Teknoloji',
-    popularity: 81,
-    relevance: 87,
-    period: 'both',
-  },
-  {
-    id: 'pn-9',
-    title: 'BBC Analysis: Commodity markets remain sensitive to policy signals',
-    summary: 'Traders are closely monitoring central bank comments for short-term direction.',
-    source: 'BBC',
-    publicationDate: '2026-03-17',
-    category: 'Ekonomi',
-    popularity: 73,
-    relevance: 80,
-    period: 'weekly',
-  },
-];
-
-const SOURCE_META: Record<string, { country: CountryFilter; language: LanguageFilter }> = {
-  Sabah: { country: 'Turkiye', language: 'Turkce' },
-  Cumhuriyet: { country: 'Turkiye', language: 'Turkce' },
-  Hurriyet: { country: 'Turkiye', language: 'Turkce' },
-  Sozcu: { country: 'Turkiye', language: 'Turkce' },
-  Milliyet: { country: 'Turkiye', language: 'Turkce' },
-  Reuters: { country: 'Global', language: 'Ingilizce' },
-  BBC: { country: 'Global', language: 'Ingilizce' },
-};
+function getSourceMeta(sourceName: string, language?: string): { country: CountryFilter; language: LanguageFilter } {
+  const static_meta: Record<string, { country: CountryFilter; language: LanguageFilter }> = {
+    Sabah: { country: 'Turkiye', language: 'Turkce' },
+    Cumhuriyet: { country: 'Turkiye', language: 'Turkce' },
+    Hurriyet: { country: 'Turkiye', language: 'Turkce' },
+    Hürriyet: { country: 'Turkiye', language: 'Turkce' },
+    Sozcu: { country: 'Turkiye', language: 'Turkce' },
+    Milliyet: { country: 'Turkiye', language: 'Turkce' },
+    Reuters: { country: 'Global', language: 'Ingilizce' },
+    BBC: { country: 'Global', language: 'Ingilizce' },
+    'BBC News': { country: 'Global', language: 'Ingilizce' },
+    'BBC Türkçe': { country: 'Global', language: 'Turkce' },
+    'BBC Technology': { country: 'Global', language: 'Ingilizce' },
+    'BBC Business': { country: 'Global', language: 'Ingilizce' },
+    'DW News': { country: 'Global', language: 'Ingilizce' },
+    'DW Europe': { country: 'Global', language: 'Ingilizce' },
+    'DW Business': { country: 'Global', language: 'Ingilizce' },
+    'DW Deutsch': { country: 'Global', language: 'Ingilizce' },
+    Tagesschau: { country: 'Global', language: 'Ingilizce' },
+    Spiegel: { country: 'Global', language: 'Ingilizce' },
+    'Spiegel International': { country: 'Global', language: 'Ingilizce' },
+    'The Guardian': { country: 'Global', language: 'Ingilizce' },
+  };
+  if (static_meta[sourceName]) return static_meta[sourceName];
+  const isEnglish = language === 'en';
+  return { country: isEnglish ? 'Global' : 'Turkiye', language: isEnglish ? 'Ingilizce' : 'Turkce' };
+}
 
 const MARKET_WATCH: MarketWatchItem[] = [
   { id: 'bist100', label: 'BIST 100', kind: 'Borsa', value: '10,412.35', change: '+1.42%', isPositive: true },
@@ -171,6 +93,7 @@ export default function PersonalizedNewsScreen() {
   const { colors } = useTheme();
   const { preferredCategories, preferredNewspapers } = usePreferences();
   const isWeb = Platform.OS === 'web';
+  const { news: apiNews, loading: newsLoading } = usePersonalizedNews();
 
   const [activePeriod, setActivePeriod] = useState<PeriodFilter>('daily');
   const [sortKey, setSortKey] = useState<SortKey>('newest');
@@ -178,15 +101,33 @@ export default function PersonalizedNewsScreen() {
   const [selectedSource, setSelectedSource] = useState<string>('all');
   const [countryFilter, setCountryFilter] = useState<CountryFilter>('all');
   const [languageFilter, setLanguageFilter] = useState<LanguageFilter>('all');
+  const [langFilter, setLangFilter] = useState<LangFilter>('all');
+
+  // Ticker animasyonu
+  const tickerX = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    const anim = Animated.loop(
+      Animated.sequence([
+        Animated.timing(tickerX, { toValue: -4500, duration: 80000, useNativeDriver: true }),
+        Animated.timing(tickerX, { toValue: 0, duration: 0, useNativeDriver: true }),
+      ])
+    );
+    anim.start();
+    return () => anim.stop();
+  }, [tickerX]);
 
   const defaultCategories: ContentCategory[] = ['Teknoloji', 'Spor', 'Ekonomi'];
   const interestCategories = preferredCategories.length ? preferredCategories : defaultCategories;
 
-  const categoryOptions = useMemo(() => Array.from(new Set(interestCategories)), [interestCategories]);
+  // Haberlerden gelen TÜM kategorileri göster (sadece tercihler değil)
+  const categoryOptions = useMemo(
+    () => Array.from(new Set(apiNews.map((a) => a.category))).sort((a, b) => a.localeCompare(b, 'tr')),
+    [apiNews]
+  );
 
   const sourceOptions = useMemo(
-    () => Array.from(new Set(PERSONALIZED_NEWS.map((item) => item.source))).sort((a, b) => a.localeCompare(b, 'tr')),
-    []
+    () => Array.from(new Set(apiNews.map((item) => item.source))).sort((a, b) => a.localeCompare(b, 'tr')),
+    [apiNews]
   );
 
   const followedSources = useMemo(() => {
@@ -198,15 +139,42 @@ export default function PersonalizedNewsScreen() {
 
   const filteredFollowedSources = useMemo(() => {
     return followedSources.filter((source) => {
-      const meta = SOURCE_META[source] ?? { country: 'Global', language: 'Ingilizce' as const };
+      const meta = getSourceMeta(source);
       const countryMatches = countryFilter === 'all' || meta.country === countryFilter;
       const languageMatches = languageFilter === 'all' || meta.language === languageFilter;
       return countryMatches && languageMatches;
     });
   }, [countryFilter, followedSources, languageFilter]);
 
+  // Günün konusu: en fazla haber üretilen kategori + o kategorinin en yeni haberi
+  const gununKonusu = useMemo(() => {
+    const today = apiNews.filter((a) => a.period === 'daily' || a.period === 'both');
+    const counts: Record<string, number> = {};
+    today.forEach((a) => { counts[a.category] = (counts[a.category] ?? 0) + 1; });
+    const topCat = Object.entries(counts).sort((a, b) => b[1] - a[1])[0];
+    if (!topCat) return null;
+    const topArticle = today.find((a) => a.category === topCat[0]);
+    return { category: topCat[0] as ContentCategory, count: topCat[1], article: topArticle ?? null };
+  }, [apiNews]);
+
+  // Son dakika ticker için en yeni 15 haber
+  const tickerItems = useMemo(
+    () => apiNews.slice(0, 15).map((a) => a.title),
+    [apiNews]
+  );
+
+  // Kategori bazlı haber sayıları (filtre etiketleri için)
+  const categoryCounts = useMemo(() => {
+    const counts: Record<string, number> = {};
+    apiNews.forEach((a) => { counts[a.category] = (counts[a.category] ?? 0) + 1; });
+    return counts;
+  }, [apiNews]);
+
   const sortedNews = useMemo(() => {
-    const periodFiltered = PERSONALIZED_NEWS.filter((item) => item.period === 'both' || item.period === activePeriod);
+    const langFiltered = langFilter === 'all'
+      ? apiNews
+      : apiNews.filter((a) => a.language === langFilter);
+    const periodFiltered = langFiltered.filter((item) => item.period === 'both' || item.period === activePeriod);
 
     const categoryFiltered = selectedCategory
       ? periodFiltered.filter(
@@ -235,774 +203,882 @@ export default function PersonalizedNewsScreen() {
       }
       return b.boostedRelevance - a.boostedRelevance;
     });
-  }, [activePeriod, interestCategories, selectedCategory, selectedSource, sortKey]);
+  }, [activePeriod, apiNews, interestCategories, langFilter, selectedCategory, selectedSource, sortKey]);
 
   const featured = sortedNews[0];
-  const listItems = sortedNews.slice(1);
+  const secondaries = sortedNews.slice(1, 5);
+  const compactList = sortedNews.slice(5);
+
+  // ── Filtre paneli (hem sağ kolonda hem mobil üstte kullanılır) ──────────
+  const activeFilterCount = [
+    selectedCategory !== null,
+    selectedSource !== 'all',
+    langFilter !== 'all',
+    activePeriod !== 'daily',
+    sortKey !== 'newest',
+  ].filter(Boolean).length;
+
+  const resetFilters = () => {
+    setSelectedCategory(null);
+    setSelectedSource('all');
+    setLangFilter('all');
+    setActivePeriod('daily');
+    setSortKey('newest');
+  };
+
+  const FilterPanel = () => (
+    <View style={s(colors).filterPanel}>
+      {/* Başlık + aktif filtre sayısı + temizle */}
+      <View style={s(colors).filterPanelHeader}>
+        <Text style={s(colors).filterPanelTitle}>FİLTRELER</Text>
+        {activeFilterCount > 0 && (
+          <Pressable style={s(colors).resetBtn} onPress={resetFilters}>
+            <View style={s(colors).resetBadge}>
+              <Text style={s(colors).resetBadgeNum}>{activeFilterCount}</Text>
+            </View>
+            <Text style={s(colors).resetBtnText}>Temizle</Text>
+          </Pressable>
+        )}
+      </View>
+
+      {/* Dönem */}
+      <Text style={s(colors).filterLabel}>DÖNEM</Text>
+      <View style={s(colors).periodRow}>
+        {(['daily', 'weekly'] as PeriodFilter[]).map((p) => (
+          <Pressable
+            key={p}
+            style={[s(colors).periodBtn, activePeriod === p && s(colors).periodBtnActive]}
+            onPress={() => setActivePeriod(p)}
+          >
+            <Text style={[s(colors).periodBtnText, activePeriod === p && s(colors).periodBtnTextActive]}>
+              {p === 'daily' ? '📅 Günlük' : '🗓 Haftalık'}
+            </Text>
+          </Pressable>
+        ))}
+      </View>
+
+      {/* Dil */}
+      <Text style={s(colors).filterLabel}>DİL</Text>
+      {(() => {
+        const langOpts = [
+          { key: 'all' as LangFilter, flag: '🌐', label: 'Tümü' },
+          { key: 'tr' as LangFilter, flag: '🇹🇷', label: 'TR' },
+          { key: 'en' as LangFilter, flag: '🇬🇧', label: 'EN' },
+          { key: 'de' as LangFilter, flag: '🇩🇪', label: 'DE' },
+        ];
+        return (
+          <View style={s(colors).segmentedCtrl}>
+            {langOpts.map((opt, idx) => (
+              <Pressable
+                key={opt.key}
+                style={[
+                  s(colors).segment,
+                  idx < langOpts.length - 1 && s(colors).segmentBorder,
+                  langFilter === opt.key && s(colors).segmentActive,
+                ]}
+                onPress={() => setLangFilter(opt.key)}
+              >
+                <Text style={s(colors).segmentFlag}>{opt.flag}</Text>
+                <Text style={[s(colors).segmentText, langFilter === opt.key && s(colors).segmentTextActive]}>
+                  {opt.label}
+                </Text>
+              </Pressable>
+            ))}
+          </View>
+        );
+      })()}
+
+      {/* Sıralama */}
+      <Text style={s(colors).filterLabel}>SIRALAMA</Text>
+      <View style={s(colors).chipWrap}>
+        {([
+          { key: 'newest' as const, label: '🕐 En Yeni' },
+          { key: 'popularity' as const, label: '🔥 Popüler' },
+          { key: 'relevance' as const, label: '⭐ İlgili' },
+        ]).map((opt) => (
+          <Pressable
+            key={opt.key}
+            style={[s(colors).filterChip, sortKey === opt.key && s(colors).filterChipActive]}
+            onPress={() => setSortKey(opt.key)}
+          >
+            <Text style={[s(colors).filterChipText, sortKey === opt.key && s(colors).filterChipTextActive]}>
+              {opt.label}
+            </Text>
+          </Pressable>
+        ))}
+      </View>
+
+      {/* Kategori — sayılarla */}
+      <Text style={s(colors).filterLabel}>KATEGORİ</Text>
+      <View style={s(colors).chipWrap}>
+        <Pressable
+          style={[s(colors).filterChip, selectedCategory === null && s(colors).filterChipActive]}
+          onPress={() => setSelectedCategory(null)}
+        >
+          <Text style={[s(colors).filterChipText, selectedCategory === null && s(colors).filterChipTextActive]}>
+            Tümü {apiNews.length > 0 && <Text style={s(colors).filterChipCount}>({apiNews.length})</Text>}
+          </Text>
+        </Pressable>
+        {categoryOptions.map((cat) => (
+          <Pressable
+            key={cat}
+            style={[s(colors).filterChip, selectedCategory === cat && s(colors).filterChipActive]}
+            onPress={() => setSelectedCategory(cat)}
+          >
+            <Text style={[s(colors).filterChipText, selectedCategory === cat && s(colors).filterChipTextActive]}>
+              {cat}{categoryCounts[cat] ? <Text style={s(colors).filterChipCount}> ({categoryCounts[cat]})</Text> : ''}
+            </Text>
+          </Pressable>
+        ))}
+      </View>
+
+      {/* Kaynak */}
+      <Text style={s(colors).filterLabel}>KAYNAK</Text>
+      <View style={s(colors).chipWrap}>
+        <Pressable
+          style={[s(colors).filterChip, selectedSource === 'all' && s(colors).filterChipActive]}
+          onPress={() => setSelectedSource('all')}
+        >
+          <Text style={[s(colors).filterChipText, selectedSource === 'all' && s(colors).filterChipTextActive]}>
+            Tümü
+          </Text>
+        </Pressable>
+        {sourceOptions.map((src) => (
+          <Pressable
+            key={src}
+            style={[s(colors).filterChip, selectedSource === src && s(colors).filterChipActive]}
+            onPress={() => setSelectedSource(src)}
+          >
+            <Text style={[s(colors).filterChipText, selectedSource === src && s(colors).filterChipTextActive]}>
+              {src}
+            </Text>
+          </Pressable>
+        ))}
+      </View>
+
+      {/* Sonuç sayısı */}
+      <View style={s(colors).filterResultRow}>
+        <Text style={s(colors).filterResultText}>
+          {sortedNews.length} haber gösteriliyor
+        </Text>
+      </View>
+    </View>
+  );
 
   return (
-    <ScrollView style={styles(colors).container} contentContainerStyle={styles(colors).content}>
-      <Text style={styles(colors).title}>Kisisel Gazete</Text>
-      <Text style={styles(colors).subtitle}>For You</Text>
+    <ScrollView style={s(colors).container} contentContainerStyle={s(colors).content}>
 
-      <View style={[styles(colors).boardRow, isWeb ? styles(colors).boardRowWeb : null]}>
-        <View style={[styles(colors).mainColumn, isWeb ? styles(colors).mainColumnWeb : null]}>
-          <View style={styles(colors).periodToggleRow}>
-            <Pressable
-              style={[
-                styles(colors).periodToggleButton,
-                activePeriod === 'daily' ? styles(colors).periodToggleButtonActive : null,
-              ]}
-              onPress={() => setActivePeriod('daily')}
-            >
-              <Text
-                style={[
-                  styles(colors).periodToggleText,
-                  activePeriod === 'daily' ? styles(colors).periodToggleTextActive : null,
-                ]}
-              >
-                Daily
-              </Text>
-            </Pressable>
-            <Pressable
-              style={[
-                styles(colors).periodToggleButton,
-                activePeriod === 'weekly' ? styles(colors).periodToggleButtonActive : null,
-              ]}
-              onPress={() => setActivePeriod('weekly')}
-            >
-              <Text
-                style={[
-                  styles(colors).periodToggleText,
-                  activePeriod === 'weekly' ? styles(colors).periodToggleTextActive : null,
-                ]}
-              >
-                Weekly
-              </Text>
-            </Pressable>
-          </View>
+      {/* ── Gazete başlığı ─────────────────────────────────────────── */}
+      <View style={s(colors).masthead}>
+        {/* Çift çizgi — üst */}
+        <View style={s(colors).mastheadLineThick} />
+        <View style={s(colors).mastheadLineThin} />
 
-          <Text style={styles(colors).sectionTitle}>Based on Your Interests</Text>
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            style={styles(colors).filterScroll}
-            contentContainerStyle={styles(colors).chipsRow}
-          >
-            <Pressable
-              style={[
-                styles(colors).chip,
-                styles(colors).categoryChip,
-                selectedCategory === null ? styles(colors).chipActive : null,
-              ]}
-              onPress={() => setSelectedCategory(null)}
-            >
-              <Text
-                numberOfLines={1}
-                ellipsizeMode="tail"
-                style={[
-                  styles(colors).chipText,
-                  selectedCategory === null ? styles(colors).chipTextActive : null,
-                ]}
-              >
-                Tumu
-              </Text>
-            </Pressable>
+        {/* Meta satır: baskı bilgisi + tarih */}
+        <View style={s(colors).mastheadMeta}>
+          <Text style={s(colors).mastheadMetaText}>KİŞİSEL BASKI</Text>
+          <Text style={s(colors).mastheadMetaDot}>◆</Text>
+          <Text style={s(colors).mastheadMetaText}>
+            {new Date().toLocaleDateString('tr-TR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
+          </Text>
+          <Text style={s(colors).mastheadMetaDot}>◆</Text>
+          <Text style={s(colors).mastheadMetaText}>{apiNews.length} HABER</Text>
+        </View>
 
-            {categoryOptions.map((category) => {
-              const isActive = selectedCategory === category;
-              return (
-                <Pressable
-                  key={category}
-                  style={[styles(colors).chip, styles(colors).categoryChip, isActive ? styles(colors).chipActive : null]}
-                  onPress={() => setSelectedCategory(category)}
-                >
-                  <Text
-                    numberOfLines={1}
-                    ellipsizeMode="tail"
-                    style={[styles(colors).chipText, isActive ? styles(colors).chipTextActive : null]}
-                  >
-                    {category}
-                  </Text>
-                </Pressable>
-              );
-            })}
-          </ScrollView>
+        {/* Ana başlık */}
+        <Text style={s(colors).mastheadTitle}>KİŞİSEL GAZETE</Text>
+        <Text style={s(colors).mastheadSlogan}>Haberleri sizin için derliyoruz</Text>
 
-          <Text style={styles(colors).sectionTitle}>Source Filter</Text>
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            style={styles(colors).filterScroll}
-            contentContainerStyle={styles(colors).chipsRow}
-          >
-            <Pressable
-              style={[
-                styles(colors).chip,
-                styles(colors).sourceChip,
-                selectedSource === 'all' ? styles(colors).chipActive : null,
-              ]}
-              onPress={() => setSelectedSource('all')}
-            >
-              <Text
-                numberOfLines={1}
-                ellipsizeMode="tail"
-                style={[
-                  styles(colors).chipText,
-                  selectedSource === 'all' ? styles(colors).chipTextActive : null,
-                ]}
-              >
-                All Sources
-              </Text>
-            </Pressable>
+        {/* Çift çizgi — alt */}
+        <View style={s(colors).mastheadLineThin} />
+        <View style={s(colors).mastheadLineThick} />
 
-            {sourceOptions.map((source) => {
-              const isActive = selectedSource === source;
-              return (
-                <Pressable
-                  key={source}
-                  style={[styles(colors).chip, styles(colors).sourceChip, isActive ? styles(colors).chipActive : null]}
-                  onPress={() => setSelectedSource(source)}
-                >
-                  <Text
-                    numberOfLines={1}
-                    ellipsizeMode="tail"
-                    style={[styles(colors).chipText, isActive ? styles(colors).chipTextActive : null]}
-                  >
-                    {source}
-                  </Text>
-                </Pressable>
-              );
-            })}
-          </ScrollView>
-
-          <Text style={styles(colors).sectionTitle}>Sort By</Text>
-          <View style={styles(colors).sortOptionsRow}>
-            {([
-              { key: 'newest' as const, label: 'Newest' },
-              { key: 'popularity' as const, label: 'Most Popular' },
-              { key: 'relevance' as const, label: 'Most Relevant' },
-            ]).map((option) => {
-              const active = sortKey === option.key;
-              return (
-                <Pressable
-                  key={option.key}
-                  style={[styles(colors).sortOption, active ? styles(colors).sortOptionActive : null]}
-                  onPress={() => setSortKey(option.key)}
-                >
-                  <Text
-                    style={[styles(colors).sortOptionText, active ? styles(colors).sortOptionTextActive : null]}
-                  >
-                    {option.label}
-                  </Text>
-                </Pressable>
-              );
-            })}
-          </View>
-
-          {featured ? (
-            <View style={[styles(colors).featuredCard, styles(colors).featuredCardStable]}>
-              <Text style={styles(colors).featuredTag}>Featured</Text>
-              <Text style={styles(colors).featuredTitle}>{featured.title}</Text>
-              <Text style={styles(colors).featuredSummary}>{featured.summary}</Text>
-              <View style={styles(colors).metaRow}>
-                <Text style={styles(colors).metaText}>{featured.source}</Text>
-                <Text style={styles(colors).metaDivider}>|</Text>
-                <Text style={styles(colors).metaText}>{formatDate(featured.publicationDate)}</Text>
-              </View>
-              <View style={styles(colors).categoryBadge}>
-                <Text style={styles(colors).categoryBadgeText}>{featured.category}</Text>
-              </View>
+        {/* Günün Konusu şeridi */}
+        {gununKonusu && (
+          <View style={s(colors).gununKonusuStrip}>
+            <View style={s(colors).gununKonusuStripBadge}>
+              <Text style={s(colors).gununKonusuStripBadgeText}>GÜNÜN{'\n'}KONUSU</Text>
             </View>
-          ) : (
-            <View style={[styles(colors).emptyState, styles(colors).featuredCardStable]}>
-              <Text style={styles(colors).emptyStateText}>Secili filtreler icin haber bulunamadi.</Text>
+            <View style={s(colors).gununKonusuStripBody}>
+              <Text style={s(colors).gununKonusuStripCat}>{gununKonusu.category.toUpperCase()} · {gununKonusu.count} haber</Text>
+              {gununKonusu.article && (
+                <Text style={s(colors).gununKonusuStripHeadline} numberOfLines={2}>
+                  {gununKonusu.article.title}
+                </Text>
+              )}
+            </View>
+          </View>
+        )}
+      </View>
+
+      {/* ── Son Dakika Kayan Seridi ─────────────────────────────────── */}
+      {tickerItems.length > 0 && (
+        <View style={s(colors).ticker}>
+          {/* Sol: SON DAKİKA rozeti */}
+          <View style={s(colors).tickerBadge}>
+            <View style={s(colors).tickerLiveDot} />
+            <Text style={s(colors).tickerBadgeText}>SON{'\n'}DAKİKA</Text>
+          </View>
+          {/* Dikey ayırıcı */}
+          <View style={s(colors).tickerDivider} />
+          {/* Kayan metin alanı */}
+          <View style={s(colors).tickerTrack}>
+            <Animated.View style={[s(colors).tickerInner, { transform: [{ translateX: tickerX }] }]}>
+              {[...tickerItems, ...tickerItems].map((title, i) => (
+                <View key={i} style={s(colors).tickerItemWrap}>
+                  <Text style={s(colors).tickerItem}>{title}</Text>
+                  <Text style={s(colors).tickerDot}>  ◆  </Text>
+                </View>
+              ))}
+            </Animated.View>
+          </View>
+        </View>
+      )}
+
+      {/* ── Mobilde filtreler üstte ─────────────────────────────────── */}
+      {!isWeb && (
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s(colors).mobileFilterBar}>
+          {(['daily', 'weekly'] as PeriodFilter[]).map((p) => (
+            <Pressable
+              key={p}
+              style={[s(colors).mobileChip, activePeriod === p && s(colors).mobileChipActive]}
+              onPress={() => setActivePeriod(p)}
+            >
+              <Text style={[s(colors).mobileChipText, activePeriod === p && s(colors).mobileChipTextActive]}>
+                {p === 'daily' ? 'Günlük' : 'Haftalık'}
+              </Text>
+            </Pressable>
+          ))}
+          <View style={s(colors).mobileChipDivider} />
+          <Pressable
+            style={[s(colors).mobileChip, selectedCategory === null && s(colors).mobileChipActive]}
+            onPress={() => setSelectedCategory(null)}
+          >
+            <Text style={[s(colors).mobileChipText, selectedCategory === null && s(colors).mobileChipTextActive]}>
+              Tümü
+            </Text>
+          </Pressable>
+          {categoryOptions.map((cat) => (
+            <Pressable
+              key={cat}
+              style={[s(colors).mobileChip, selectedCategory === cat && s(colors).mobileChipActive]}
+              onPress={() => setSelectedCategory(cat)}
+            >
+              <Text style={[s(colors).mobileChipText, selectedCategory === cat && s(colors).mobileChipTextActive]}>
+                {cat}
+              </Text>
+            </Pressable>
+          ))}
+        </ScrollView>
+      )}
+
+      {/* ── Ana içerik satırı ──────────────────────────────────────── */}
+      <View style={[s(colors).boardRow, isWeb && s(colors).boardRowWeb]}>
+
+        {/* ── Orta kolon: haberler ──────────────────────────────────── */}
+        <View style={[s(colors).mainCol, isWeb && s(colors).mainColWeb]}>
+
+          {newsLoading && (
+            <View style={s(colors).loadingRow}>
+              <ActivityIndicator color={colors.accent} />
+              <Text style={s(colors).loadingText}>Haberler yükleniyor...</Text>
             </View>
           )}
 
-          <View style={styles(colors).newsListWrap}>
-            {listItems.length ? (
-              listItems.map((item) => (
-                <View key={item.id} style={styles(colors).newsCard}>
-                  <View style={styles(colors).cardHeader}>
-                    <Text style={styles(colors).cardCategory}>{item.category}</Text>
-                    <Text style={styles(colors).cardDate}>{formatDate(item.publicationDate)}</Text>
-                  </View>
-                  <Text style={styles(colors).newsTitle}>{item.title}</Text>
-                  <Text style={styles(colors).newsSummary}>{item.summary}</Text>
-                  <Text style={styles(colors).cardSource}>Source: {item.source}</Text>
+          {/* Manşet / Öne çıkan haber */}
+          {featured ? (
+            <View style={s(colors).featured}>
+              {featured.imageUrl ? (
+                <Image source={{ uri: featured.imageUrl }} style={s(colors).featuredImage} resizeMode="cover" />
+              ) : (
+                <View style={s(colors).featuredImagePlaceholder}>
+                  <Text style={s(colors).featuredImagePlaceholderText}>{featured.category}</Text>
                 </View>
-              ))
-            ) : (
-              <View style={styles(colors).newsListEmptyState}>
-                <Text style={styles(colors).emptyStateText}>Bu filtre kombinasyonunda ek haber yok.</Text>
-              </View>
-            )}
-          </View>
-        </View>
-
-        {isWeb ? (
-          <View style={styles(colors).rightColumn}>
-            <View style={styles(colors).rightColumnShell}>
-              <View style={styles(colors).rightTopBlock}>
-                <View style={styles(colors).sideCardHeader}>
-                  <Text style={styles(colors).sideTitle}>Takip Edilen Haber Sayfalari</Text>
-                  <Text style={styles(colors).sideSubTitle}>
-                    {filteredFollowedSources.length}/{followedSources.length} kaynak goruntuleniyor
-                  </Text>
+              )}
+              <View style={s(colors).featuredBody}>
+                <Text style={s(colors).featuredCategory}>{featured.category.toUpperCase()}</Text>
+                <Text style={s(colors).featuredHeadline}>{featured.title}</Text>
+                <Text style={s(colors).featuredLead}>{featured.summary}</Text>
+                <View style={s(colors).byline}>
+                  <Text style={s(colors).bylineSource}>{featured.source}</Text>
+                  <Text style={s(colors).bylineDot}>·</Text>
+                  <Text style={s(colors).bylineDate}>{formatDate(featured.publicationDate)}</Text>
                 </View>
-
-                <Text style={styles(colors).sideFilterTitle}>Ulke</Text>
-                <View style={styles(colors).sideFilterRow}>
-                  {(['all', 'Turkiye', 'Global'] as CountryFilter[]).map((option) => {
-                    const active = countryFilter === option;
-                    return (
-                      <Pressable
-                        key={option}
-                        onPress={() => setCountryFilter(option)}
-                        style={[styles(colors).sideFilterChip, active ? styles(colors).sideFilterChipActive : null]}
-                      >
-                        <Text
-                          style={[
-                            styles(colors).sideFilterChipText,
-                            active ? styles(colors).sideFilterChipTextActive : null,
-                          ]}
-                        >
-                          {option === 'all' ? 'Tum' : option}
-                        </Text>
-                      </Pressable>
-                    );
-                  })}
-                </View>
-
-                <Text style={styles(colors).sideFilterTitle}>Dil</Text>
-                <View style={styles(colors).sideFilterRow}>
-                  {(['all', 'Turkce', 'Ingilizce'] as LanguageFilter[]).map((option) => {
-                    const active = languageFilter === option;
-                    return (
-                      <Pressable
-                        key={option}
-                        onPress={() => setLanguageFilter(option)}
-                        style={[styles(colors).sideFilterChip, active ? styles(colors).sideFilterChipActive : null]}
-                      >
-                        <Text
-                          style={[
-                            styles(colors).sideFilterChipText,
-                            active ? styles(colors).sideFilterChipTextActive : null,
-                          ]}
-                        >
-                          {option === 'all' ? 'Tum' : option}
-                        </Text>
-                      </Pressable>
-                    );
-                  })}
-                </View>
-              </View>
-
-              <View style={styles(colors).sideCardList}>
-                {filteredFollowedSources.length ? (
-                  filteredFollowedSources.map((source) => {
-                    const meta = SOURCE_META[source] ?? { country: 'Global', language: 'Ingilizce' as const };
-
-                    return (
-                      <View key={source} style={styles(colors).sourceItem}>
-                        <View style={styles(colors).sourceIconWrap}>
-                          <Text style={styles(colors).sourceIconText}>{source.charAt(0)}</Text>
-                        </View>
-                        <View style={styles(colors).sourceTextWrap}>
-                          <Text style={styles(colors).sourceTitle}>{source}</Text>
-                          <Text style={styles(colors).sourceMeta}>{meta.country} - {meta.language}</Text>
-                        </View>
-                      </View>
-                    );
-                  })
-                ) : (
-                  <Text style={styles(colors).sideEmptyText}>Filtrelerle eslesen takip edilen sayfa bulunamadi.</Text>
-                )}
-              </View>
-
-              <View style={styles(colors).marketCard}>
-                <Text style={styles(colors).marketTitle}>Takip Edilen Piyasalar</Text>
-
-                {MARKET_WATCH.map((item) => (
-                  <View key={item.id} style={styles(colors).marketItem}>
-                    <View style={styles(colors).marketLeft}>
-                      <Text style={styles(colors).marketLabel}>{item.label}</Text>
-                      <Text style={styles(colors).marketKind}>{item.kind}</Text>
-                    </View>
-
-                    <View style={styles(colors).marketRight}>
-                      <Text style={styles(colors).marketValue}>{item.value}</Text>
-                      <Text style={[styles(colors).marketChange, { color: item.isPositive ? colors.success : colors.error }]}>
-                        {item.change}
-                      </Text>
-                    </View>
-                  </View>
-                ))}
               </View>
             </View>
+          ) : !newsLoading ? (
+            <View style={s(colors).emptyBox}>
+              <Text style={s(colors).emptyText}>Seçili filtreler için haber bulunamadı.</Text>
+            </View>
+          ) : null}
+
+          {/* Kesme çizgisi */}
+          {secondaries.length > 0 && <View style={s(colors).rule} />}
+
+          {/* 2'li grid: ikincil haberler */}
+          {secondaries.length > 0 && (
+            <View style={s(colors).grid}>
+              {secondaries.map((item) => (
+                <View key={item.id} style={s(colors).gridCard}>
+                  {item.imageUrl ? (
+                    <Image source={{ uri: item.imageUrl }} style={s(colors).gridImage} resizeMode="cover" />
+                  ) : (
+                    <View style={s(colors).gridImagePlaceholder}>
+                      <Text style={s(colors).gridImagePlaceholderText}>{item.category.charAt(0)}</Text>
+                    </View>
+                  )}
+                  <View style={s(colors).gridBody}>
+                    <Text style={s(colors).gridCategory}>{item.category.toUpperCase()}</Text>
+                    <Text style={s(colors).gridHeadline} numberOfLines={3}>{item.title}</Text>
+                    <Text style={s(colors).gridSummary} numberOfLines={2}>{item.summary}</Text>
+                    <Text style={s(colors).gridByline}>{item.source} · {formatDate(item.publicationDate)}</Text>
+                  </View>
+                </View>
+              ))}
+            </View>
+          )}
+
+          {/* Kesme çizgisi */}
+          {compactList.length > 0 && <View style={s(colors).rule} />}
+
+          {/* Kompakt liste: geri kalan haberler */}
+          {compactList.map((item, i) => (
+            <View key={item.id}>
+              <View style={s(colors).listCard}>
+                <View style={s(colors).listBody}>
+                  <Text style={s(colors).listCategory}>{item.category.toUpperCase()}</Text>
+                  <Text style={s(colors).listHeadline} numberOfLines={2}>{item.title}</Text>
+                  <Text style={s(colors).listSummary} numberOfLines={2}>{item.summary}</Text>
+                  <Text style={s(colors).listByline}>{item.source} · {formatDate(item.publicationDate)}</Text>
+                </View>
+                {item.imageUrl && (
+                  <Image source={{ uri: item.imageUrl }} style={s(colors).listThumb} resizeMode="cover" />
+                )}
+              </View>
+              {i < compactList.length - 1 && <View style={s(colors).thinRule} />}
+            </View>
+          ))}
+        </View>
+
+        {/* ── Sağ kolon (sadece web) ────────────────────────────────── */}
+        {isWeb && (
+          <View style={s(colors).rightCol}>
+
+            {/* Filtreler */}
+            <FilterPanel />
+
+            {/* Takip edilen kaynaklar */}
+            <View style={s(colors).sidePanel}>
+              <View style={s(colors).sidePanelHeader}>
+                <Text style={s(colors).sidePanelTitle}>Takip Edilen Kaynaklar</Text>
+                <Text style={s(colors).sidePanelCount}>
+                  {filteredFollowedSources.length}/{followedSources.length}
+                </Text>
+              </View>
+
+              <Text style={s(colors).filterLabel}>Ülke</Text>
+              <View style={s(colors).chipWrap}>
+                {(['all', 'Turkiye', 'Global'] as CountryFilter[]).map((opt) => (
+                  <Pressable
+                    key={opt}
+                    style={[s(colors).filterChip, countryFilter === opt && s(colors).filterChipActive]}
+                    onPress={() => setCountryFilter(opt)}
+                  >
+                    <Text style={[s(colors).filterChipText, countryFilter === opt && s(colors).filterChipTextActive]}>
+                      {opt === 'all' ? 'Tümü' : opt}
+                    </Text>
+                  </Pressable>
+                ))}
+              </View>
+
+              <Text style={s(colors).filterLabel}>Dil</Text>
+              <View style={s(colors).chipWrap}>
+                {(['all', 'Turkce', 'Ingilizce'] as LanguageFilter[]).map((opt) => (
+                  <Pressable
+                    key={opt}
+                    style={[s(colors).filterChip, languageFilter === opt && s(colors).filterChipActive]}
+                    onPress={() => setLanguageFilter(opt)}
+                  >
+                    <Text style={[s(colors).filterChipText, languageFilter === opt && s(colors).filterChipTextActive]}>
+                      {opt === 'all' ? 'Tümü' : opt}
+                    </Text>
+                  </Pressable>
+                ))}
+              </View>
+
+              <View style={s(colors).sourceList}>
+                {filteredFollowedSources.length ? filteredFollowedSources.map((src) => {
+                  const meta = getSourceMeta(src);
+                  return (
+                    <View key={src} style={s(colors).sourceRow}>
+                      <View style={s(colors).sourceAvatar}>
+                        <Text style={s(colors).sourceAvatarText}>{src.charAt(0)}</Text>
+                      </View>
+                      <View style={{ flex: 1 }}>
+                        <Text style={s(colors).sourceName}>{src}</Text>
+                        <Text style={s(colors).sourceMeta}>{meta.country} · {meta.language}</Text>
+                      </View>
+                    </View>
+                  );
+                }) : (
+                  <Text style={s(colors).emptyText}>Eşleşen kaynak bulunamadı.</Text>
+                )}
+              </View>
+            </View>
+
+            {/* Piyasalar */}
+            <View style={s(colors).sidePanel}>
+              <View style={s(colors).sidePanelHeader}>
+                <Text style={s(colors).sidePanelTitle}>Piyasalar</Text>
+              </View>
+              {MARKET_WATCH.map((item) => (
+                <View key={item.id} style={s(colors).marketRow}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={s(colors).marketLabel}>{item.label}</Text>
+                    <Text style={s(colors).marketKind}>{item.kind}</Text>
+                  </View>
+                  <View style={{ alignItems: 'flex-end' }}>
+                    <Text style={s(colors).marketValue}>{item.value}</Text>
+                    <Text style={[s(colors).marketChange, { color: item.isPositive ? colors.success : colors.error }]}>
+                      {item.change}
+                    </Text>
+                  </View>
+                </View>
+              ))}
+            </View>
+
           </View>
-        ) : null}
+        )}
       </View>
     </ScrollView>
   );
 }
 
-const styles = (colors: any) =>
-  StyleSheet.create({
-    container: {
-      flex: 1,
-      backgroundColor: colors.background,
-    },
-    content: {
-      paddingHorizontal: Spacing.lg,
-      paddingTop: Spacing.xl,
-      paddingBottom: Spacing.xxl,
-      gap: Spacing.md,
-    },
-    boardRow: {
-      width: '100%',
-    },
-    boardRowWeb: {
-      flexDirection: 'row',
-      alignItems: 'stretch',
-      gap: Spacing.md,
-    },
-    mainColumn: {
-      width: '100%',
-      gap: Spacing.md,
-    },
-    mainColumnWeb: {
-      flex: 1,
-      minWidth: 0,
-    },
-    rightColumn: {
-      width: 276,
-      alignSelf: 'stretch',
-    },
-    rightColumnShell: {
-      backgroundColor: colors.surfaceHigh,
-      borderRadius: 14,
-      borderWidth: 1,
-      borderColor: colors.borderSubtle,
-      paddingHorizontal: 12,
-      paddingVertical: 14,
-      gap: 10,
-      flex: 1,
-      minHeight: 720,
-    },
-    rightTopBlock: {
-      gap: Spacing.sm,
-    },
-    sideCardHeader: {
-      backgroundColor: colors.surface,
-      borderRadius: 14,
-      borderWidth: 1,
-      borderColor: colors.borderSubtle,
-      paddingHorizontal: 10,
-      paddingVertical: 10,
-      gap: 4,
-    },
-    sideTitle: {
-      color: colors.textPrimary,
-      fontSize: Typography.fontSize.base,
-      fontWeight: Typography.fontWeight.bold,
-    },
-    sideSubTitle: {
-      color: colors.textMuted,
-      fontSize: Typography.fontSize.xs,
-      textTransform: 'uppercase',
-      letterSpacing: 0.6,
-      fontWeight: Typography.fontWeight.bold,
-    },
-    sideFilterTitle: {
-      color: colors.textMuted,
-      fontSize: Typography.fontSize.xs,
-      fontWeight: Typography.fontWeight.bold,
-      marginTop: 2,
-      textTransform: 'uppercase',
-      letterSpacing: 0.7,
-    },
-    sideFilterRow: {
-      flexDirection: 'row',
-      flexWrap: 'wrap',
-      gap: Spacing.xs,
-    },
-    sideFilterChip: {
-      borderWidth: 1,
-      borderColor: colors.borderSubtle,
-      borderRadius: 12,
-      paddingVertical: 8,
-      paddingHorizontal: Spacing.sm,
-      backgroundColor: colors.surface,
-      minWidth: 78,
-      alignItems: 'center',
-    },
-    sideFilterChipActive: {
-      backgroundColor: colors.accent,
-      borderColor: colors.accent,
-    },
-    sideFilterChipText: {
-      color: colors.textSecondary,
-      fontSize: Typography.fontSize.sm,
-      fontWeight: Typography.fontWeight.bold,
-    },
-    sideFilterChipTextActive: {
-      color: colors.white,
-    },
-    sideCardList: {
-      backgroundColor: colors.surface,
-      borderRadius: 14,
-      borderWidth: 1,
-      borderColor: colors.borderSubtle,
-      padding: 8,
-      gap: 8,
-      flex: 1,
-      justifyContent: 'flex-start',
-    },
-    sourceItem: {
-      borderWidth: 1,
-      borderColor: colors.borderSubtle,
-      borderRadius: 12,
-      paddingVertical: Spacing.sm,
-      paddingHorizontal: Spacing.sm,
-      backgroundColor: colors.surfaceHigh,
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: 8,
-    },
-    sourceIconWrap: {
-      width: 28,
-      height: 28,
-      borderRadius: 8,
-      alignItems: 'center',
-      justifyContent: 'center',
-      backgroundColor: colors.accent,
-    },
-    sourceIconText: {
-      color: colors.white,
-      fontWeight: Typography.fontWeight.bold,
-      fontSize: Typography.fontSize.sm,
-    },
-    sourceTextWrap: {
-      flex: 1,
-    },
-    sourceTitle: {
-      color: colors.textPrimary,
-      fontSize: Typography.fontSize.sm,
-      fontWeight: Typography.fontWeight.bold,
-    },
-    sourceMeta: {
-      color: colors.textMuted,
-      fontSize: Typography.fontSize.sm,
-    },
-    sideEmptyText: {
-      color: colors.textMuted,
-      fontSize: Typography.fontSize.base,
-      lineHeight: 20,
-    },
-    marketCard: {
-      backgroundColor: colors.surface,
-      borderRadius: 14,
-      borderWidth: 1,
-      borderColor: colors.borderSubtle,
-      paddingHorizontal: 10,
-      paddingVertical: 10,
-      gap: 8,
-    },
-    marketTitle: {
-      color: colors.textPrimary,
-      fontSize: Typography.fontSize.base,
-      fontWeight: Typography.fontWeight.bold,
-      marginBottom: 2,
-    },
-    marketItem: {
-      borderWidth: 1,
-      borderColor: colors.borderSubtle,
-      borderRadius: 12,
-      paddingHorizontal: 10,
-      paddingVertical: 8,
-      backgroundColor: colors.surfaceHigh,
-      flexDirection: 'row',
-      alignItems: 'center',
-      justifyContent: 'space-between',
-      gap: 8,
-    },
-    marketLeft: {
-      flex: 1,
-      minWidth: 0,
-    },
-    marketLabel: {
-      color: colors.textPrimary,
-      fontSize: Typography.fontSize.sm,
-      fontWeight: Typography.fontWeight.bold,
-    },
-    marketKind: {
-      color: colors.textMuted,
-      fontSize: Typography.fontSize.xs,
-      marginTop: 2,
-      textTransform: 'uppercase',
-      letterSpacing: 0.4,
-      fontWeight: Typography.fontWeight.medium,
-    },
-    marketRight: {
-      alignItems: 'flex-end',
-    },
-    marketValue: {
-      color: colors.textPrimary,
-      fontSize: Typography.fontSize.sm,
-      fontWeight: Typography.fontWeight.bold,
-    },
-    marketChange: {
-      fontSize: Typography.fontSize.xs,
-      fontWeight: Typography.fontWeight.bold,
-      marginTop: 2,
-    },
-    title: {
-      fontSize: Typography.fontSize.xl,
-      fontWeight: Typography.fontWeight.bold,
-      color: colors.textPrimary,
-    },
-    subtitle: {
-      fontSize: Typography.fontSize.base,
-      color: colors.textSecondary,
-      marginTop: -4,
-    },
-    sectionTitle: {
-      fontSize: Typography.fontSize.md,
-      color: colors.accent,
-      fontWeight: Typography.fontWeight.bold,
-      marginTop: Spacing.xs,
-    },
-    periodToggleRow: {
-      flexDirection: 'row',
-      gap: Spacing.sm,
-      marginTop: Spacing.xs,
-      alignItems: 'center',
-      minHeight: 44,
-    },
-    periodToggleButton: {
-      backgroundColor: colors.surface,
-      borderWidth: 1,
-      borderColor: colors.border,
-      borderRadius: Radius.md,
-      paddingHorizontal: Spacing.lg,
-      height: 40,
-      width: 96,
-      justifyContent: 'center',
-      alignItems: 'center',
-    },
-    periodToggleButtonActive: {
-      backgroundColor: colors.accentLight,
-      borderColor: colors.accent,
-    },
-    periodToggleText: {
-      color: colors.textSecondary,
-      fontWeight: Typography.fontWeight.medium,
-      fontSize: Typography.fontSize.base,
-    },
-    periodToggleTextActive: {
-      color: colors.textPrimary,
-      fontWeight: Typography.fontWeight.medium,
-    },
-    filterScroll: {
-      minHeight: 46,
-    },
-    chipsRow: {
-      flexDirection: 'row',
-      gap: Spacing.sm,
-      paddingRight: Spacing.lg,
-      alignItems: 'center',
-      minHeight: 44,
-    },
-    chip: {
-      backgroundColor: colors.surface,
-      borderWidth: 1,
-      borderColor: colors.borderSubtle,
-      borderRadius: Radius.full,
-      height: 40,
-      justifyContent: 'center',
-      paddingHorizontal: Spacing.md,
-      alignSelf: 'flex-start',
-      alignItems: 'center',
-      overflow: 'hidden',
-    },
-    categoryChip: {
-      width: 92,
-    },
-    sourceChip: {
-      width: 108,
-    },
-    chipActive: {
-      backgroundColor: colors.accent,
-      borderColor: colors.accent,
-    },
-    chipText: {
-      color: colors.textSecondary,
-      fontWeight: Typography.fontWeight.medium,
-      fontSize: Typography.fontSize.sm,
-      lineHeight: 18,
-      textAlign: 'center',
-    },
-    chipTextActive: {
-      color: colors.white,
-    },
-    sortOptionsRow: {
-      flexDirection: 'row',
-      flexWrap: 'wrap',
-      gap: Spacing.sm,
-      alignItems: 'center',
-      minHeight: 40,
-    },
-    sortOption: {
-      borderRadius: Radius.full,
-      borderWidth: 1,
-      borderColor: colors.border,
-      height: 36,
-      width: 118,
-      justifyContent: 'center',
-      paddingHorizontal: Spacing.md,
-      backgroundColor: colors.background,
-      alignSelf: 'flex-start',
-      alignItems: 'center',
-    },
-    sortOptionActive: {
-      borderColor: colors.accent,
-      backgroundColor: colors.accentLight,
-    },
-    sortOptionText: {
-      textTransform: 'capitalize',
-      color: colors.textSecondary,
-      fontSize: Typography.fontSize.sm,
-      fontWeight: Typography.fontWeight.medium,
-    },
-    sortOptionTextActive: {
-      color: colors.textPrimary,
-      fontWeight: Typography.fontWeight.medium,
-    },
-    featuredCard: {
-      backgroundColor: colors.surfaceHigh,
-      borderRadius: Radius.lg,
-      borderWidth: 1,
-      borderColor: colors.border,
-      padding: Spacing.lg,
-      gap: Spacing.sm,
-    },
-    featuredCardStable: {
-      minHeight: 190,
-    },
-    featuredTag: {
-      alignSelf: 'flex-start',
-      color: colors.accent,
-      fontWeight: Typography.fontWeight.bold,
-      fontSize: Typography.fontSize.sm,
-      backgroundColor: colors.background,
-      borderRadius: Radius.full,
-      borderWidth: 1,
-      borderColor: colors.border,
-      paddingVertical: 4,
-      paddingHorizontal: Spacing.sm,
-    },
-    featuredTitle: {
-      color: colors.textPrimary,
-      fontSize: Typography.fontSize.lg,
-      fontWeight: Typography.fontWeight.bold,
-      lineHeight: 25,
-    },
-    featuredSummary: {
-      color: colors.textSecondary,
-      fontSize: Typography.fontSize.base,
-      lineHeight: 21,
-    },
-    metaRow: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: Spacing.sm,
-    },
-    metaText: {
-      color: colors.textMuted,
-      fontSize: Typography.fontSize.sm,
-    },
-    metaDivider: {
-      color: colors.textMuted,
-      fontSize: Typography.fontSize.sm,
-    },
-    categoryBadge: {
-      alignSelf: 'flex-start',
-      backgroundColor: colors.surface,
-      borderRadius: Radius.full,
-      borderWidth: 1,
-      borderColor: colors.borderSubtle,
-      paddingVertical: 4,
-      paddingHorizontal: Spacing.sm,
-    },
-    categoryBadgeText: {
-      color: colors.textSecondary,
-      fontWeight: Typography.fontWeight.medium,
-      fontSize: Typography.fontSize.sm,
-    },
-    newsCard: {
-      backgroundColor: colors.surface,
-      borderRadius: Radius.lg,
-      borderWidth: 1,
-      borderColor: colors.borderSubtle,
-      padding: Spacing.md,
-      gap: Spacing.xs,
-    },
-    newsListWrap: {
-      minHeight: 260,
-      gap: Spacing.sm,
-    },
-    newsListEmptyState: {
-      minHeight: 120,
-      justifyContent: 'center',
-      borderWidth: 1,
-      borderColor: colors.borderSubtle,
-      borderRadius: Radius.lg,
-      padding: Spacing.md,
-      backgroundColor: colors.surface,
-    },
-    cardHeader: {
-      flexDirection: 'row',
-      justifyContent: 'space-between',
-      alignItems: 'center',
-      marginBottom: 2,
-    },
-    cardCategory: {
-      color: colors.accent,
-      fontSize: Typography.fontSize.sm,
-      fontWeight: Typography.fontWeight.bold,
-    },
-    cardDate: {
-      color: colors.textMuted,
-      fontSize: Typography.fontSize.sm,
-    },
-    newsTitle: {
-      color: colors.textPrimary,
-      fontSize: Typography.fontSize.md,
-      fontWeight: Typography.fontWeight.bold,
-      lineHeight: 22,
-    },
-    newsSummary: {
-      color: colors.textSecondary,
-      fontSize: Typography.fontSize.base,
-      lineHeight: 20,
-    },
-    cardSource: {
-      marginTop: Spacing.xs,
-      color: colors.textMuted,
-      fontSize: Typography.fontSize.sm,
-      fontWeight: Typography.fontWeight.medium,
-    },
-    emptyState: {
-      backgroundColor: colors.surface,
-      borderRadius: Radius.lg,
-      borderWidth: 1,
-      borderColor: colors.borderSubtle,
-      padding: Spacing.lg,
-    },
-    emptyStateText: {
-      color: colors.textSecondary,
-      fontSize: Typography.fontSize.base,
-    },
-  });
+const s = (colors: any) => StyleSheet.create({
+  // ── Sayfa ──────────────────────────────────────────────────────────────
+  container: { flex: 1, backgroundColor: colors.background },
+  content: { paddingHorizontal: Spacing.lg, paddingTop: Spacing.lg, paddingBottom: Spacing.xxl },
+
+  // ── Masthead (Gazete başlığı) ──────────────────────────────────────────
+  masthead: { alignItems: 'center', gap: 4, marginBottom: Spacing.md },
+  mastheadLineThick: { width: '100%', height: 3, backgroundColor: colors.accent },
+  mastheadLineThin: { width: '100%', height: 1, backgroundColor: colors.accent, opacity: 0.5 },
+  mastheadMeta: {
+    flexDirection: 'row', alignItems: 'center', gap: Spacing.sm,
+    width: '100%', justifyContent: 'center', paddingVertical: 3,
+  },
+  mastheadMetaText: {
+    fontSize: 9, color: colors.textMuted,
+    fontWeight: '600', letterSpacing: 1.5, textTransform: 'uppercase',
+  },
+  mastheadMetaDot: { fontSize: 6, color: colors.accent, opacity: 0.6 },
+  mastheadTitle: {
+    fontSize: 34,
+    fontWeight: '900',
+    color: colors.accent,
+    letterSpacing: 8,
+    textTransform: 'uppercase',
+    textAlign: 'center',
+  },
+  mastheadSlogan: {
+    fontSize: 10,
+    color: colors.textMuted,
+    fontStyle: 'italic',
+    letterSpacing: 0.5,
+    textAlign: 'center',
+    marginBottom: 2,
+  },
+  mastheadDate: { fontSize: Typography.fontSize.xs, color: colors.textMuted, fontStyle: 'italic' },
+  mastheadEdition: { fontSize: Typography.fontSize.xs, color: colors.textMuted, fontStyle: 'italic' },
+
+  // ── Mobil filtre çubuğu ───────────────────────────────────────────────
+  mobileFilterBar: { flexDirection: 'row', gap: Spacing.xs, paddingBottom: Spacing.sm, paddingRight: Spacing.lg },
+  mobileChip: {
+    borderWidth: 1, borderColor: colors.border, borderRadius: Radius.full,
+    paddingHorizontal: Spacing.md, paddingVertical: 6, backgroundColor: colors.surface,
+  },
+  mobileChipActive: { backgroundColor: colors.accent, borderColor: colors.accent },
+  mobileChipText: { fontSize: Typography.fontSize.sm, color: colors.textSecondary, fontWeight: Typography.fontWeight.medium },
+  mobileChipTextActive: { color: colors.white },
+  mobileChipDivider: { width: 1, backgroundColor: colors.border, marginHorizontal: 4 },
+
+  // ── Ana layout ────────────────────────────────────────────────────────
+  boardRow: { width: '100%' },
+  boardRowWeb: { flexDirection: 'row', alignItems: 'flex-start', gap: Spacing.lg },
+  mainCol: { width: '100%', gap: 0 },
+  mainColWeb: { flex: 1, minWidth: 0 },
+
+  // ── Loading ───────────────────────────────────────────────────────────
+  loadingRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm, paddingVertical: Spacing.lg },
+  loadingText: { color: colors.textMuted, fontSize: Typography.fontSize.sm },
+
+  // ── Manşet (Featured) ─────────────────────────────────────────────────
+  featured: {
+    borderWidth: 1, borderColor: colors.border,
+    borderRadius: Radius.lg, overflow: 'hidden',
+    backgroundColor: colors.surface, marginBottom: Spacing.md,
+  },
+  featuredImage: { width: '100%', height: 240 },
+  featuredImagePlaceholder: {
+    width: '100%', height: 180,
+    backgroundColor: colors.surfaceHigh,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  featuredImagePlaceholderText: {
+    fontSize: Typography.fontSize.xl, color: colors.textMuted,
+    fontWeight: Typography.fontWeight.bold, letterSpacing: 2,
+    textTransform: 'uppercase',
+  },
+  featuredBody: { padding: Spacing.lg, gap: Spacing.sm },
+  featuredCategory: {
+    fontSize: Typography.fontSize.xs, color: colors.accent,
+    fontWeight: '700', letterSpacing: 2,
+  },
+  featuredHeadline: {
+    fontSize: 24, fontWeight: '700',
+    color: colors.textPrimary, lineHeight: 32,
+  },
+  featuredLead: {
+    fontSize: Typography.fontSize.base, color: colors.textSecondary,
+    lineHeight: 22,
+  },
+  byline: { flexDirection: 'row', alignItems: 'center', gap: Spacing.xs, marginTop: 4 },
+  bylineSource: { fontSize: Typography.fontSize.sm, color: colors.textMuted, fontWeight: Typography.fontWeight.bold },
+  bylineDot: { color: colors.textMuted, fontSize: Typography.fontSize.sm },
+  bylineDate: { fontSize: Typography.fontSize.sm, color: colors.textMuted },
+
+  // ── Kesme çizgileri ───────────────────────────────────────────────────
+  rule: { height: 2, backgroundColor: colors.accent, marginVertical: Spacing.md },
+  thinRule: { height: 1, backgroundColor: colors.borderSubtle, marginVertical: Spacing.sm },
+
+  // ── 2'li Grid ─────────────────────────────────────────────────────────
+  grid: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.md, marginBottom: Spacing.md },
+  gridCard: {
+    flex: 1, minWidth: 160,
+    borderWidth: 1, borderColor: colors.borderSubtle,
+    borderRadius: Radius.lg, overflow: 'hidden',
+    backgroundColor: colors.surface,
+  },
+  gridImage: { width: '100%', height: 120 },
+  gridImagePlaceholder: {
+    width: '100%', height: 90,
+    backgroundColor: colors.surfaceHigh,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  gridImagePlaceholderText: {
+    fontSize: Typography.fontSize.xl, color: colors.accentLight,
+    fontWeight: '700',
+  },
+  gridBody: { padding: Spacing.md, gap: 4 },
+  gridCategory: {
+    fontSize: Typography.fontSize.xs, color: colors.accent,
+    fontWeight: '700', letterSpacing: 1.5,
+  },
+  gridHeadline: {
+    fontSize: Typography.fontSize.md, fontWeight: '700',
+    color: colors.textPrimary, lineHeight: 22,
+  },
+  gridSummary: { fontSize: Typography.fontSize.sm, color: colors.textSecondary, lineHeight: 18 },
+  gridByline: { fontSize: Typography.fontSize.xs, color: colors.textMuted, marginTop: 4 },
+
+  // ── Kompakt liste ─────────────────────────────────────────────────────
+  listCard: { flexDirection: 'row', gap: Spacing.md, paddingVertical: Spacing.sm },
+  listBody: { flex: 1, gap: 4 },
+  listCategory: {
+    fontSize: Typography.fontSize.xs, color: colors.accent,
+    fontWeight: '700', letterSpacing: 1.5,
+  },
+  listHeadline: {
+    fontSize: Typography.fontSize.md, fontWeight: '700',
+    color: colors.textPrimary, lineHeight: 21,
+  },
+  listSummary: { fontSize: Typography.fontSize.sm, color: colors.textSecondary, lineHeight: 18 },
+  listByline: { fontSize: Typography.fontSize.xs, color: colors.textMuted, marginTop: 2 },
+  listThumb: {
+    width: 88, height: 72,
+    borderRadius: Radius.md, flexShrink: 0,
+  },
+
+  // ── Sağ kolon ─────────────────────────────────────────────────────────
+  rightCol: { width: 290, gap: Spacing.md },
+
+  // ── Filtre paneli ─────────────────────────────────────────────────────
+  filterPanel: {
+    borderWidth: 1, borderColor: colors.border,
+    borderRadius: Radius.lg, padding: Spacing.md,
+    backgroundColor: colors.surface, gap: Spacing.sm,
+  },
+  filterPanelTitle: {
+    fontSize: Typography.fontSize.sm, fontWeight: '700',
+    color: colors.accent, textTransform: 'uppercase',
+    letterSpacing: 1.5, borderBottomWidth: 1,
+    borderBottomColor: colors.borderSubtle, paddingBottom: Spacing.xs,
+  },
+  filterLabel: {
+    fontSize: Typography.fontSize.xs, color: colors.textMuted,
+    fontWeight: '700', textTransform: 'uppercase', letterSpacing: 1,
+    marginTop: Spacing.xs,
+  },
+  periodRow: { flexDirection: 'row', gap: Spacing.xs },
+  periodBtn: {
+    flex: 1, borderWidth: 1, borderColor: colors.border,
+    borderRadius: Radius.md, paddingVertical: 8,
+    alignItems: 'center', backgroundColor: colors.background,
+  },
+  periodBtnActive: { backgroundColor: colors.accent, borderColor: colors.accent },
+  periodBtnText: { fontSize: Typography.fontSize.sm, color: colors.textSecondary, fontWeight: Typography.fontWeight.medium },
+  periodBtnTextActive: { color: colors.white },
+  chipWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.xs },
+  filterChip: {
+    borderWidth: 1, borderColor: colors.borderSubtle,
+    borderRadius: Radius.full, paddingHorizontal: Spacing.sm,
+    paddingVertical: 5, backgroundColor: colors.background,
+  },
+  filterChipActive: { backgroundColor: colors.accent, borderColor: colors.accent },
+  filterChipText: { fontSize: Typography.fontSize.xs, color: colors.textSecondary, fontWeight: Typography.fontWeight.medium },
+  filterChipTextActive: { color: colors.white },
+
+  // ── Yan panel (kaynaklar, piyasalar) ──────────────────────────────────
+  sidePanel: {
+    borderWidth: 1, borderColor: colors.border,
+    borderRadius: Radius.lg, padding: Spacing.md,
+    backgroundColor: colors.surface, gap: Spacing.sm,
+  },
+  sidePanelHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  sidePanelTitle: {
+    fontSize: Typography.fontSize.sm, fontWeight: '700',
+    color: colors.accent, textTransform: 'uppercase', letterSpacing: 1.5,
+  },
+  sidePanelCount: { fontSize: Typography.fontSize.xs, color: colors.textMuted },
+  sourceList: { gap: Spacing.xs },
+  sourceRow: {
+    flexDirection: 'row', alignItems: 'center', gap: Spacing.sm,
+    paddingVertical: 6, borderBottomWidth: 1, borderBottomColor: colors.borderSubtle,
+  },
+  sourceAvatar: {
+    width: 28, height: 28, borderRadius: 6,
+    backgroundColor: colors.accent, alignItems: 'center', justifyContent: 'center',
+  },
+  sourceAvatarText: { color: colors.white, fontWeight: '700', fontSize: Typography.fontSize.sm },
+  sourceName: { fontSize: Typography.fontSize.sm, fontWeight: '700', color: colors.textPrimary },
+  sourceMeta: { fontSize: Typography.fontSize.xs, color: colors.textMuted },
+
+  // ── Piyasalar ─────────────────────────────────────────────────────────
+  marketRow: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    paddingVertical: 6, borderBottomWidth: 1, borderBottomColor: colors.borderSubtle,
+  },
+  marketLabel: { fontSize: Typography.fontSize.sm, fontWeight: '700', color: colors.textPrimary },
+  marketKind: { fontSize: Typography.fontSize.xs, color: colors.textMuted, textTransform: 'uppercase', letterSpacing: 0.5 },
+  marketValue: { fontSize: Typography.fontSize.sm, fontWeight: '700', color: colors.textPrimary },
+  marketChange: { fontSize: Typography.fontSize.xs, fontWeight: '700' },
+
+  // ── Boş durum ─────────────────────────────────────────────────────────
+  emptyBox: {
+    borderWidth: 1, borderColor: colors.borderSubtle,
+    borderRadius: Radius.lg, padding: Spacing.lg,
+    backgroundColor: colors.surface, minHeight: 120,
+    justifyContent: 'center', alignItems: 'center',
+  },
+  emptyText: { color: colors.textMuted, fontSize: Typography.fontSize.base, textAlign: 'center' },
+
+  // ── Günün Konusu Şeridi ────────────────────────────────────────────────
+  gununKonusuStrip: {
+    flexDirection: 'row',
+    alignItems: 'stretch',
+    width: '100%',
+    backgroundColor: colors.surfaceHigh,
+    borderRadius: Radius.sm,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: colors.accent,
+    marginTop: 2,
+  },
+  gununKonusuStripBadge: {
+    backgroundColor: colors.accent,
+    paddingHorizontal: Spacing.sm,
+    paddingVertical: Spacing.xs,
+    justifyContent: 'center',
+    alignItems: 'center',
+    minWidth: 68,
+  },
+  gununKonusuStripBadgeText: {
+    color: colors.white,
+    fontWeight: '900',
+    fontSize: 9,
+    letterSpacing: 0.5,
+    textAlign: 'center',
+  },
+  gununKonusuStripBody: {
+    flex: 1,
+    paddingHorizontal: Spacing.md,
+    paddingVertical: 6,
+    justifyContent: 'center',
+    gap: 2,
+  },
+  gununKonusuStripCat: {
+    fontSize: 9,
+    color: colors.accent,
+    fontWeight: '700',
+    letterSpacing: 1,
+    textTransform: 'uppercase',
+  },
+  gununKonusuStripHeadline: {
+    fontSize: Typography.fontSize.sm,
+    color: colors.textPrimary,
+    fontWeight: '600',
+    lineHeight: 18,
+  },
+
+  // ── Son Dakika Ticker ─────────────────────────────────────────────────
+  ticker: {
+    flexDirection: 'row',
+    alignItems: 'stretch',
+    backgroundColor: '#1a1a2e',
+    borderRadius: Radius.sm,
+    overflow: 'hidden',
+    marginBottom: Spacing.sm,
+    height: 44,
+    borderWidth: 1,
+    borderColor: colors.error,
+  },
+  tickerBadge: {
+    backgroundColor: colors.error,
+    paddingHorizontal: Spacing.md,
+    justifyContent: 'center',
+    alignItems: 'center',
+    flexShrink: 0,
+    gap: 4,
+  },
+  tickerLiveDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: colors.white,
+    opacity: 0.9,
+  },
+  tickerBadgeText: {
+    color: colors.white,
+    fontWeight: '900',
+    fontSize: 9,
+    letterSpacing: 0.5,
+    textAlign: 'center',
+  },
+  tickerDivider: {
+    width: 1,
+    backgroundColor: colors.error,
+    opacity: 0.5,
+  },
+  tickerTrack: {
+    flex: 1,
+    overflow: 'hidden',
+    justifyContent: 'center',
+  },
+  tickerInner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    width: 9000,
+  },
+  tickerItemWrap: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexShrink: 0,
+    paddingLeft: Spacing.md,
+  },
+  tickerItem: {
+    color: '#e8e8f0',
+    fontSize: Typography.fontSize.sm,
+    fontWeight: Typography.fontWeight.medium,
+    flexShrink: 0,
+  },
+  tickerDot: {
+    color: colors.error,
+    fontSize: Typography.fontSize.xs,
+    flexShrink: 0,
+  },
+
+  // ── Filtre paneli güncellemeleri ──────────────────────────────────────
+  filterPanelHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    borderBottomWidth: 1,
+    borderBottomColor: colors.borderSubtle,
+    paddingBottom: Spacing.xs,
+  },
+  resetBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  resetBadge: {
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    backgroundColor: colors.error,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  resetBadgeNum: {
+    color: colors.white,
+    fontSize: 10,
+    fontWeight: '700',
+  },
+  resetBtnText: {
+    fontSize: Typography.fontSize.xs,
+    color: colors.error,
+    fontWeight: '700',
+  },
+  // ── Dil segmented control ─────────────────────────────────────────────
+  segmentedCtrl: {
+    flexDirection: 'row',
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: Radius.md,
+    overflow: 'hidden',
+    backgroundColor: colors.background,
+  },
+  segment: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 9,
+    gap: 2,
+  },
+  segmentBorder: {
+    borderRightWidth: 1,
+    borderRightColor: colors.borderSubtle,
+  },
+  segmentActive: {
+    backgroundColor: colors.accent,
+  },
+  segmentFlag: {
+    fontSize: 15,
+  },
+  segmentText: {
+    fontSize: 9,
+    fontWeight: '700',
+    color: colors.textSecondary,
+    letterSpacing: 0.5,
+  },
+  segmentTextActive: {
+    color: colors.white,
+  },
+
+  filterChipCount: {
+    fontSize: Typography.fontSize.xs,
+    opacity: 0.7,
+  },
+  filterResultRow: {
+    borderTopWidth: 1,
+    borderTopColor: colors.borderSubtle,
+    paddingTop: Spacing.xs,
+    marginTop: Spacing.xs,
+  },
+  filterResultText: {
+    fontSize: Typography.fontSize.xs,
+    color: colors.textMuted,
+    textAlign: 'center',
+    fontStyle: 'italic',
+  },
+});
