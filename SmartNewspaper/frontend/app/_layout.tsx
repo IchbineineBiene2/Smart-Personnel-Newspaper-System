@@ -119,6 +119,22 @@ function RootLayoutNav({ initialRouteName }: RootLayoutNavProps) {
             },
           }}
         />
+        <Stack.Screen
+          name="news/[id]"
+          options={{
+            title: 'Haber Detayi',
+            headerTintColor: colors.textPrimary,
+            headerStyle: {
+              backgroundColor: colors.surface,
+            },
+            headerTitleAlign: 'center',
+            headerTitleStyle: {
+              color: colors.textPrimary,
+              fontSize: 18,
+              fontWeight: '700',
+            },
+          }}
+        />
         <Stack.Screen name="modal" options={{ presentation: 'modal' }} />
       </Stack>
     </ThemeProvider>

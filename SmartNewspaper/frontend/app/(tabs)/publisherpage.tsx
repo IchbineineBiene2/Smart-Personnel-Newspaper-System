@@ -1,16 +1,20 @@
 import { useMemo, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useRouter } from 'expo-router';
+import { ActivityIndicator, Image } from 'react-native';
 
 import { Radius, Spacing, Typography } from '@/constants/theme';
 import { useHiddenPublisherState } from '@/hooks/useHiddenPublisherState';
+import { useApiNews } from '@/hooks/useNews';
 import { useTheme } from '@/hooks/useTheme';
-import { PUBLISHERS, PUBLISHER_FILTERS } from '@/services/publisherData';
+import { buildPublisherDataset } from '@/services/publisherProfiles';
 
 export default function PublisherPage() {
   const router = useRouter();
   const { colors } = useTheme();
   const { followedIds, toggleFollow } = useHiddenPublisherState();
+  const { articles, loading } = useApiNews();
+  const { publishers, filters } = useMemo(() => buildPublisherDataset(articles), [articles]);
 
   const [query, setQuery] = useState('');
   const [activeFilter, setActiveFilter] = useState('All Sources');
@@ -18,7 +22,7 @@ export default function PublisherPage() {
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
 
-    return PUBLISHERS.filter((item) => {
+    return publishers.filter((item) => {
       const passFilter = activeFilter === 'All Sources' || item.category === activeFilter;
       const passSearch =
         !q ||
@@ -28,7 +32,7 @@ export default function PublisherPage() {
 
       return passFilter && passSearch;
     });
-  }, [activeFilter, query]);
+  }, [activeFilter, publishers, query]);
 
   return (
     <ScrollView style={styles(colors).container} contentContainerStyle={styles(colors).content}>
@@ -46,7 +50,7 @@ export default function PublisherPage() {
       />
 
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles(colors).filterRow}>
-        {PUBLISHER_FILTERS.map((filter) => {
+        {filters.map((filter) => {
           const active = activeFilter === filter;
           return (
             <Pressable
@@ -60,6 +64,8 @@ export default function PublisherPage() {
         })}
       </ScrollView>
 
+      {loading ? <ActivityIndicator color={colors.accent} style={styles(colors).loader} /> : null}
+
       {filtered.map((publisher) => {
         const followed = followedIds.includes(publisher.id);
 
@@ -71,7 +77,11 @@ export default function PublisherPage() {
           >
             <View style={styles(colors).cardTop}>
               <View style={styles(colors).logoBox}>
-                <Text style={styles(colors).logoText}>{publisher.logoText}</Text>
+                {publisher.logoUrl ? (
+                  <Image source={{ uri: publisher.logoUrl }} style={styles(colors).logoImage} resizeMode="cover" />
+                ) : (
+                  <Text style={styles(colors).logoText}>{publisher.logoText}</Text>
+                )}
               </View>
 
               <Pressable
@@ -135,6 +145,10 @@ const styles = (colors: any) =>
       gap: Spacing.sm,
       paddingRight: Spacing.lg,
     },
+    loader: {
+      marginTop: Spacing.sm,
+      marginBottom: Spacing.sm,
+    },
     chip: {
       borderWidth: 1,
       borderColor: colors.border,
@@ -184,6 +198,11 @@ const styles = (colors: any) =>
       color: colors.textPrimary,
       fontSize: Typography.fontSize.sm,
       fontWeight: Typography.fontWeight.bold,
+    },
+    logoImage: {
+      width: '100%',
+      height: '100%',
+      borderRadius: Radius.md,
     },
     followButton: {
       borderWidth: 1,

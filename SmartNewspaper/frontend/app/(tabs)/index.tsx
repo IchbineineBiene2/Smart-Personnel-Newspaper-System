@@ -1,11 +1,14 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Animated, Image, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useRouter } from 'expo-router';
 
+import NewsQuickPreviewModal from '@/components/NewsQuickPreviewModal';
 import { usePersonalizedNews } from '@/hooks/useNews';
 import { ContentCategory } from '@/services/content';
 import { Radius, Spacing, Typography } from '@/constants/theme';
 import { usePreferences } from '@/hooks/usePreferences';
 import { useTheme } from '@/hooks/useTheme';
+import { getPublisherIdFromSourceName } from '@/services/publisherProfiles';
 
 type PeriodFilter = 'daily' | 'weekly';
 type SortKey = 'newest' | 'popularity' | 'relevance';
@@ -27,6 +30,7 @@ type PersonalizedNewsItem = {
   id: string;
   title: string;
   summary: string;
+  content?: string;
   source: string;
   publicationDate: string;
   category: ContentCategory;
@@ -90,6 +94,7 @@ function normalizeFilterValue(value: string) {
 }
 
 export default function PersonalizedNewsScreen() {
+  const router = useRouter();
   const { colors } = useTheme();
   const { preferredCategories, preferredNewspapers } = usePreferences();
   const isWeb = Platform.OS === 'web';
@@ -102,6 +107,14 @@ export default function PersonalizedNewsScreen() {
   const [countryFilter, setCountryFilter] = useState<CountryFilter>('all');
   const [languageFilter, setLanguageFilter] = useState<LanguageFilter>('all');
   const [langFilter, setLangFilter] = useState<LangFilter>('all');
+  const [previewItem, setPreviewItem] = useState<{
+    title: string;
+    summary: string;
+    sourceName: string;
+    imageUrl?: string;
+    publishedAt?: string;
+    url?: string;
+  } | null>(null);
 
   // Ticker animasyonu
   const tickerX = useRef(new Animated.Value(0)).current;
@@ -208,6 +221,22 @@ export default function PersonalizedNewsScreen() {
   const featured = sortedNews[0];
   const secondaries = sortedNews.slice(1, 5);
   const compactList = sortedNews.slice(5);
+
+  const openPublisherProfile = (sourceName: string) => {
+    const publisherId = getPublisherIdFromSourceName(sourceName);
+    router.push(`/publisherprofile?id=${encodeURIComponent(publisherId)}` as any);
+  };
+
+  const openArticlePreview = (article: PersonalizedNewsItem) => {
+    setPreviewItem({
+      title: article.title,
+      summary: article.summary,
+      sourceName: article.source,
+      imageUrl: article.imageUrl,
+      publishedAt: formatDate(article.publicationDate),
+      url: article.url,
+    });
+  };
 
   // ── Filtre paneli (hem sağ kolonda hem mobil üstte kullanılır) ──────────
   const activeFilterCount = [
@@ -497,10 +526,14 @@ export default function PersonalizedNewsScreen() {
               )}
               <View style={s(colors).featuredBody}>
                 <Text style={s(colors).featuredCategory}>{featured.category.toUpperCase()}</Text>
-                <Text style={s(colors).featuredHeadline}>{featured.title}</Text>
+                <Pressable onPress={() => openArticlePreview(featured)}>
+                  <Text style={s(colors).featuredHeadlineLink}>{featured.title}</Text>
+                </Pressable>
                 <Text style={s(colors).featuredLead}>{featured.summary}</Text>
                 <View style={s(colors).byline}>
-                  <Text style={s(colors).bylineSource}>{featured.source}</Text>
+                  <Pressable onPress={() => openPublisherProfile(featured.source)}>
+                    <Text style={s(colors).bylineSourceLink}>{featured.source}</Text>
+                  </Pressable>
                   <Text style={s(colors).bylineDot}>·</Text>
                   <Text style={s(colors).bylineDate}>{formatDate(featured.publicationDate)}</Text>
                 </View>
@@ -529,9 +562,17 @@ export default function PersonalizedNewsScreen() {
                   )}
                   <View style={s(colors).gridBody}>
                     <Text style={s(colors).gridCategory}>{item.category.toUpperCase()}</Text>
-                    <Text style={s(colors).gridHeadline} numberOfLines={3}>{item.title}</Text>
+                    <Pressable onPress={() => openArticlePreview(item)}>
+                      <Text style={s(colors).gridHeadlineLink} numberOfLines={3}>{item.title}</Text>
+                    </Pressable>
                     <Text style={s(colors).gridSummary} numberOfLines={2}>{item.summary}</Text>
-                    <Text style={s(colors).gridByline}>{item.source} · {formatDate(item.publicationDate)}</Text>
+                    <View style={s(colors).gridBylineRow}>
+                      <Pressable onPress={() => openPublisherProfile(item.source)}>
+                        <Text style={s(colors).gridBylineSource}>{item.source}</Text>
+                      </Pressable>
+                      <Text style={s(colors).gridBylineDot}>·</Text>
+                      <Text style={s(colors).gridBylineDate}>{formatDate(item.publicationDate)}</Text>
+                    </View>
                   </View>
                 </View>
               ))}
@@ -547,9 +588,17 @@ export default function PersonalizedNewsScreen() {
               <View style={s(colors).listCard}>
                 <View style={s(colors).listBody}>
                   <Text style={s(colors).listCategory}>{item.category.toUpperCase()}</Text>
-                  <Text style={s(colors).listHeadline} numberOfLines={2}>{item.title}</Text>
+                  <Pressable onPress={() => openArticlePreview(item)}>
+                    <Text style={s(colors).listHeadlineLink} numberOfLines={2}>{item.title}</Text>
+                  </Pressable>
                   <Text style={s(colors).listSummary} numberOfLines={2}>{item.summary}</Text>
-                  <Text style={s(colors).listByline}>{item.source} · {formatDate(item.publicationDate)}</Text>
+                  <View style={s(colors).listBylineRow}>
+                    <Pressable onPress={() => openPublisherProfile(item.source)}>
+                      <Text style={s(colors).listBylineSource}>{item.source}</Text>
+                    </Pressable>
+                    <Text style={s(colors).listBylineDot}>·</Text>
+                    <Text style={s(colors).listBylineDate}>{formatDate(item.publicationDate)}</Text>
+                  </View>
                 </View>
                 {item.imageUrl && (
                   <Image source={{ uri: item.imageUrl }} style={s(colors).listThumb} resizeMode="cover" />
@@ -610,15 +659,15 @@ export default function PersonalizedNewsScreen() {
                 {filteredFollowedSources.length ? filteredFollowedSources.map((src) => {
                   const meta = getSourceMeta(src);
                   return (
-                    <View key={src} style={s(colors).sourceRow}>
+                    <Pressable key={src} style={s(colors).sourceRow} onPress={() => openPublisherProfile(src)}>
                       <View style={s(colors).sourceAvatar}>
                         <Text style={s(colors).sourceAvatarText}>{src.charAt(0)}</Text>
                       </View>
                       <View style={{ flex: 1 }}>
-                        <Text style={s(colors).sourceName}>{src}</Text>
+                        <Text style={s(colors).sourceNameLink}>{src}</Text>
                         <Text style={s(colors).sourceMeta}>{meta.country} · {meta.language}</Text>
                       </View>
-                    </View>
+                    </Pressable>
                   );
                 }) : (
                   <Text style={s(colors).emptyText}>Eşleşen kaynak bulunamadı.</Text>
@@ -650,6 +699,16 @@ export default function PersonalizedNewsScreen() {
           </View>
         )}
       </View>
+      <NewsQuickPreviewModal
+        visible={!!previewItem}
+        item={previewItem}
+        colors={colors}
+        onClose={() => setPreviewItem(null)}
+        onPublisherPress={(sourceName) => {
+          setPreviewItem(null);
+          openPublisherProfile(sourceName);
+        }}
+      />
     </ScrollView>
   );
 }
@@ -738,12 +797,26 @@ const s = (colors: any) => StyleSheet.create({
     fontSize: 24, fontWeight: '700',
     color: colors.textPrimary, lineHeight: 32,
   },
+  featuredHeadlineLink: {
+    fontSize: 24,
+    fontWeight: '700',
+    color: colors.textPrimary,
+    lineHeight: 32,
+    textDecorationLine: 'underline',
+    textDecorationColor: colors.accent,
+  },
   featuredLead: {
     fontSize: Typography.fontSize.base, color: colors.textSecondary,
     lineHeight: 22,
   },
   byline: { flexDirection: 'row', alignItems: 'center', gap: Spacing.xs, marginTop: 4 },
   bylineSource: { fontSize: Typography.fontSize.sm, color: colors.textMuted, fontWeight: Typography.fontWeight.bold },
+  bylineSourceLink: {
+    fontSize: Typography.fontSize.sm,
+    color: colors.accent,
+    fontWeight: Typography.fontWeight.bold,
+    textDecorationLine: 'underline',
+  },
   bylineDot: { color: colors.textMuted, fontSize: Typography.fontSize.sm },
   bylineDate: { fontSize: Typography.fontSize.sm, color: colors.textMuted },
 
@@ -778,8 +851,24 @@ const s = (colors: any) => StyleSheet.create({
     fontSize: Typography.fontSize.md, fontWeight: '700',
     color: colors.textPrimary, lineHeight: 22,
   },
+  gridHeadlineLink: {
+    fontSize: Typography.fontSize.md,
+    fontWeight: '700',
+    color: colors.textPrimary,
+    lineHeight: 22,
+    textDecorationLine: 'underline',
+    textDecorationColor: colors.accent,
+  },
   gridSummary: { fontSize: Typography.fontSize.sm, color: colors.textSecondary, lineHeight: 18 },
-  gridByline: { fontSize: Typography.fontSize.xs, color: colors.textMuted, marginTop: 4 },
+  gridBylineRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.xs, marginTop: 4 },
+  gridBylineSource: {
+    fontSize: Typography.fontSize.xs,
+    color: colors.accent,
+    fontWeight: Typography.fontWeight.bold,
+    textDecorationLine: 'underline',
+  },
+  gridBylineDot: { fontSize: Typography.fontSize.xs, color: colors.textMuted },
+  gridBylineDate: { fontSize: Typography.fontSize.xs, color: colors.textMuted },
 
   // ── Kompakt liste ─────────────────────────────────────────────────────
   listCard: { flexDirection: 'row', gap: Spacing.md, paddingVertical: Spacing.sm },
@@ -792,8 +881,24 @@ const s = (colors: any) => StyleSheet.create({
     fontSize: Typography.fontSize.md, fontWeight: '700',
     color: colors.textPrimary, lineHeight: 21,
   },
+  listHeadlineLink: {
+    fontSize: Typography.fontSize.md,
+    fontWeight: '700',
+    color: colors.textPrimary,
+    lineHeight: 21,
+    textDecorationLine: 'underline',
+    textDecorationColor: colors.accent,
+  },
   listSummary: { fontSize: Typography.fontSize.sm, color: colors.textSecondary, lineHeight: 18 },
-  listByline: { fontSize: Typography.fontSize.xs, color: colors.textMuted, marginTop: 2 },
+  listBylineRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.xs, marginTop: 2 },
+  listBylineSource: {
+    fontSize: Typography.fontSize.xs,
+    color: colors.accent,
+    fontWeight: Typography.fontWeight.bold,
+    textDecorationLine: 'underline',
+  },
+  listBylineDot: { fontSize: Typography.fontSize.xs, color: colors.textMuted },
+  listBylineDate: { fontSize: Typography.fontSize.xs, color: colors.textMuted },
   listThumb: {
     width: 88, height: 72,
     borderRadius: Radius.md, flexShrink: 0,
@@ -861,6 +966,12 @@ const s = (colors: any) => StyleSheet.create({
   },
   sourceAvatarText: { color: colors.white, fontWeight: '700', fontSize: Typography.fontSize.sm },
   sourceName: { fontSize: Typography.fontSize.sm, fontWeight: '700', color: colors.textPrimary },
+  sourceNameLink: {
+    fontSize: Typography.fontSize.sm,
+    fontWeight: '700',
+    color: colors.accent,
+    textDecorationLine: 'underline',
+  },
   sourceMeta: { fontSize: Typography.fontSize.xs, color: colors.textMuted },
 
   // ── Piyasalar ─────────────────────────────────────────────────────────
