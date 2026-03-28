@@ -83,8 +83,7 @@ export function usePersonalizedNews() {
     return {
       id: a.id,
       title: a.title,
-      // Tam metin varsa onu, yoksa kısa özeti kullan
-      summary: (a.content && a.content.length > a.description.length) ? a.content.slice(0, 400) : a.description,
+      summary: a.description,
       source: a.source.name,
       publicationDate: a.publishedAt.slice(0, 10),
       category: mapToContentCategory(a.category, a.title, a.description),

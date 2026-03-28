@@ -141,3 +141,9 @@ export async function fetchArticles(params: FetchNewsParams = {}): Promise<ApiAr
   const data: { total: number; articles: ApiArticle[] } = await res.json();
   return data.articles;
 }
+
+export async function fetchArticleById(id: string): Promise<ApiArticle> {
+  const res = await fetch(`${API_BASE}/api/news/${encodeURIComponent(id)}`);
+  if (!res.ok) throw new Error(`API hatası: ${res.status}`);
+  return (await res.json()) as ApiArticle;
+}
