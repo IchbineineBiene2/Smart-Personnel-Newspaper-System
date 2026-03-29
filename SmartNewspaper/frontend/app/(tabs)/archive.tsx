@@ -1,6 +1,7 @@
 import { useState, useMemo } from 'react';
 import {
   Alert,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -9,9 +10,8 @@ import {
   View,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import * as Print from 'expo-print';
-import * as Sharing from 'expo-sharing';
 import { useTheme } from '@/hooks/useTheme';
+import { usePreferences } from '@/hooks/usePreferences';
 import {
   ARCHIVED_EDITIONS,
   getEditionArticles,
@@ -19,53 +19,33 @@ import {
   ArchivedEdition,
   ArchivedArticle,
 } from '@/services/archive';
+import { exportNewspaperPdf } from '@/services/pdf/newspaperPdfExporter';
 import { Radius, Spacing, Typography } from '@/constants/theme';
 
-function generateEditionHtml(edition: ArchivedEdition, articles: ArchivedArticle[]): string {
-  const articleRows = articles
-    .map(
-      (a) => `
-      <div style="border:1px solid #ddd;border-radius:8px;padding:16px;margin-bottom:12px;">
-        <span style="background:#f0e6d3;padding:2px 10px;border-radius:12px;font-size:11px;color:#3D2B1F;font-weight:600;">${a.category}</span>
-        <span style="float:right;font-size:11px;color:#999;">${a.source}</span>
-        <h3 style="margin:8px 0 4px;font-size:15px;color:#3B2A1A;">${a.title}</h3>
-        <p style="margin:0;font-size:13px;color:#7A5C3A;line-height:1.5;">${a.excerpt}</p>
-      </div>`
-    )
-    .join('');
-
-  return `
-    <html>
-    <head><meta charset="utf-8"/><style>
-      body { font-family: -apple-system, sans-serif; padding: 32px 24px; background: #fff; color: #3B2A1A; }
-      h1 { font-size: 22px; margin-bottom: 4px; }
-      h2 { font-size: 14px; color: #A08060; font-weight: 400; margin-top: 0; }
-      .tags { margin: 12px 0 20px; }
-      .tag { background: #FAF0D7; padding: 4px 12px; border-radius: 12px; font-size: 11px; margin-right: 6px; display: inline-block; }
-      hr { border: none; border-top: 1px solid #E8D5B0; margin: 16px 0; }
-    </style></head>
-    <body>
-      <h1>${edition.title}</h1>
-      <h2>${new Date(edition.generatedAt).toLocaleDateString('tr-TR', { day: 'numeric', month: 'long', year: 'numeric' })}</h2>
-      <div class="tags">${edition.categories.map((c) => `<span class="tag">${c}</span>`).join('')}</div>
-      <p style="font-size:13px;color:#7A5C3A;">${edition.summary}</p>
-      <hr/>
-      <h2 style="color:#3B2A1A;font-weight:600;font-size:16px;">${articles.length} Makale</h2>
-      ${articleRows}
-      <hr/>
-      <p style="text-align:center;font-size:11px;color:#A08060;">Smart Personnel Newspaper System</p>
-    </body>
-    </html>`;
-}
-
-async function downloadEditionPdf(edition: ArchivedEdition, articles: ArchivedArticle[]) {
+async function downloadEditionPdf(
+  edition: ArchivedEdition,
+  articles: ArchivedArticle[],
+  preferredCategories: string[]
+) {
   try {
-    const html = generateEditionHtml(edition, articles);
-    const { uri } = await Print.printToFileAsync({ html });
-    await Sharing.shareAsync(uri, {
-      mimeType: 'application/pdf',
-      dialogTitle: edition.title,
-      UTI: 'com.adobe.pdf',
+    await exportNewspaperPdf({
+      engine: Platform.OS === 'web' ? 'react-pdf' : 'html-css',
+      newspaperName: 'Smart Newspaper',
+      generatedAt: edition.generatedAt,
+      shareTitle: edition.title,
+      personalization: {
+        preferredCategories,
+      },
+      articles: articles.map((article) => ({
+        id: article.id,
+        title: article.title,
+        summary: article.excerpt,
+        content: article.excerpt,
+        category: article.category,
+        source: article.source,
+        date: article.publishedAt,
+        imageUrl: article.imageUrl,
+      })),
     });
   } catch (error) {
     Alert.alert('Hata', 'PDF olusturulurken bir sorun olustu.');
@@ -76,6 +56,7 @@ type ScreenState = 'list' | 'detail' | 'search';
 
 export default function Archive() {
   const { colors } = useTheme();
+  const { preferredCategories } = usePreferences();
   const [screen, setScreen] = useState<ScreenState>('list');
   const [selectedEdition, setSelectedEdition] = useState<ArchivedEdition | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
@@ -186,7 +167,7 @@ export default function Archive() {
 
         <Pressable
           style={s(colors).downloadButton}
-          onPress={() => downloadEditionPdf(selectedEdition, editionArticles)}
+          onPress={() => downloadEditionPdf(selectedEdition, editionArticles, preferredCategories)}
         >
           <Ionicons name="download-outline" size={20} color={colors.white} />
           <Text style={s(colors).downloadText}>PDF Olarak Indir</Text>
