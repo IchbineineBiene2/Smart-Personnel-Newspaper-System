@@ -9,6 +9,7 @@ export type Publisher = {
   id: string;
   name: string;
   logoText: string;
+  logoUrl?: string;
   description: string;
   category: PublisherCategory;
   readers: string;
@@ -25,6 +26,8 @@ export type PublisherArticle = {
   title: string;
   summary: string;
   tag: string;
+  imageUrl?: string;
+  originalUrl?: string;
   likes: number;
   comments: number;
   publishedAt: string;
