@@ -4,6 +4,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 
 import { useTheme } from '@/hooks/useTheme';
+import { Radius } from '@/constants/theme';
 
 interface AppHeaderProps {
   title: string;
@@ -14,6 +15,10 @@ export default function AppHeader({ title }: AppHeaderProps) {
   const { colors } = useTheme();
   const isWeb = Platform.OS === 'web';
   const [search, setSearch] = useState('');
+
+  const goToSearch = (query?: string) => {
+    router.push(query ? `/search?q=${encodeURIComponent(query)}` : '/search');
+  };
 
   return (
     <View
@@ -60,7 +65,8 @@ export default function AppHeader({ title }: AppHeaderProps) {
             <TextInput
               value={search}
               onChangeText={setSearch}
-              placeholder="Gazete, etkinlik veya yazar ara..."
+              onSubmitEditing={() => { if (search.trim()) { goToSearch(search); setSearch(''); } }}
+              placeholder="Haber, kaynak veya konu ara..."
               placeholderTextColor={colors.textMuted}
               style={[styles.searchInput, { color: colors.textPrimary }]}
               returnKeyType="search"
@@ -88,7 +94,13 @@ export default function AppHeader({ title }: AppHeaderProps) {
           </Pressable>
         </View>
       ) : (
-        <View style={[styles.dot, { backgroundColor: colors.accent }]} />
+        <Pressable
+          onPress={() => goToSearch()}
+          style={[styles.mobileSearchBtn, { borderColor: colors.borderSubtle, backgroundColor: colors.surfaceInput }]}
+          hitSlop={6}
+        >
+          <Ionicons name="search-outline" size={18} color={colors.textPrimary} />
+        </Pressable>
       )}
     </View>
   );
@@ -212,5 +224,13 @@ const styles = StyleSheet.create({
     width: 8,
     height: 8,
     borderRadius: 999,
+  },
+  mobileSearchBtn: {
+    width: 38,
+    height: 38,
+    borderRadius: Radius.md,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
 });

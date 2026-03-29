@@ -8,7 +8,10 @@ import { usePreferences } from '@/hooks/usePreferences';
 import { useBookmarks } from '@/hooks/useBookmarks';
 import { useTheme } from '@/hooks/useTheme';
 import { useLanguage, LANGUAGE_LABELS, LANGUAGES } from '@/hooks/useLanguage';
-import { NEWS, CATEGORIES, NEWSPAPERS } from '@/services/content';
+import { CATEGORIES, NEWSPAPERS } from '@/services/content';
+import { useApiNews } from '@/hooks/useNews';
+import { useSavedArticles } from '@/hooks/useSearch';
+import { mapToContentCategory } from '@/services/newsApi';
 import { UserProfile, getUserProfile, logoutUser, resetUserPassword } from '@/services/auth';
 import { THEME_NAMES, THEME_LABELS } from '@/theme/themes';
 import {
@@ -45,7 +48,8 @@ export default function Profile() {
   const [passwordMessage, setPasswordMessage] = useState<string | null>(null);
   const [passwordError, setPasswordError] = useState<string | null>(null);
   const { width: viewportWidth } = useWindowDimensions();
-  const savedNews = NEWS.filter((item) => savedIds.includes(item.id));
+  const { articles: apiArticles } = useApiNews();
+  const savedNews = useSavedArticles(savedIds, apiArticles);
   const sidebarWidth = viewportWidth < 420 ? 160 : viewportWidth < 768 ? 188 : 240;
 
   useFocusEffect(
@@ -459,12 +463,18 @@ export default function Profile() {
             <Text style={st(colors).info}>Henüz kaydedilmiş haber bulunmuyor.</Text>
           ) : null}
 
-          {savedNews.map((news) => (
-            <View key={news.id} style={st(colors).bookmarkCard}>
-              <Text style={st(colors).cardTitle}>{news.title}</Text>
-              <Text style={st(colors).cardMeta}>{news.category}</Text>
-              <Text style={st(colors).cardBody}>{news.excerpt}</Text>
-            </View>
+          {savedNews.map((article) => (
+            <Pressable
+              key={article.id}
+              style={st(colors).bookmarkCard}
+              onPress={() => router.push({ pathname: '/news/[id]', params: { id: article.id } })}
+            >
+              <Text style={st(colors).cardMeta}>
+                {mapToContentCategory(article.category, article.title, article.description)} · {article.source.name}
+              </Text>
+              <Text style={st(colors).cardTitle}>{article.title}</Text>
+              <Text style={st(colors).cardBody} numberOfLines={2}>{article.description}</Text>
+            </Pressable>
           ))}
         </>
         )}

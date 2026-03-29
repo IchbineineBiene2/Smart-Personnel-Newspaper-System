@@ -166,6 +166,89 @@ function buildPublisherLogoUrl(sourceName: string, sourceUrl?: string): string |
   return `https://www.google.com/s2/favicons?sz=128&domain_url=${encodeURIComponent(domain)}`;
 }
 
+// ─── Benzer Haber Skorlama ───────────────────────────────────────────────────
+type ArticleLike = { id: string; category?: string; title: string; language: string; description: string; source: { name: string }; publishedAt: string; imageUrl?: string };
+
+function getSimilarArticles(
+  currentId: string,
+  currentCategory: string,
+  currentTitle: string,
+  currentLanguage: string | undefined,
+  allArticles: ArticleLike[],
+  count = 8
+): ArticleLike[] {
+  const titleWords = currentTitle
+    .toLowerCase()
+    .split(/\s+/)
+    .filter((w) => w.length >= 4);
+
+  return allArticles
+    .filter((a) => a.id !== currentId)
+    .map((a) => {
+      let score = 0;
+      const aCat = mapToContentCategory(a.category, a.title, a.description);
+      if (aCat === currentCategory) score += 4;
+      if (a.language && currentLanguage && a.language === currentLanguage) score += 2;
+      const aWords = a.title.toLowerCase().split(/\s+/);
+      titleWords.forEach((w) => { if (aWords.some((aw) => aw.startsWith(w) || w.startsWith(aw))) score += 1; });
+      return { article: a, score };
+    })
+    .sort((a, b) => b.score - a.score || new Date(b.article.publishedAt).getTime() - new Date(a.article.publishedAt).getTime())
+    .slice(0, count)
+    .map((s) => s.article);
+}
+
+// ─── Yatay Öneri Kartı ───────────────────────────────────────────────────────
+function RelatedArticleCard({ article, onPress, colors }: { article: ArticleLike; onPress: () => void; colors: any }) {
+  const cat = mapToContentCategory(article.category, article.title, article.description);
+  const diff = Date.now() - new Date(article.publishedAt).getTime();
+  const mins = Math.floor(diff / 60000);
+  const timeLabel = mins < 60 ? `${mins}dk` : mins < 1440 ? `${Math.floor(mins / 60)}sa` : `${Math.floor(mins / 1440)}g`;
+  const imgUrl = article.imageUrl ? proxyImageUrl(article.imageUrl) : undefined;
+
+  return (
+    <Pressable
+      style={({ pressed }) => [
+        relatedStyles.card,
+        { backgroundColor: colors.surface, borderColor: colors.borderSubtle },
+        pressed && { opacity: 0.82 },
+      ]}
+      onPress={onPress}
+    >
+      {imgUrl ? (
+        <Image source={{ uri: imgUrl }} style={relatedStyles.thumb} resizeMode="cover" />
+      ) : (
+        <View style={[relatedStyles.thumbPlaceholder, { backgroundColor: colors.surfaceInput }]}>
+          <Text style={relatedStyles.thumbEmoji}>📰</Text>
+        </View>
+      )}
+      <View style={relatedStyles.cardBody}>
+        <View style={[relatedStyles.catBadge, { backgroundColor: colors.accent + '1A' }]}>
+          <Text style={[relatedStyles.catText, { color: colors.accent }]}>{cat}</Text>
+        </View>
+        <Text style={[relatedStyles.cardTitle, { color: colors.textPrimary }]} numberOfLines={3}>
+          {article.title}
+        </Text>
+        <Text style={[relatedStyles.cardMeta, { color: colors.textMuted }]}>
+          {article.source.name} · {timeLabel}
+        </Text>
+      </View>
+    </Pressable>
+  );
+}
+
+const relatedStyles = StyleSheet.create({
+  card:             { width: 200, borderRadius: Radius.lg, borderWidth: 1, overflow: 'hidden' },
+  thumb:            { width: '100%', height: 112 },
+  thumbPlaceholder: { width: '100%', height: 112, alignItems: 'center', justifyContent: 'center' },
+  thumbEmoji:       { fontSize: 24 },
+  cardBody:         { padding: Spacing.sm, gap: 5 },
+  catBadge:         { alignSelf: 'flex-start', paddingHorizontal: 7, paddingVertical: 2, borderRadius: Radius.full },
+  catText:          { fontSize: 10, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.3 },
+  cardTitle:        { fontSize: 13, fontWeight: '700', lineHeight: 18 },
+  cardMeta:         { fontSize: 11 },
+});
+
 export default function NewsDetailPage() {
   const router = useRouter();
   const { colors } = useTheme();
@@ -245,6 +328,12 @@ export default function NewsDetailPage() {
   );
   const sourceName = articleFromCache?.source?.name ?? params.source ?? 'Kaynak bilinmiyor';
   const sourceUrl = articleFromCache?.source?.url;
+  const currentLanguage = articleFromCache?.language;
+
+  const similarArticles = useMemo(
+    () => getSimilarArticles(params.id!, category, resolvedTitle ?? '', currentLanguage, articles),
+    [params.id, category, resolvedTitle, currentLanguage, articles]
+  );
   const publisherLogoUrl = useMemo(
     () => buildPublisherLogoUrl(sourceName, sourceUrl),
     [sourceName, sourceUrl]
@@ -685,6 +774,33 @@ export default function NewsDetailPage() {
         </View>
         )}
       </View>
+
+      {/* ── Önerilen Haberler ── */}
+      {similarArticles.length > 0 && (
+        <View style={styles(colors).relatedSection}>
+          <View style={styles(colors).relatedHeader}>
+            <View style={[styles(colors).relatedDot, { backgroundColor: colors.accent }]} />
+            <Text style={styles(colors).relatedTitle}>Benzer Haberler</Text>
+          </View>
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles(colors).relatedList}
+          >
+            {similarArticles.map((item) => (
+              <RelatedArticleCard
+                key={item.id}
+                article={item}
+                colors={colors}
+                onPress={() =>
+                  router.push({ pathname: '/news/[id]', params: { id: item.id } })
+                }
+              />
+            ))}
+          </ScrollView>
+        </View>
+      )}
+
     </ScrollView>
   );
 }
@@ -1009,5 +1125,32 @@ const styles = (colors: any) =>
     },
     galleryImageRight: {
       alignSelf: 'flex-end',
+    },
+    relatedSection: {
+      marginTop: Spacing.sm,
+      gap: Spacing.sm,
+    },
+    relatedHeader: {
+      flexDirection: 'row' as const,
+      alignItems: 'center' as const,
+      gap: Spacing.sm,
+      paddingHorizontal: Spacing.xs,
+    },
+    relatedDot: {
+      width: 7,
+      height: 7,
+      borderRadius: 4,
+    },
+    relatedTitle: {
+      fontSize: Typography.fontSize.sm,
+      fontWeight: '700' as const,
+      textTransform: 'uppercase' as const,
+      letterSpacing: 0.8,
+      color: colors.textPrimary,
+    },
+    relatedList: {
+      gap: Spacing.sm,
+      paddingHorizontal: Spacing.xs,
+      paddingBottom: Spacing.sm,
     },
   });

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { ApiArticle, fetchArticles, mapToContentCategory, proxyImageUrl } from '@/services/newsApi';
 import { ContentCategory, NewsItem } from '@/services/content';
+import { injectArticleCache } from '@/hooks/useSearch';
 
 // Modül seviyesi cache — birden fazla ekran aynı veriyi paylaşır, tek istek yapılır
 let cachedArticles: ApiArticle[] = [];
@@ -12,6 +13,7 @@ async function loadArticles(): Promise<ApiArticle[]> {
 
   pendingFetch = fetchArticles({ limit: 300 }).then((data) => {
     cachedArticles = data;
+    injectArticleCache(data);
     pendingFetch = null;
     return data;
   });
