@@ -14,6 +14,7 @@ const LAYOUT_I18N = {
     todayTitle: 'Bugun',
     insight: 'AI analiz sekmesine goz at.',
     home: 'Ana Sayfa',
+    search: 'Arama',
     events: 'Etkinlikler',
     archive: 'Arsiv',
     profile: 'Profil',
@@ -23,6 +24,7 @@ const LAYOUT_I18N = {
     todayTitle: 'Today',
     insight: 'Check the AI analysis tab.',
     home: 'Home',
+    search: 'Search',
     events: 'Events',
     archive: 'Archive',
     profile: 'Profile',
@@ -32,6 +34,7 @@ const LAYOUT_I18N = {
     todayTitle: 'Heute',
     insight: 'Schau im KI-Analyse-Tab vorbei.',
     home: 'Startseite',
+    search: 'Suche',
     events: 'Veranstaltungen',
     archive: 'Archiv',
     profile: 'Profil',
@@ -150,6 +153,15 @@ export default function TabLayout() {
           title: t.home,
           tabBarIcon: ({ color, size }) => (
             <Ionicons name="home-outline" size={size} color={color} />
+          ),
+        }}
+      />
+      <Tabs.Screen
+        name="search"
+        options={{
+          title: t.search,
+          tabBarIcon: ({ color, size }) => (
+            <Ionicons name="search-outline" size={size} color={color} />
           ),
         }}
       />

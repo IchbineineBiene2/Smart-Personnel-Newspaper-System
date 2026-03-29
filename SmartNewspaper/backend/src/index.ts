@@ -3,6 +3,7 @@ import express from 'express';
 import cors from 'cors';
 import newsRouter from './api/news.routes';
 import proxyRouter from './api/proxy.routes';
+import eventsRouter from './api/events.routes';
 import { startScheduler } from './scheduler/newsScheduler';
 
 const app = express();
@@ -14,6 +15,7 @@ app.use(express.json());
 // Routes
 app.use('/api/news', newsRouter);
 app.use('/api/proxy', proxyRouter);
+app.use('/api/events', eventsRouter);
 
 app.get('/health', (_req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
