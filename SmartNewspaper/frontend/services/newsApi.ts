@@ -122,10 +122,52 @@ export function mapToContentCategory(backendCategory?: string, title = '', descr
   return inferCategoryFromText(title, description);
 }
 
+function unwrapProxiedImageUrl(input: string): string {
+  try {
+    const parsed = new URL(input);
+    if (parsed.pathname.includes('/api/proxy/image')) {
+      const original = parsed.searchParams.get('url');
+      if (original) return decodeURIComponent(original);
+    }
+  } catch {
+    // Keep original value when URL parsing fails.
+  }
+  return input;
+}
+
 // Harici CDN resimlerini backend proxy üzerinden yükler (hotlink korumasını aşar)
 export function proxyImageUrl(url?: string): string | undefined {
   if (!url) return undefined;
-  return `${API_BASE}/api/proxy/image?url=${encodeURIComponent(url)}`;
+
+  let upgraded = unwrapProxiedImageUrl(url);
+
+  // BBC images: force larger variants when a size segment exists in URL.
+  if (/ichef\.bbci\.co\.uk/i.test(upgraded)) {
+    upgraded = upgraded
+      .replace(/\/news\/\d+\//i, '/news/1024/')
+      .replace(/\/news\/(\d{2,4})x(\d{2,4})\//i, '/news/1024/')
+      .replace(/\/ace\/standard\/\d+\//i, '/news/1024/')
+      .replace(/\/ace\/ws\/\d+\//i, '/news/1024/')
+      .replace(/\/images\/ic\/\d+x\d+\//i, '/images/ic/1024x576/');
+
+    try {
+      const parsed = new URL(upgraded);
+      const width = Number(parsed.searchParams.get('imwidth') ?? 0);
+      if (width && width < 1024) {
+        parsed.searchParams.set('imwidth', '1200');
+      }
+      upgraded = parsed.toString();
+    } catch {
+      // Keep upgraded URL when parsing fails.
+    }
+  }
+
+  // Hurriyet: prefer uncropped/original-ish variant when thumbnail path is used.
+  if (/image\.hurimg\.com/i.test(upgraded)) {
+    upgraded = upgraded.replace(/\/90\/\d+x\d+\//i, '/90/0x0/');
+  }
+
+  return `${API_BASE}/api/proxy/image?url=${encodeURIComponent(upgraded)}`;
 }
 
 export async function fetchArticles(params: FetchNewsParams = {}): Promise<ApiArticle[]> {
@@ -146,4 +188,10 @@ export async function fetchArticleById(id: string): Promise<ApiArticle> {
   const res = await fetch(`${API_BASE}/api/news/${encodeURIComponent(id)}`);
   if (!res.ok) throw new Error(`API hatası: ${res.status}`);
   return (await res.json()) as ApiArticle;
+}
+
+export async function fetchArticleFullContent(id: string): Promise<{ content: string; images?: string[]; fromSource: boolean }> {
+  const res = await fetch(`${API_BASE}/api/news/${encodeURIComponent(id)}/full-content`);
+  if (!res.ok) throw new Error(`API hatası: ${res.status}`);
+  return (await res.json()) as { content: string; images?: string[]; fromSource: boolean };
 }

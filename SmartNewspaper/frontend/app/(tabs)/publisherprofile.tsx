@@ -38,6 +38,20 @@ function normalizeText(value: string) {
     .replace(/[\u0300-\u036f]/g, '');
 }
 
+function formatArticleDateTime(value?: string) {
+  if (!value) return '';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleDateString('tr-TR', {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+  }) + ' ' + date.toLocaleTimeString('tr-TR', {
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+}
+
 export default function PublisherProfilePage() {
   const router = useRouter();
   const { id } = useLocalSearchParams<{ id?: string }>();
@@ -64,6 +78,7 @@ export default function PublisherProfilePage() {
   const [activeTopic, setActiveTopic] = useState('Tum Konular');
   const [visibleCount, setVisibleCount] = useState(10);
   const [previewItem, setPreviewItem] = useState<{
+    id: string;
     title: string;
     summary: string;
     sourceName: string;
@@ -71,6 +86,7 @@ export default function PublisherProfilePage() {
     imageUrl?: string;
     publishedAt?: string;
     url?: string;
+    category?: string;
   } | null>(null);
 
   const filteredArticles = useMemo(() => {
@@ -122,6 +138,7 @@ export default function PublisherProfilePage() {
 
   const openArticlePreview = (article: (typeof visibleArticles)[number]) => {
     setPreviewItem({
+      id: article.id,
       title: article.title,
       summary: article.summary,
       sourceName: publisher.name,
@@ -129,6 +146,7 @@ export default function PublisherProfilePage() {
       imageUrl: article.imageUrl,
       publishedAt: article.publishedAt,
       url: article.originalUrl,
+      category: article.tag,
     });
   };
 
@@ -239,8 +257,11 @@ export default function PublisherProfilePage() {
           <Text style={styles(colors).articleTitleLink}>{article.title}</Text>
           <Text style={styles(colors).articleSummary}>{article.summary}</Text>
           <View style={styles(colors).metaRow}>
-            <Text style={styles(colors).metaText}>{article.likes} likes</Text>
-            <Text style={styles(colors).metaText}>{article.comments} comments</Text>
+            <View style={styles(colors).metaLeft}>
+              <Text style={styles(colors).metaText}>{article.likes} likes</Text>
+              <Text style={styles(colors).metaText}>{article.comments} comments</Text>
+            </View>
+            {article.publishedAt ? <Text style={styles(colors).metaDate}>{formatArticleDateTime(article.publishedAt)}</Text> : null}
           </View>
         </Pressable>
       ))}
@@ -256,6 +277,21 @@ export default function PublisherProfilePage() {
         item={previewItem}
         colors={colors}
         onClose={() => setPreviewItem(null)}
+        onReadMorePress={(item) => {
+          setPreviewItem(null);
+          router.push({
+            pathname: '/news/[id]',
+            params: {
+              id: item.id,
+              title: item.title,
+              summary: item.summary,
+              imageUrl: item.imageUrl,
+              source: item.sourceName,
+              publishedAt: item.publishedAt,
+              category: item.category,
+            },
+          });
+        }}
         onPublisherPress={(sourceName) => {
           setPreviewItem(null);
           const publisherId = getPublisherIdFromSourceName(sourceName);
@@ -580,10 +616,20 @@ const styles = (colors: any) =>
       marginTop: Spacing.sm,
       flexDirection: 'row',
       justifyContent: 'space-between',
+      alignItems: 'center',
+    },
+    metaLeft: {
+      flexDirection: 'row',
+      gap: Spacing.md,
     },
     metaText: {
       color: colors.textMuted,
       fontSize: Typography.fontSize.sm,
+    },
+    metaDate: {
+      color: colors.textMuted,
+      fontSize: 11,
+      fontWeight: Typography.fontWeight.medium,
     },
     moreButton: {
       borderWidth: 1,

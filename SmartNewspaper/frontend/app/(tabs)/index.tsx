@@ -8,6 +8,7 @@ import { ContentCategory } from '@/services/content';
 import { Radius, Spacing, Typography } from '@/constants/theme';
 import { usePreferences } from '@/hooks/usePreferences';
 import { useTheme } from '@/hooks/useTheme';
+import { useLanguage } from '@/hooks/useLanguage';
 import { getPublisherIdFromSourceName } from '@/services/publisherProfiles';
 
 type PeriodFilter = 'daily' | 'weekly';
@@ -16,6 +17,93 @@ type CountryFilter = 'all' | 'Turkiye' | 'Global';
 type LanguageFilter = 'all' | 'Turkce' | 'Ingilizce';
 type LangFilter = 'all' | 'tr' | 'en' | 'de';
 type MarketKind = 'Borsa' | 'Maden';
+
+const I18N = {
+  tr: {
+    filters: 'FILTRELER',
+    clear: 'Temizle',
+    period: 'DONEM',
+    daily: 'Gunluk',
+    weekly: 'Haftalik',
+    lang: 'DIL',
+    all: 'Tumu',
+    sorting: 'SIRALAMA',
+    newest: 'En Yeni',
+    popular: 'Populer',
+    related: 'Ilgili',
+    category: 'KATEGORI',
+    source: 'KAYNAK',
+    showing: 'haber gosteriliyor',
+    print: 'KISESEL BASKI',
+    newspaper: 'KISESEL GAZETE',
+    slogan: 'Haberleri sizin icin derliyoruz',
+    topic: 'GUNUN\nKONUSU',
+    breaking: 'SON\nDAKIKA',
+    loading: 'Haberler yukleniyor...',
+    noNews: 'Secili filtreler icin haber bulunamadi.',
+    followed: 'Takip Edilen Kaynaklar',
+    country: 'Ulke',
+    language: 'Dil',
+    noSource: 'Eslesen kaynak bulunamadi.',
+    markets: 'Piyasalar',
+  },
+  en: {
+    filters: 'FILTERS',
+    clear: 'Clear',
+    period: 'PERIOD',
+    daily: 'Daily',
+    weekly: 'Weekly',
+    lang: 'LANG',
+    all: 'All',
+    sorting: 'SORTING',
+    newest: 'Newest',
+    popular: 'Popular',
+    related: 'Relevant',
+    category: 'CATEGORY',
+    source: 'SOURCE',
+    showing: 'articles shown',
+    print: 'PERSONAL EDITION',
+    newspaper: 'PERSONAL NEWSPAPER',
+    slogan: 'We curate the news for you',
+    topic: 'TOP\nTOPIC',
+    breaking: 'BREAKING\nNEWS',
+    loading: 'Loading news...',
+    noNews: 'No news found for selected filters.',
+    followed: 'Followed Sources',
+    country: 'Country',
+    language: 'Language',
+    noSource: 'No matching sources found.',
+    markets: 'Markets',
+  },
+  de: {
+    filters: 'FILTER',
+    clear: 'Loschen',
+    period: 'ZEITRAUM',
+    daily: 'Taglich',
+    weekly: 'Wochentlich',
+    lang: 'SPRACHE',
+    all: 'Alle',
+    sorting: 'SORTIERUNG',
+    newest: 'Neueste',
+    popular: 'Popular',
+    related: 'Relevant',
+    category: 'KATEGORIE',
+    source: 'QUELLE',
+    showing: 'Nachrichten angezeigt',
+    print: 'PERSONLICHE AUSGABE',
+    newspaper: 'PERSONLICHE ZEITUNG',
+    slogan: 'Wir kuratieren Nachrichten fur dich',
+    topic: 'THEMA\nDES TAGES',
+    breaking: 'EIL\nMELDUNG',
+    loading: 'Nachrichten werden geladen...',
+    noNews: 'Keine Nachrichten fur gewahlte Filter gefunden.',
+    followed: 'Gefolgte Quellen',
+    country: 'Land',
+    language: 'Sprache',
+    noSource: 'Keine passenden Quellen gefunden.',
+    markets: 'Markte',
+  },
+} as const;
 
 type MarketWatchItem = {
   id: string;
@@ -77,12 +165,18 @@ const MARKET_WATCH: MarketWatchItem[] = [
   { id: 'silver', label: 'Gumus Ons', kind: 'Maden', value: '$27.84', change: '-0.21%', isPositive: false },
 ];
 
-function formatDate(isoDate: string) {
-  return new Date(isoDate).toLocaleDateString('tr-TR', {
+function formatDate(isoDate: string, locale: string) {
+  const date = new Date(isoDate);
+  const dateStr = date.toLocaleDateString(locale, {
     day: '2-digit',
-    month: 'long',
+    month: 'short',
     year: 'numeric',
   });
+  const timeStr = date.toLocaleTimeString(locale, {
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+  return `${dateStr} ${timeStr}`;
 }
 
 function normalizeFilterValue(value: string) {
@@ -96,6 +190,9 @@ function normalizeFilterValue(value: string) {
 export default function PersonalizedNewsScreen() {
   const router = useRouter();
   const { colors } = useTheme();
+  const { language } = useLanguage();
+  const t = I18N[language];
+  const dateLocale = language === 'en' ? 'en-GB' : language === 'de' ? 'de-DE' : 'tr-TR';
   const { preferredCategories, preferredNewspapers } = usePreferences();
   const isWeb = Platform.OS === 'web';
   const { news: apiNews, loading: newsLoading } = usePersonalizedNews();
@@ -106,14 +203,17 @@ export default function PersonalizedNewsScreen() {
   const [selectedSource, setSelectedSource] = useState<string>('all');
   const [countryFilter, setCountryFilter] = useState<CountryFilter>('all');
   const [languageFilter, setLanguageFilter] = useState<LanguageFilter>('all');
-  const [langFilter, setLangFilter] = useState<LangFilter>('all');
+  const [langFilter, setLangFilter] = useState<LangFilter>('tr');
   const [previewItem, setPreviewItem] = useState<{
+    id: string;
     title: string;
     summary: string;
+    content?: string;
     sourceName: string;
     imageUrl?: string;
     publishedAt?: string;
     url?: string;
+    category?: string;
   } | null>(null);
 
   // Ticker animasyonu
@@ -128,6 +228,10 @@ export default function PersonalizedNewsScreen() {
     anim.start();
     return () => anim.stop();
   }, [tickerX]);
+
+  useEffect(() => {
+    setLangFilter(language);
+  }, [language]);
 
   const defaultCategories: ContentCategory[] = ['Teknoloji', 'Spor', 'Ekonomi'];
   const interestCategories = preferredCategories.length ? preferredCategories : defaultCategories;
@@ -218,9 +322,15 @@ export default function PersonalizedNewsScreen() {
     });
   }, [activePeriod, apiNews, interestCategories, langFilter, selectedCategory, selectedSource, sortKey]);
 
-  const featured = sortedNews[0];
-  const secondaries = sortedNews.slice(1, 5);
-  const compactList = sortedNews.slice(5);
+  const prioritizedNews = useMemo(() => {
+    const withImage = sortedNews.filter((item) => !!item.imageUrl);
+    const withoutImage = sortedNews.filter((item) => !item.imageUrl);
+    return [...withImage, ...withoutImage];
+  }, [sortedNews]);
+
+  const featured = prioritizedNews[0];
+  const secondaries = prioritizedNews.slice(1, 5);
+  const compactList = prioritizedNews.slice(5);
 
   const openPublisherProfile = (sourceName: string) => {
     const publisherId = getPublisherIdFromSourceName(sourceName);
@@ -229,12 +339,15 @@ export default function PersonalizedNewsScreen() {
 
   const openArticlePreview = (article: PersonalizedNewsItem) => {
     setPreviewItem({
+      id: article.id,
       title: article.title,
       summary: article.summary,
+      content: article.content,
       sourceName: article.source,
       imageUrl: article.imageUrl,
-      publishedAt: formatDate(article.publicationDate),
+      publishedAt: formatDate(article.publicationDate, dateLocale),
       url: article.url,
+      category: article.category,
     });
   };
 
@@ -250,7 +363,7 @@ export default function PersonalizedNewsScreen() {
   const resetFilters = () => {
     setSelectedCategory(null);
     setSelectedSource('all');
-    setLangFilter('all');
+    setLangFilter(language);
     setActivePeriod('daily');
     setSortKey('newest');
   };
@@ -259,19 +372,19 @@ export default function PersonalizedNewsScreen() {
     <View style={s(colors).filterPanel}>
       {/* Başlık + aktif filtre sayısı + temizle */}
       <View style={s(colors).filterPanelHeader}>
-        <Text style={s(colors).filterPanelTitle}>FİLTRELER</Text>
+        <Text style={s(colors).filterPanelTitle}>{t.filters}</Text>
         {activeFilterCount > 0 && (
           <Pressable style={s(colors).resetBtn} onPress={resetFilters}>
             <View style={s(colors).resetBadge}>
               <Text style={s(colors).resetBadgeNum}>{activeFilterCount}</Text>
             </View>
-            <Text style={s(colors).resetBtnText}>Temizle</Text>
+            <Text style={s(colors).resetBtnText}>{t.clear}</Text>
           </Pressable>
         )}
       </View>
 
       {/* Dönem */}
-      <Text style={s(colors).filterLabel}>DÖNEM</Text>
+      <Text style={s(colors).filterLabel}>{t.period}</Text>
       <View style={s(colors).periodRow}>
         {(['daily', 'weekly'] as PeriodFilter[]).map((p) => (
           <Pressable
@@ -280,17 +393,17 @@ export default function PersonalizedNewsScreen() {
             onPress={() => setActivePeriod(p)}
           >
             <Text style={[s(colors).periodBtnText, activePeriod === p && s(colors).periodBtnTextActive]}>
-              {p === 'daily' ? '📅 Günlük' : '🗓 Haftalık'}
+              {p === 'daily' ? `📅 ${t.daily}` : `🗓 ${t.weekly}`}
             </Text>
           </Pressable>
         ))}
       </View>
 
       {/* Dil */}
-      <Text style={s(colors).filterLabel}>DİL</Text>
+      <Text style={s(colors).filterLabel}>{t.lang}</Text>
       {(() => {
         const langOpts = [
-          { key: 'all' as LangFilter, flag: '🌐', label: 'Tümü' },
+          { key: 'all' as LangFilter, flag: '🌐', label: t.all },
           { key: 'tr' as LangFilter, flag: '🇹🇷', label: 'TR' },
           { key: 'en' as LangFilter, flag: '🇬🇧', label: 'EN' },
           { key: 'de' as LangFilter, flag: '🇩🇪', label: 'DE' },
@@ -318,12 +431,12 @@ export default function PersonalizedNewsScreen() {
       })()}
 
       {/* Sıralama */}
-      <Text style={s(colors).filterLabel}>SIRALAMA</Text>
+      <Text style={s(colors).filterLabel}>{t.sorting}</Text>
       <View style={s(colors).chipWrap}>
         {([
-          { key: 'newest' as const, label: '🕐 En Yeni' },
-          { key: 'popularity' as const, label: '🔥 Popüler' },
-          { key: 'relevance' as const, label: '⭐ İlgili' },
+          { key: 'newest' as const, label: `🕐 ${t.newest}` },
+          { key: 'popularity' as const, label: `🔥 ${t.popular}` },
+          { key: 'relevance' as const, label: `⭐ ${t.related}` },
         ]).map((opt) => (
           <Pressable
             key={opt.key}
@@ -338,14 +451,14 @@ export default function PersonalizedNewsScreen() {
       </View>
 
       {/* Kategori — sayılarla */}
-      <Text style={s(colors).filterLabel}>KATEGORİ</Text>
+      <Text style={s(colors).filterLabel}>{t.category}</Text>
       <View style={s(colors).chipWrap}>
         <Pressable
           style={[s(colors).filterChip, selectedCategory === null && s(colors).filterChipActive]}
           onPress={() => setSelectedCategory(null)}
         >
           <Text style={[s(colors).filterChipText, selectedCategory === null && s(colors).filterChipTextActive]}>
-            Tümü {apiNews.length > 0 && <Text style={s(colors).filterChipCount}>({apiNews.length})</Text>}
+            {t.all} {apiNews.length > 0 && <Text style={s(colors).filterChipCount}>({apiNews.length})</Text>}
           </Text>
         </Pressable>
         {categoryOptions.map((cat) => (
@@ -362,14 +475,14 @@ export default function PersonalizedNewsScreen() {
       </View>
 
       {/* Kaynak */}
-      <Text style={s(colors).filterLabel}>KAYNAK</Text>
+      <Text style={s(colors).filterLabel}>{t.source}</Text>
       <View style={s(colors).chipWrap}>
         <Pressable
           style={[s(colors).filterChip, selectedSource === 'all' && s(colors).filterChipActive]}
           onPress={() => setSelectedSource('all')}
         >
           <Text style={[s(colors).filterChipText, selectedSource === 'all' && s(colors).filterChipTextActive]}>
-            Tümü
+            {t.all}
           </Text>
         </Pressable>
         {sourceOptions.map((src) => (
@@ -388,7 +501,7 @@ export default function PersonalizedNewsScreen() {
       {/* Sonuç sayısı */}
       <View style={s(colors).filterResultRow}>
         <Text style={s(colors).filterResultText}>
-          {sortedNews.length} haber gösteriliyor
+          {sortedNews.length} {t.showing}
         </Text>
       </View>
     </View>
@@ -405,18 +518,18 @@ export default function PersonalizedNewsScreen() {
 
         {/* Meta satır: baskı bilgisi + tarih */}
         <View style={s(colors).mastheadMeta}>
-          <Text style={s(colors).mastheadMetaText}>KİŞİSEL BASKI</Text>
+          <Text style={s(colors).mastheadMetaText}>{t.print}</Text>
           <Text style={s(colors).mastheadMetaDot}>◆</Text>
           <Text style={s(colors).mastheadMetaText}>
-            {new Date().toLocaleDateString('tr-TR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
+            {new Date().toLocaleDateString(dateLocale, { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
           </Text>
           <Text style={s(colors).mastheadMetaDot}>◆</Text>
-          <Text style={s(colors).mastheadMetaText}>{apiNews.length} HABER</Text>
+          <Text style={s(colors).mastheadMetaText}>{apiNews.length} {t.showing.toUpperCase()}</Text>
         </View>
 
         {/* Ana başlık */}
-        <Text style={s(colors).mastheadTitle}>KİŞİSEL GAZETE</Text>
-        <Text style={s(colors).mastheadSlogan}>Haberleri sizin için derliyoruz</Text>
+        <Text style={s(colors).mastheadTitle}>{t.newspaper}</Text>
+        <Text style={s(colors).mastheadSlogan}>{t.slogan}</Text>
 
         {/* Çift çizgi — alt */}
         <View style={s(colors).mastheadLineThin} />
@@ -426,7 +539,7 @@ export default function PersonalizedNewsScreen() {
         {gununKonusu && (
           <View style={s(colors).gununKonusuStrip}>
             <View style={s(colors).gununKonusuStripBadge}>
-              <Text style={s(colors).gununKonusuStripBadgeText}>GÜNÜN{'\n'}KONUSU</Text>
+              <Text style={s(colors).gununKonusuStripBadgeText}>{t.topic}</Text>
             </View>
             <View style={s(colors).gununKonusuStripBody}>
               <Text style={s(colors).gununKonusuStripCat}>{gununKonusu.category.toUpperCase()} · {gununKonusu.count} haber</Text>
@@ -446,7 +559,7 @@ export default function PersonalizedNewsScreen() {
           {/* Sol: SON DAKİKA rozeti */}
           <View style={s(colors).tickerBadge}>
             <View style={s(colors).tickerLiveDot} />
-            <Text style={s(colors).tickerBadgeText}>SON{'\n'}DAKİKA</Text>
+            <Text style={s(colors).tickerBadgeText}>{t.breaking}</Text>
           </View>
           {/* Dikey ayırıcı */}
           <View style={s(colors).tickerDivider} />
@@ -474,7 +587,7 @@ export default function PersonalizedNewsScreen() {
               onPress={() => setActivePeriod(p)}
             >
               <Text style={[s(colors).mobileChipText, activePeriod === p && s(colors).mobileChipTextActive]}>
-                {p === 'daily' ? 'Günlük' : 'Haftalık'}
+                {p === 'daily' ? t.daily : t.weekly}
               </Text>
             </Pressable>
           ))}
@@ -484,7 +597,7 @@ export default function PersonalizedNewsScreen() {
             onPress={() => setSelectedCategory(null)}
           >
             <Text style={[s(colors).mobileChipText, selectedCategory === null && s(colors).mobileChipTextActive]}>
-              Tümü
+              {t.all}
             </Text>
           </Pressable>
           {categoryOptions.map((cat) => (
@@ -510,7 +623,7 @@ export default function PersonalizedNewsScreen() {
           {newsLoading && (
             <View style={s(colors).loadingRow}>
               <ActivityIndicator color={colors.accent} />
-              <Text style={s(colors).loadingText}>Haberler yükleniyor...</Text>
+              <Text style={s(colors).loadingText}>{t.loading}</Text>
             </View>
           )}
 
@@ -535,13 +648,18 @@ export default function PersonalizedNewsScreen() {
                     <Text style={s(colors).bylineSourceLink}>{featured.source}</Text>
                   </Pressable>
                   <Text style={s(colors).bylineDot}>·</Text>
-                  <Text style={s(colors).bylineDate}>{formatDate(featured.publicationDate)}</Text>
+                  <Text style={s(colors).bylineDate}>{formatDate(featured.publicationDate, dateLocale)}</Text>
+                  <Text style={s(colors).bylineDot}>·</Text>
+                  <Text style={s(colors).bylineMeta}>♥</Text>
+                  <Text style={s(colors).bylineMetaNumber}>{featured.likes}</Text>
+                  <Text style={s(colors).bylineMeta}>💬</Text>
+                  <Text style={s(colors).bylineMetaNumber}>{featured.comments}</Text>
                 </View>
               </View>
             </View>
           ) : !newsLoading ? (
             <View style={s(colors).emptyBox}>
-              <Text style={s(colors).emptyText}>Seçili filtreler için haber bulunamadı.</Text>
+              <Text style={s(colors).emptyText}>{t.noNews}</Text>
             </View>
           ) : null}
 
@@ -571,7 +689,12 @@ export default function PersonalizedNewsScreen() {
                         <Text style={s(colors).gridBylineSource}>{item.source}</Text>
                       </Pressable>
                       <Text style={s(colors).gridBylineDot}>·</Text>
-                      <Text style={s(colors).gridBylineDate}>{formatDate(item.publicationDate)}</Text>
+                      <Text style={s(colors).gridBylineDate}>{formatDate(item.publicationDate, dateLocale)}</Text>
+                      <Text style={s(colors).gridBylineDot}>·</Text>
+                      <Text style={s(colors).gridBylineMeta}>♥</Text>
+                      <Text style={s(colors).gridBylineMetaNumber}>{item.likes}</Text>
+                      <Text style={s(colors).gridBylineMeta}>💬</Text>
+                      <Text style={s(colors).gridBylineMetaNumber}>{item.comments}</Text>
                     </View>
                   </View>
                 </View>
@@ -597,7 +720,12 @@ export default function PersonalizedNewsScreen() {
                       <Text style={s(colors).listBylineSource}>{item.source}</Text>
                     </Pressable>
                     <Text style={s(colors).listBylineDot}>·</Text>
-                    <Text style={s(colors).listBylineDate}>{formatDate(item.publicationDate)}</Text>
+                    <Text style={s(colors).listBylineDate}>{formatDate(item.publicationDate, dateLocale)}</Text>
+                    <Text style={s(colors).listBylineDot}>·</Text>
+                    <Text style={s(colors).listBylineMeta}>♥</Text>
+                    <Text style={s(colors).listBylineMetaNumber}>{item.likes}</Text>
+                    <Text style={s(colors).listBylineMeta}>💬</Text>
+                    <Text style={s(colors).listBylineMetaNumber}>{item.comments}</Text>
                   </View>
                 </View>
                 {item.imageUrl && (
@@ -619,13 +747,13 @@ export default function PersonalizedNewsScreen() {
             {/* Takip edilen kaynaklar */}
             <View style={s(colors).sidePanel}>
               <View style={s(colors).sidePanelHeader}>
-                <Text style={s(colors).sidePanelTitle}>Takip Edilen Kaynaklar</Text>
+                <Text style={s(colors).sidePanelTitle}>{t.followed}</Text>
                 <Text style={s(colors).sidePanelCount}>
                   {filteredFollowedSources.length}/{followedSources.length}
                 </Text>
               </View>
 
-              <Text style={s(colors).filterLabel}>Ülke</Text>
+              <Text style={s(colors).filterLabel}>{t.country}</Text>
               <View style={s(colors).chipWrap}>
                 {(['all', 'Turkiye', 'Global'] as CountryFilter[]).map((opt) => (
                   <Pressable
@@ -634,13 +762,13 @@ export default function PersonalizedNewsScreen() {
                     onPress={() => setCountryFilter(opt)}
                   >
                     <Text style={[s(colors).filterChipText, countryFilter === opt && s(colors).filterChipTextActive]}>
-                      {opt === 'all' ? 'Tümü' : opt}
+                      {opt === 'all' ? t.all : opt === 'Turkiye' ? (language === 'en' ? 'Turkey' : language === 'de' ? 'Turkei' : 'Turkiye') : 'Global'}
                     </Text>
                   </Pressable>
                 ))}
               </View>
 
-              <Text style={s(colors).filterLabel}>Dil</Text>
+              <Text style={s(colors).filterLabel}>{t.language}</Text>
               <View style={s(colors).chipWrap}>
                 {(['all', 'Turkce', 'Ingilizce'] as LanguageFilter[]).map((opt) => (
                   <Pressable
@@ -649,7 +777,7 @@ export default function PersonalizedNewsScreen() {
                     onPress={() => setLanguageFilter(opt)}
                   >
                     <Text style={[s(colors).filterChipText, languageFilter === opt && s(colors).filterChipTextActive]}>
-                      {opt === 'all' ? 'Tümü' : opt}
+                      {opt === 'all' ? t.all : opt === 'Turkce' ? (language === 'en' ? 'Turkish' : language === 'de' ? 'Turkisch' : 'Turkce') : language === 'de' ? 'Englisch' : 'English'}
                     </Text>
                   </Pressable>
                 ))}
@@ -670,7 +798,7 @@ export default function PersonalizedNewsScreen() {
                     </Pressable>
                   );
                 }) : (
-                  <Text style={s(colors).emptyText}>Eşleşen kaynak bulunamadı.</Text>
+                  <Text style={s(colors).emptyText}>{t.noSource}</Text>
                 )}
               </View>
             </View>
@@ -678,7 +806,7 @@ export default function PersonalizedNewsScreen() {
             {/* Piyasalar */}
             <View style={s(colors).sidePanel}>
               <View style={s(colors).sidePanelHeader}>
-                <Text style={s(colors).sidePanelTitle}>Piyasalar</Text>
+                <Text style={s(colors).sidePanelTitle}>{t.markets}</Text>
               </View>
               {MARKET_WATCH.map((item) => (
                 <View key={item.id} style={s(colors).marketRow}>
@@ -704,6 +832,22 @@ export default function PersonalizedNewsScreen() {
         item={previewItem}
         colors={colors}
         onClose={() => setPreviewItem(null)}
+        onReadMorePress={(item) => {
+          setPreviewItem(null);
+          router.push({
+            pathname: '/news/[id]',
+            params: {
+              id: item.id,
+              title: item.title,
+              summary: item.summary,
+              content: item.content,
+              imageUrl: item.imageUrl,
+              source: item.sourceName,
+              publishedAt: item.publishedAt,
+              category: item.category,
+            },
+          });
+        }}
         onPublisherPress={(sourceName) => {
           setPreviewItem(null);
           openPublisherProfile(sourceName);
@@ -819,6 +963,8 @@ const s = (colors: any) => StyleSheet.create({
   },
   bylineDot: { color: colors.textMuted, fontSize: Typography.fontSize.sm },
   bylineDate: { fontSize: Typography.fontSize.sm, color: colors.textMuted },
+  bylineMeta: { fontSize: Typography.fontSize.md, color: colors.textMuted },
+  bylineMetaNumber: { fontSize: Typography.fontSize.sm, color: colors.textMuted },
 
   // ── Kesme çizgileri ───────────────────────────────────────────────────
   rule: { height: 2, backgroundColor: colors.accent, marginVertical: Spacing.md },
@@ -869,6 +1015,8 @@ const s = (colors: any) => StyleSheet.create({
   },
   gridBylineDot: { fontSize: Typography.fontSize.xs, color: colors.textMuted },
   gridBylineDate: { fontSize: Typography.fontSize.xs, color: colors.textMuted },
+  gridBylineMeta: { fontSize: Typography.fontSize.md, color: colors.textMuted },
+  gridBylineMetaNumber: { fontSize: Typography.fontSize.sm, color: colors.textMuted },
 
   // ── Kompakt liste ─────────────────────────────────────────────────────
   listCard: { flexDirection: 'row', gap: Spacing.md, paddingVertical: Spacing.sm },
@@ -899,6 +1047,8 @@ const s = (colors: any) => StyleSheet.create({
   },
   listBylineDot: { fontSize: Typography.fontSize.xs, color: colors.textMuted },
   listBylineDate: { fontSize: Typography.fontSize.xs, color: colors.textMuted },
+  listBylineMeta: { fontSize: Typography.fontSize.md, color: colors.textMuted },
+  listBylineMetaNumber: { fontSize: Typography.fontSize.sm, color: colors.textMuted },
   listThumb: {
     width: 88, height: 72,
     borderRadius: Radius.md, flexShrink: 0,

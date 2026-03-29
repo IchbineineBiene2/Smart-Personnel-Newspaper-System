@@ -2,6 +2,7 @@ import { Router, Request, Response } from 'express';
 import { getArticleCache } from '../scheduler/newsScheduler';
 import { fetchAllRssFeeds } from '../collectors/rssCollector';
 import { filterDuplicates } from '../processors/duplicateDetector';
+import { scrapeArticleDetails } from '../collectors/scraper';
 
 const router = Router();
 
@@ -36,6 +37,32 @@ router.get('/', (req: Request, res: Response) => {
   const paginated = articles.slice(Number(offset), Number(offset) + Number(limit));
 
   res.json({ total, articles: paginated });
+});
+
+// GET /api/news/:id/full-content - Haberin tam metnini kaynak siteden çek
+router.get('/:id/full-content', async (req: Request, res: Response) => {
+  const article = getArticleCache().find((a) => a.id === req.params.id);
+  if (!article) return res.status(404).json({ error: 'Haber bulunamadı' });
+
+  try {
+    const scraped = await scrapeArticleDetails(article.url, {
+      title: article.title,
+      description: article.description,
+    });
+    return res.json({
+      id: article.id,
+      content: scraped.content ?? article.content ?? article.description,
+      images: scraped.images,
+      fromSource: Boolean(scraped.content),
+    });
+  } catch {
+    return res.json({
+      id: article.id,
+      content: article.content ?? article.description,
+      images: article.imageUrl ? [article.imageUrl] : [],
+      fromSource: false,
+    });
+  }
 });
 
 // GET /api/news/:id - Tek haber getir

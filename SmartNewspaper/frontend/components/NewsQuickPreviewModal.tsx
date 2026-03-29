@@ -1,15 +1,19 @@
+import { useEffect, useMemo, useState } from 'react';
 import { Alert, Linking, Modal, Pressable, StyleSheet, Text, View, Image } from 'react-native';
 
 import { Radius, Spacing, Typography } from '@/constants/theme';
 
 type PreviewItem = {
+  id?: string;
   title: string;
   summary: string;
+  content?: string;
   sourceName: string;
   sourceLogoUrl?: string;
   imageUrl?: string;
   publishedAt?: string;
   url?: string;
+  category?: string;
 };
 
 type Props = {
@@ -18,6 +22,7 @@ type Props = {
   colors: any;
   onClose: () => void;
   onPublisherPress?: (sourceName: string) => void;
+  onReadMorePress?: (item: PreviewItem) => void;
 };
 
 function fallbackLogoFromName(name: string): string {
@@ -30,7 +35,42 @@ function fallbackLogoFromName(name: string): string {
   return (parts[0] ?? name).slice(0, 2).toUpperCase();
 }
 
-export default function NewsQuickPreviewModal({ visible, item, colors, onClose, onPublisherPress }: Props) {
+export default function NewsQuickPreviewModal({
+  visible,
+  item,
+  colors,
+  onClose,
+  onPublisherPress,
+  onReadMorePress,
+}: Props) {
+  const [imageAspectRatio, setImageAspectRatio] = useState(16 / 9);
+
+  useEffect(() => {
+    if (!item?.imageUrl) {
+      setImageAspectRatio(16 / 9);
+      return;
+    }
+
+    Image.getSize(
+      item.imageUrl,
+      (width, height) => {
+        if (width > 0 && height > 0) {
+          setImageAspectRatio(width / height);
+        }
+      },
+      () => {
+        setImageAspectRatio(16 / 9);
+      }
+    );
+  }, [item?.imageUrl]);
+
+  const imageFrameDynamicStyle = useMemo(
+    () => ({
+      aspectRatio: imageAspectRatio,
+    }),
+    [imageAspectRatio]
+  );
+
   if (!item) return null;
 
   const sourceDomains: Record<string, string> = {
@@ -81,7 +121,9 @@ export default function NewsQuickPreviewModal({ visible, item, colors, onClose, 
 
         <View style={styles(colors).sheet}>
           {item.imageUrl ? (
-            <Image source={{ uri: item.imageUrl }} style={styles(colors).image} resizeMode="cover" />
+            <View style={[styles(colors).imageFrame, imageFrameDynamicStyle]}>
+              <Image source={{ uri: item.imageUrl }} style={styles(colors).image} resizeMode="contain" />
+            </View>
           ) : null}
 
           <Pressable
@@ -111,8 +153,20 @@ export default function NewsQuickPreviewModal({ visible, item, colors, onClose, 
             <Pressable style={styles(colors).ghostButton} onPress={onClose}>
               <Text style={styles(colors).ghostButtonText}>Kapat</Text>
             </Pressable>
-            <Pressable style={styles(colors).primaryButton} onPress={openSource}>
+
+            <Pressable
+              style={styles(colors).primaryButton}
+              onPress={() => {
+                if (!onReadMorePress) return;
+                onReadMorePress(item);
+              }}
+              disabled={!onReadMorePress}
+            >
               <Text style={styles(colors).primaryButtonText}>Haberin Devami</Text>
+            </Pressable>
+
+            <Pressable style={styles(colors).secondaryButton} onPress={openSource}>
+              <Text style={styles(colors).secondaryButtonText}>Haber Sitesine Git</Text>
             </Pressable>
           </View>
         </View>
@@ -134,7 +188,7 @@ const styles = (colors: any) =>
     },
     sheet: {
       width: '100%',
-      maxWidth: 980,
+      maxWidth: 820,
       alignSelf: 'center',
       borderWidth: 1,
       borderColor: colors.borderSubtle,
@@ -144,10 +198,16 @@ const styles = (colors: any) =>
       gap: Spacing.sm,
       zIndex: 2,
     },
+    imageFrame: {
+      width: '100%',
+      alignSelf: 'center',
+      borderRadius: Radius.md,
+      overflow: 'hidden',
+      backgroundColor: colors.surfaceHigh,
+    },
     image: {
       width: '100%',
-      height: 120,
-      borderRadius: Radius.md,
+      height: '100%',
     },
     sourceRow: {
       flexDirection: 'row',
@@ -209,6 +269,7 @@ const styles = (colors: any) =>
       flexDirection: 'row',
       gap: Spacing.sm,
       marginTop: Spacing.xs,
+      flexWrap: 'wrap',
     },
     ghostButton: {
       flex: 1,
@@ -237,6 +298,21 @@ const styles = (colors: any) =>
     },
     primaryButtonText: {
       color: colors.white,
+      fontSize: Typography.fontSize.sm,
+      fontWeight: Typography.fontWeight.bold,
+    },
+    secondaryButton: {
+      flex: 1,
+      borderWidth: 1,
+      borderColor: colors.border,
+      borderRadius: Radius.md,
+      backgroundColor: colors.surfaceHigh,
+      alignItems: 'center',
+      justifyContent: 'center',
+      paddingVertical: Spacing.sm,
+    },
+    secondaryButtonText: {
+      color: colors.textPrimary,
       fontSize: Typography.fontSize.sm,
       fontWeight: Typography.fontWeight.bold,
     },

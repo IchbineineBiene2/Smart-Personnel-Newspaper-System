@@ -13,29 +13,53 @@ export const LANGUAGE_LABELS: Record<AppLanguage, string> = {
 
 export const LANGUAGES: AppLanguage[] = ['tr', 'en', 'de'];
 
+let currentLanguage: AppLanguage = 'tr';
+let languageLoaded = false;
+const listeners = new Set<(lang: AppLanguage) => void>();
+
+function notifyLanguageChange(nextLanguage: AppLanguage) {
+  currentLanguage = nextLanguage;
+  listeners.forEach((listener) => listener(nextLanguage));
+}
+
 export function useLanguage() {
-  const [language, setLanguageState] = useState<AppLanguage>('tr');
-  const [loading, setLoading] = useState(true);
+  const [language, setLanguageState] = useState<AppLanguage>(currentLanguage);
+  const [loading, setLoading] = useState(!languageLoaded);
 
   const loadLanguage = useCallback(async () => {
     try {
       const saved = await AsyncStorage.getItem(LANGUAGE_STORAGE_KEY);
-      if (saved === 'tr' || saved === 'en' || saved === 'de') {
-        setLanguageState(saved);
-      } else {
-        setLanguageState('tr');
-      }
+      const resolved: AppLanguage =
+        saved === 'tr' || saved === 'en' || saved === 'de' ? saved : 'tr';
+      notifyLanguageChange(resolved);
+      languageLoaded = true;
     } finally {
       setLoading(false);
     }
   }, []);
 
   useEffect(() => {
-    loadLanguage();
+    const listener = (nextLanguage: AppLanguage) => {
+      setLanguageState(nextLanguage);
+    };
+    listeners.add(listener);
+
+    if (languageLoaded) {
+      setLanguageState(currentLanguage);
+      setLoading(false);
+    } else {
+      loadLanguage();
+    }
+
+    return () => {
+      listeners.delete(listener);
+    };
   }, [loadLanguage]);
 
   const setLanguage = useCallback(async (nextLanguage: AppLanguage) => {
-    setLanguageState(nextLanguage);
+    notifyLanguageChange(nextLanguage);
+    languageLoaded = true;
+    setLoading(false);
     await AsyncStorage.setItem(LANGUAGE_STORAGE_KEY, nextLanguage);
   }, []);
 
