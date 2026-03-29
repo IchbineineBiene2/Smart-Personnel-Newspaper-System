@@ -5,10 +5,43 @@ import { Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { useTheme } from '@/hooks/useTheme';
+import { useLanguage } from '@/hooks/useLanguage';
 import AppHeader from '@/components/AppHeader';
 
-function WebSidebarTabBar({ tabProps, colors }: { tabProps: BottomTabBarProps; colors: any }) {
-  const today = new Date().toLocaleDateString('tr-TR', {
+const LAYOUT_I18N = {
+  tr: {
+    dashboard: 'Dashboard',
+    todayTitle: 'Bugun',
+    insight: 'AI analiz sekmesine goz at.',
+    home: 'Ana Sayfa',
+    events: 'Etkinlikler',
+    archive: 'Arsiv',
+    profile: 'Profil',
+  },
+  en: {
+    dashboard: 'Dashboard',
+    todayTitle: 'Today',
+    insight: 'Check the AI analysis tab.',
+    home: 'Home',
+    events: 'Events',
+    archive: 'Archive',
+    profile: 'Profile',
+  },
+  de: {
+    dashboard: 'Dashboard',
+    todayTitle: 'Heute',
+    insight: 'Schau im KI-Analyse-Tab vorbei.',
+    home: 'Startseite',
+    events: 'Veranstaltungen',
+    archive: 'Archiv',
+    profile: 'Profil',
+  },
+} as const;
+
+function WebSidebarTabBar({ tabProps, colors, language }: { tabProps: BottomTabBarProps; colors: any; language: 'tr' | 'en' | 'de' }) {
+  const t = LAYOUT_I18N[language];
+  const locale = language === 'en' ? 'en-GB' : language === 'de' ? 'de-DE' : 'tr-TR';
+  const today = new Date().toLocaleDateString(locale, {
     day: '2-digit',
     month: 'long',
   });
@@ -29,18 +62,18 @@ function WebSidebarTabBar({ tabProps, colors }: { tabProps: BottomTabBarProps; c
         </View>
         <View style={styles.webBrandTextWrap}>
           <Text style={[styles.webBrandTitle, { color: colors.textPrimary }]}>Smart Newspaper</Text>
-          <Text style={[styles.webBrandSub, { color: colors.textMuted }]}>Dashboard</Text>
+          <Text style={[styles.webBrandSub, { color: colors.textMuted }]}>{t.dashboard}</Text>
         </View>
       </View>
 
       <BottomTabBar {...tabProps} />
 
       <View style={[styles.webInsightCard, { backgroundColor: colors.surface, borderColor: colors.borderSubtle }]}>
-        <Text style={[styles.webInsightTitle, { color: colors.textPrimary }]}>Bugun</Text>
+        <Text style={[styles.webInsightTitle, { color: colors.textPrimary }]}>{t.todayTitle}</Text>
         <Text style={[styles.webInsightDate, { color: colors.textSecondary }]}>{today}</Text>
         <View style={styles.webInsightRow}>
           <Ionicons name="sparkles-outline" size={14} color={colors.accent} />
-          <Text style={[styles.webInsightText, { color: colors.textSecondary }]}>AI analiz sekmesine goz at.</Text>
+          <Text style={[styles.webInsightText, { color: colors.textSecondary }]}>{t.insight}</Text>
         </View>
       </View>
     </View>
@@ -49,13 +82,15 @@ function WebSidebarTabBar({ tabProps, colors }: { tabProps: BottomTabBarProps; c
 
 export default function TabLayout() {
   const { colors } = useTheme();
+  const { language } = useLanguage();
+  const t = LAYOUT_I18N[language];
   const insets = useSafeAreaInsets();
   const isWeb = Platform.OS === 'web';
 
   return (
     <Tabs
       tabBar={(props) =>
-        isWeb ? <WebSidebarTabBar tabProps={props} colors={colors} /> : <BottomTabBar {...props} />
+        isWeb ? <WebSidebarTabBar tabProps={props} colors={colors} language={language} /> : <BottomTabBar {...props} />
       }
       screenOptions={{
         tabBarPosition: isWeb ? 'left' : 'bottom',
@@ -112,7 +147,7 @@ export default function TabLayout() {
       <Tabs.Screen
         name="index"
         options={{
-          title: 'Ana Sayfa',
+          title: t.home,
           tabBarIcon: ({ color, size }) => (
             <Ionicons name="home-outline" size={size} color={color} />
           ),
@@ -121,7 +156,7 @@ export default function TabLayout() {
       <Tabs.Screen
         name="discover"
         options={{
-          title: 'Etkinlikler',
+          title: t.events,
           tabBarIcon: ({ color, size }) => (
             <Ionicons name="calendar-outline" size={size} color={color} />
           ),
@@ -167,7 +202,7 @@ export default function TabLayout() {
       <Tabs.Screen
         name="archive"
         options={{
-          title: 'Arsiv',
+          title: t.archive,
           tabBarIcon: ({ color, size }) => (
             <Ionicons name="archive-outline" size={size} color={color} />
           ),
@@ -176,7 +211,7 @@ export default function TabLayout() {
       <Tabs.Screen
         name="profile"
         options={{
-          title: 'Profil',
+          title: t.profile,
           tabBarIcon: ({ color, size }) => (
             <Ionicons name="person-outline" size={size} color={color} />
           ),

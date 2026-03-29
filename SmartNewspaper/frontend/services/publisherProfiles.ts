@@ -1,4 +1,4 @@
-import { ApiArticle, mapToContentCategory } from './newsApi';
+import { ApiArticle, mapToContentCategory, proxyImageUrl } from './newsApi';
 import { Publisher, PublisherArticle, PUBLISHERS, PUBLISHER_ARTICLES } from './publisherData';
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
@@ -158,11 +158,11 @@ export function buildPublisherDataset(apiArticles: ApiArticle[]): {
         title: item.title,
         summary: (item.description || item.content || '').slice(0, 240),
         tag: mapToContentCategory(item.category, item.title, item.description),
-        imageUrl: item.imageUrl,
+        imageUrl: proxyImageUrl(item.imageUrl) ?? item.imageUrl,
         originalUrl: item.url,
         likes: 80 + (hash % 1500),
         comments: 5 + (hash % 120),
-        publishedAt: toDisplayDate(item.publishedAt),
+        publishedAt: item.publishedAt,
       });
     });
   });

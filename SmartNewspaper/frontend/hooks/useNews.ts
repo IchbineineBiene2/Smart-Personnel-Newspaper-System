@@ -74,26 +74,37 @@ export function usePersonalizedNews() {
   const ONE_DAY = 24 * 60 * 60 * 1000;
   const ONE_WEEK = 7 * ONE_DAY;
 
+  const hashToPositiveInt = (input: string): number => {
+    let hash = 0;
+    for (let i = 0; i < input.length; i += 1) {
+      hash = (hash * 31 + input.charCodeAt(i)) >>> 0;
+    }
+    return hash;
+  };
+
   const personalized = articles.map((a, i) => {
     const publishedAt = new Date(a.publishedAt).getTime();
     const age = now - publishedAt;
     const period: 'daily' | 'weekly' | 'both' =
       age < ONE_DAY ? 'daily' : age < ONE_WEEK ? 'both' : 'weekly';
 
+    const hash = hashToPositiveInt(a.id);
+
     return {
       id: a.id,
       title: a.title,
       summary: a.description,
       source: a.source.name,
-      publicationDate: a.publishedAt.slice(0, 10),
+      publicationDate: a.publishedAt,
       category: mapToContentCategory(a.category, a.title, a.description),
-      // Gerçek veri yokken sıralama için skor — yeni haber = yüksek puan
       popularity: Math.max(10, 100 - Math.floor(age / (60 * 60 * 1000))),
       relevance: 50 + (i % 50),
       period,
       url: a.url,
       imageUrl: proxyImageUrl(a.imageUrl),
       language: a.language,
+      likes: 80 + (hash % 1500),
+      comments: 5 + (hash % 120),
     };
   });
 
