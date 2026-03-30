@@ -7,6 +7,8 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '@/hooks/useTheme';
 import { useLanguage } from '@/hooks/useLanguage';
 import AppHeader from '@/components/AppHeader';
+import { NewsNotificationToast } from '@/components/NewsNotificationToast';
+import { useNotification } from '@/contexts/NotificationContext';
 
 const LAYOUT_I18N = {
   tr: {
@@ -86,15 +88,17 @@ function WebSidebarTabBar({ tabProps, colors, language }: { tabProps: BottomTabB
 export default function TabLayout() {
   const { colors } = useTheme();
   const { language } = useLanguage();
+  const { currentNotification, dismissNotification } = useNotification();
   const t = LAYOUT_I18N[language];
   const insets = useSafeAreaInsets();
   const isWeb = Platform.OS === 'web';
 
   return (
-    <Tabs
-      tabBar={(props) =>
-        isWeb ? <WebSidebarTabBar tabProps={props} colors={colors} language={language} /> : <BottomTabBar {...props} />
-      }
+    <View style={{ flex: 1 }}>
+      <Tabs
+        tabBar={(props) =>
+          isWeb ? <WebSidebarTabBar tabProps={props} colors={colors} language={language} /> : <BottomTabBar {...props} />
+        }
       screenOptions={{
         tabBarPosition: isWeb ? 'left' : 'bottom',
         tabBarActiveTintColor: isWeb ? colors.white : colors.accent,
@@ -233,7 +237,12 @@ export default function TabLayout() {
       <Tabs.Screen name="publisherpage" options={{ href: null }} />
       <Tabs.Screen name="publisherprofile" options={{ href: null }} />
       <Tabs.Screen name="pdfpreview" options={{ href: null }} />
-    </Tabs>
+      </Tabs>
+      <NewsNotificationToast
+      notification={currentNotification}
+      onDismiss={dismissNotification}
+    />
+    </View>
   );
 }
 

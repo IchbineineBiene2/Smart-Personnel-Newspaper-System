@@ -7,6 +7,7 @@ import { useEffect, useState } from 'react';
 
 import { useTheme } from '@/hooks/useTheme';
 import { isOnboardingComplete } from '@/services/auth';
+import { NotificationProvider } from '@/contexts/NotificationContext';
 
 export {
   // Catch any errors thrown by the Layout component.
@@ -79,25 +80,26 @@ function RootLayoutNav({ initialRouteName }: RootLayoutNavProps) {
   };
 
   return (
-    <ThemeProvider value={customTheme}>
-      <Stack
-        initialRouteName={initialRouteName}
-        screenOptions={{
-          contentStyle: {
-            backgroundColor: colors.background,
-          },
-          headerStyle: {
-            backgroundColor: colors.surface,
-          },
-          headerTintColor: colors.textPrimary,
-          headerTitleAlign: 'center',
-          headerTitleStyle: {
-            color: colors.textPrimary,
-            fontSize: 18,
-            fontWeight: '700',
-          },
-          headerShadowVisible: false,
-        }}
+    <NotificationProvider>
+      <ThemeProvider value={customTheme}>
+        <Stack
+          initialRouteName={initialRouteName}
+          screenOptions={{
+            contentStyle: {
+              backgroundColor: colors.background,
+            },
+            headerStyle: {
+              backgroundColor: colors.surface,
+            },
+            headerTintColor: colors.textPrimary,
+            headerTitleAlign: 'center',
+            headerTitleStyle: {
+              color: colors.textPrimary,
+              fontSize: 18,
+              fontWeight: '700',
+            },
+            headerShadowVisible: false,
+          }}
       >
         <Stack.Screen name="onboarding" options={{ headerShown: false }} />
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
@@ -137,6 +139,7 @@ function RootLayoutNav({ initialRouteName }: RootLayoutNavProps) {
         />
         <Stack.Screen name="modal" options={{ presentation: 'modal' }} />
       </Stack>
-    </ThemeProvider>
+      </ThemeProvider>
+    </NotificationProvider>
   );
 }

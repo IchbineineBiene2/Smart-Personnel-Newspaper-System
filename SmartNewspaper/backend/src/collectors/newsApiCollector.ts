@@ -46,7 +46,7 @@ export async function fetchTopHeadlines(
   apiKey: string,
   language: string = 'tr',
   category: string = 'general',
-  pageSize: number = 20
+  pageSize: number = 50
 ): Promise<Article[]> {
   const res = await axios.get<NewsApiResponse>(`${NEWS_API_BASE}/top-headlines`, {
     params: { apiKey, language, category, pageSize },
