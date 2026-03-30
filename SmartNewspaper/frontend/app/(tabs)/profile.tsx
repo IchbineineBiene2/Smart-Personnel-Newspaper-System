@@ -37,7 +37,16 @@ export default function Profile() {
     toggleNewspaper,
   } = usePreferences();
   const { loading: bookmarksLoading, savedIds } = useBookmarks();
-  const { themeName, setTheme, colors } = useTheme();
+  const { themeName, setTheme, colors: themeColors } = useTheme();
+  const colors =
+    themeName === 'vincent'
+      ? {
+          ...themeColors,
+          background: themeColors.surface,
+          surfaceHigh: themeColors.surface,
+          surfaceInput: themeColors.surface,
+        }
+      : themeColors;
   const { language, setLanguage } = useLanguage();
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const [activeTab, setActiveTab] = useState<TabType>('preferences');

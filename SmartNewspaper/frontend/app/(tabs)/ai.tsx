@@ -41,7 +41,16 @@ const INITIAL_MESSAGES: ChatMessage[] = [
 ];
 
 export default function AIChatScreen() {
-  const { colors } = useTheme();
+  const { colors: themeColors, themeName } = useTheme();
+  const colors =
+    themeName === 'vincent'
+      ? {
+          ...themeColors,
+          background: themeColors.surface,
+          surfaceHigh: themeColors.surface,
+          surfaceInput: themeColors.surface,
+        }
+      : themeColors;
   const insets = useSafeAreaInsets();
   const [messages, setMessages] = useState<ChatMessage[]>(INITIAL_MESSAGES);
   const [input, setInput] = useState('');
