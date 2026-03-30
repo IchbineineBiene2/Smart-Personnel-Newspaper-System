@@ -43,7 +43,17 @@ const LAYOUT_I18N = {
   },
 } as const;
 
-function WebSidebarTabBar({ tabProps, colors, language }: { tabProps: BottomTabBarProps; colors: any; language: 'tr' | 'en' | 'de' }) {
+function WebSidebarTabBar({
+  tabProps,
+  colors,
+  language,
+  pageBackground,
+}: {
+  tabProps: BottomTabBarProps;
+  colors: any;
+  language: 'tr' | 'en' | 'de';
+  pageBackground: string;
+}) {
   const t = LAYOUT_I18N[language];
   const locale = language === 'en' ? 'en-GB' : language === 'de' ? 'de-DE' : 'tr-TR';
   const today = new Date().toLocaleDateString(locale, {
@@ -56,12 +66,12 @@ function WebSidebarTabBar({ tabProps, colors, language }: { tabProps: BottomTabB
       style={[
         styles.webSidebarShell,
         {
-          backgroundColor: colors.surfaceHigh,
+          backgroundColor: pageBackground,
           borderRightColor: colors.borderSubtle,
         },
       ]}
     >
-      <View style={[styles.webBrandCard, { backgroundColor: colors.surface, borderColor: colors.borderSubtle }]}>
+      <View style={[styles.webBrandCard, { backgroundColor: pageBackground, borderColor: colors.borderSubtle }]}>
         <View style={[styles.webBrandBadge, { backgroundColor: colors.accent }]}>
           <Text style={[styles.webBrandBadgeText, { color: colors.white }]}>SN</Text>
         </View>
@@ -73,7 +83,7 @@ function WebSidebarTabBar({ tabProps, colors, language }: { tabProps: BottomTabB
 
       <BottomTabBar {...tabProps} />
 
-      <View style={[styles.webInsightCard, { backgroundColor: colors.surface, borderColor: colors.borderSubtle }]}>
+      <View style={[styles.webInsightCard, { backgroundColor: pageBackground, borderColor: colors.borderSubtle }]}>
         <Text style={[styles.webInsightTitle, { color: colors.textPrimary }]}>{t.todayTitle}</Text>
         <Text style={[styles.webInsightDate, { color: colors.textSecondary }]}>{today}</Text>
         <View style={styles.webInsightRow}>
@@ -86,27 +96,31 @@ function WebSidebarTabBar({ tabProps, colors, language }: { tabProps: BottomTabB
 }
 
 export default function TabLayout() {
-  const { colors } = useTheme();
+  const { colors, themeName } = useTheme();
   const { language } = useLanguage();
   const { currentNotification, dismissNotification } = useNotification();
   const t = LAYOUT_I18N[language];
   const insets = useSafeAreaInsets();
   const isWeb = Platform.OS === 'web';
+  const pageBackground = themeName === 'vincent' ? colors.surface : colors.background;
 
   return (
     <View style={{ flex: 1 }}>
       <Tabs
         tabBar={(props) =>
-          isWeb ? <WebSidebarTabBar tabProps={props} colors={colors} language={language} /> : <BottomTabBar {...props} />
+          isWeb ? <WebSidebarTabBar tabProps={props} colors={colors} language={language} pageBackground={pageBackground} /> : <BottomTabBar {...props} />
         }
       screenOptions={{
         tabBarPosition: isWeb ? 'left' : 'bottom',
         tabBarActiveTintColor: isWeb ? colors.white : colors.accent,
         tabBarInactiveTintColor: colors.textSecondary,
         tabBarActiveBackgroundColor: isWeb ? colors.accent : colors.surface,
-        tabBarInactiveBackgroundColor: colors.surface,
+        tabBarInactiveBackgroundColor: isWeb ? pageBackground : colors.surface,
         tabBarShowLabel: true,
         tabBarHideOnKeyboard: true,
+        sceneStyle: {
+          backgroundColor: pageBackground,
+        },
         tabBarLabelStyle: {
           fontSize: isWeb ? 13 : 12,
           fontWeight: '600',
@@ -139,7 +153,7 @@ export default function TabLayout() {
           shadowOpacity: 0,
         },
         headerStyle: {
-          backgroundColor: colors.surface,
+          backgroundColor: isWeb ? pageBackground : colors.surface,
           elevation: 0,
           shadowOpacity: 0,
           borderBottomWidth: 0,

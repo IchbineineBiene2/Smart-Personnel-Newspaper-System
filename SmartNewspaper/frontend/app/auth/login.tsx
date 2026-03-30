@@ -8,7 +8,9 @@ import { loginUser } from '@/services/auth';
 
 export default function LoginScreen() {
   const router = useRouter();
-  const { colors } = useTheme();
+  const { colors, themeName } = useTheme();
+  const pageBackground = themeName === 'vincent' ? colors.surface : colors.background;
+  const elevatedSurface = themeName === 'vincent' ? colors.surface : colors.surfaceHigh;
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -38,8 +40,8 @@ export default function LoginScreen() {
   };
 
   return (
-    <View style={styles(colors).container}>
-      <View style={styles(colors).card}>
+    <View style={[styles(colors).container, { backgroundColor: pageBackground }]}>
+      <View style={[styles(colors).card, { backgroundColor: pageBackground }]}>
         <Text style={styles(colors).title}>Giriş Yap</Text>
         <Text style={styles(colors).subtitle}>Profil sayfasına erişmek için hesabınla giriş yap.</Text>
 
@@ -50,7 +52,7 @@ export default function LoginScreen() {
           placeholderTextColor={colors.textMuted}
           keyboardType="email-address"
           autoCapitalize="none"
-          style={styles(colors).input}
+          style={[styles(colors).input, { backgroundColor: elevatedSurface }]}
         />
 
         <TextInput
@@ -59,7 +61,7 @@ export default function LoginScreen() {
           placeholder="Şifre"
           placeholderTextColor={colors.textMuted}
           secureTextEntry
-          style={styles(colors).input}
+          style={[styles(colors).input, { backgroundColor: elevatedSurface }]}
         />
 
         {error ? <Text style={styles(colors).errorText}>{error}</Text> : null}

@@ -49,7 +49,16 @@ function formatAnnDate(isoDate: string): string {
 
 export default function Discover() {
   const router   = useRouter();
-  const { colors } = useTheme();
+  const { colors: themeColors, themeName } = useTheme();
+  const colors =
+    themeName === 'vincent'
+      ? {
+          ...themeColors,
+          background: themeColors.surface,
+          surfaceHigh: themeColors.surface,
+          surfaceInput: themeColors.surface,
+        }
+      : themeColors;
   const [activeCategory, setActiveCategory] = useState<FilterCat>('tumu');
 
   const selectedCat = activeCategory === 'tumu' ? undefined : activeCategory;

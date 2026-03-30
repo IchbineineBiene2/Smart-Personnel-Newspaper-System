@@ -8,7 +8,9 @@ import { registerUser } from '@/services/auth';
 
 export default function RegisterScreen() {
   const router = useRouter();
-  const { colors } = useTheme();
+  const { colors, themeName } = useTheme();
+  const pageBackground = themeName === 'vincent' ? colors.surface : colors.background;
+  const elevatedSurface = themeName === 'vincent' ? colors.surface : colors.surfaceHigh;
 
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
@@ -45,8 +47,8 @@ export default function RegisterScreen() {
   };
 
   return (
-    <View style={styles(colors).container}>
-      <View style={styles(colors).card}>
+    <View style={[styles(colors).container, { backgroundColor: pageBackground }]}>
+      <View style={[styles(colors).card, { backgroundColor: pageBackground }]}>
         <Text style={styles(colors).title}>Kayıt Ol</Text>
         <Text style={styles(colors).subtitle}>Yeni hesap oluştur ve profilini aç.</Text>
 
@@ -55,7 +57,7 @@ export default function RegisterScreen() {
           onChangeText={setName}
           placeholder="Ad Soyad"
           placeholderTextColor={colors.textMuted}
-          style={styles(colors).input}
+          style={[styles(colors).input, { backgroundColor: elevatedSurface }]}
         />
 
         <TextInput
@@ -65,7 +67,7 @@ export default function RegisterScreen() {
           placeholderTextColor={colors.textMuted}
           keyboardType="email-address"
           autoCapitalize="none"
-          style={styles(colors).input}
+          style={[styles(colors).input, { backgroundColor: elevatedSurface }]}
         />
 
         <TextInput
@@ -74,7 +76,7 @@ export default function RegisterScreen() {
           placeholder="Şifre"
           placeholderTextColor={colors.textMuted}
           secureTextEntry
-          style={styles(colors).input}
+          style={[styles(colors).input, { backgroundColor: elevatedSurface }]}
         />
 
         <TextInput
@@ -83,7 +85,7 @@ export default function RegisterScreen() {
           placeholder="Şifre Tekrar"
           placeholderTextColor={colors.textMuted}
           secureTextEntry
-          style={styles(colors).input}
+          style={[styles(colors).input, { backgroundColor: elevatedSurface }]}
         />
 
         {error ? <Text style={styles(colors).errorText}>{error}</Text> : null}
