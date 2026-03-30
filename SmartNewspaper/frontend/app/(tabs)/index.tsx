@@ -4,6 +4,8 @@ import { useRouter } from 'expo-router';
 
 import NewsQuickPreviewModal from '@/components/NewsQuickPreviewModal';
 import { usePersonalizedNews } from '@/hooks/useNews';
+import { useNewsNotifications } from '@/hooks/useNewsNotifications';
+import { useEventNotifications } from '@/hooks/useEventNotifications';
 import { ContentCategory } from '@/services/content';
 import { Radius, Spacing, Typography } from '@/constants/theme';
 import { usePreferences } from '@/hooks/usePreferences';
@@ -196,6 +198,8 @@ export default function PersonalizedNewsScreen() {
   const { preferredCategories, preferredNewspapers } = usePreferences();
   const isWeb = Platform.OS === 'web';
   const { news: apiNews, loading: newsLoading } = usePersonalizedNews();
+  useNewsNotifications(); // Yeni haberler için notification
+  useEventNotifications(); // Yaklaşan etkinlikler için notification
 
   const [activePeriod, setActivePeriod] = useState<PeriodFilter>('daily');
   const [sortKey, setSortKey] = useState<SortKey>('newest');
@@ -233,7 +237,7 @@ export default function PersonalizedNewsScreen() {
     setLangFilter(language);
   }, [language]);
 
-  const defaultCategories: ContentCategory[] = ['Teknoloji', 'Spor', 'Ekonomi'];
+  const defaultCategories: ContentCategory[] = ['Siyaset', 'Teknoloji', 'Spor', 'Magazin'];
   const interestCategories = preferredCategories.length ? preferredCategories : defaultCategories;
 
   // Haberlerden gelen TÜM kategorileri göster (sadece tercihler değil)

@@ -3,7 +3,9 @@ export type ContentCategory =
   | 'Spor'
   | 'Ekonomi'
   | 'Saglik'
-  | 'Kultur';
+  | 'Kultur'
+  | 'Siyaset'
+  | 'Magazin';
 
 export type EventItem = {
   id: string;
@@ -44,6 +46,8 @@ export const CATEGORIES: ContentCategory[] = [
   'Ekonomi',
   'Saglik',
   'Kultur',
+  'Siyaset',
+  'Magazin',
 ];
 
 export const NEWSPAPERS: NewspaperSource[] = [
@@ -86,6 +90,26 @@ export const EVENTS: EventItem[] = [
     date: '30 Mart 2026, 16:00',
     location: 'Izmir Sanat Fabrikasi',
     category: 'Kultur',
+  },
+  {
+    id: 'event-104',
+    title: 'Kamuoyu Hakkinda Konusma',
+    summary: 'Demografik degisimler ve siyasal tercihler uzerine panel.',
+    description:
+      'Sosyal bilimciler, anketorcular ve siyasal analiz uzmanlarindan olusacak panelde son secim trendleri, genclik tercihler ve degisken oy kullanima iliskin bulguların tartisılacaktir.',
+    date: '2 Nisan 2026, 11:00',
+    location: 'Ankara Insan Haklari Merkezi',
+    category: 'Siyaset',
+  },
+  {
+    id: 'event-105',
+    title: 'Ünlüler Doruğunda Moda Gecesi',
+    summary: 'Türkiye\'nin en tanınmış yüzleri moda tasarımcılarıyla bir araya gelecek.',
+    description:
+      'Ünlü oyuncular, müzisyenler ve modacıların katılımıyla düzenlenecek gala, gelecek sezon moda trendlerini sergileyecektir.',
+    date: '5 Nisan 2026, 19:00',
+    location: 'Istanbul Lüks Otel Balo Salonu',
+    category: 'Magazin',
   },
 ];
 

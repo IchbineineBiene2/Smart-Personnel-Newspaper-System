@@ -7,6 +7,7 @@ import {
   Platform,
   Pressable,
   ScrollView,
+  Share,
   StyleSheet,
   Text,
   View,
@@ -15,6 +16,7 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 
 import { Radius, Spacing, Typography } from '@/constants/theme';
 import { useApiNews } from '@/hooks/useNews';
+import { useBookmarks } from '@/hooks/useBookmarks';
 import { useTheme } from '@/hooks/useTheme';
 import { fetchArticleFullContent, mapToContentCategory, proxyImageUrl } from '@/services/newsApi';
 import { getPublisherIdFromSourceName } from '@/services/publisherProfiles';
@@ -253,6 +255,7 @@ export default function NewsDetailPage() {
   const router = useRouter();
   const { colors } = useTheme();
   const { articles } = useApiNews();
+  const { savedIds, toggleSaved } = useBookmarks();
   const isWeb = Platform.OS === 'web';
   const [fullContent, setFullContent] = useState<string | null>(null);
   const [extraImages, setExtraImages] = useState<string[]>([]);
@@ -441,6 +444,26 @@ export default function NewsDetailPage() {
     router.push(`/publisherprofile?id=${encodeURIComponent(publisherId)}` as any);
   };
 
+  const handleShare = async () => {
+    try {
+      await Share.share({
+        message: `${resolvedTitle}\n\n${sourceUrl || 'Smart Newspaper'}`,
+        url: sourceUrl,
+        title: resolvedTitle,
+      });
+    } catch (error) {
+      // Sessiz şekilde hata geç
+    }
+  };
+
+  const isSaved = savedIds.includes(params.id || '');
+
+  const handleToggleSave = () => {
+    if (params.id) {
+      toggleSaved(params.id);
+    }
+  };
+
   const onLeftMomentumEnd = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
     const width = leftSlotWidth || event.nativeEvent.layoutMeasurement.width;
     if (!width) return;
@@ -511,6 +534,32 @@ export default function NewsDetailPage() {
         </View>
         <Text style={styles(colors).publisherCta}>Profili Gor</Text>
       </Pressable>
+
+      <View style={styles(colors).actionBar}>
+        <Pressable
+          style={({ pressed }) => [
+            styles(colors).actionButton,
+            { backgroundColor: isSaved ? colors.accent + '1A' : colors.surfaceInput },
+            pressed && { opacity: 0.7 },
+          ]}
+          onPress={handleToggleSave}
+        >
+          <Text style={[styles(colors).actionButtonLabel, { color: isSaved ? colors.accent : colors.textPrimary }]}>
+            {isSaved ? 'Kaydedildi' : 'Kaydet'}
+          </Text>
+        </Pressable>
+
+        <Pressable
+          style={({ pressed }) => [
+            styles(colors).actionButton,
+            { backgroundColor: colors.surfaceInput },
+            pressed && { opacity: 0.7 },
+          ]}
+          onPress={handleShare}
+        >
+          <Text style={[styles(colors).actionButtonLabel, { color: colors.textPrimary }]}>Paylas</Text>
+        </Pressable>
+      </View>
 
       <View style={[styles(colors).detailLayout, isWeb ? styles(colors).detailLayoutWeb : null]}>
         <View style={styles(colors).bodyCol}>
@@ -1152,5 +1201,28 @@ const styles = (colors: any) =>
       gap: Spacing.sm,
       paddingHorizontal: Spacing.xs,
       paddingBottom: Spacing.sm,
+    },
+    actionBar: {
+      flexDirection: 'row',
+      gap: Spacing.sm,
+      marginVertical: Spacing.md,
+      paddingHorizontal: Spacing.sm,
+    },
+    actionButton: {
+      flex: 1,
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: Spacing.xs,
+      paddingVertical: Spacing.sm,
+      paddingHorizontal: Spacing.md,
+      borderRadius: Radius.md,
+    },
+    actionButtonText: {
+      fontSize: 18,
+    },
+    actionButtonLabel: {
+      fontSize: 12,
+      fontWeight: '600',
     },
   });

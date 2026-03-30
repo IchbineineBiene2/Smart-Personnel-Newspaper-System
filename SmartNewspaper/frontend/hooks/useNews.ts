@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { ApiArticle, fetchArticles, mapToContentCategory, proxyImageUrl } from '@/services/newsApi';
 import { ContentCategory, NewsItem } from '@/services/content';
 import { injectArticleCache } from '@/hooks/useSearch';
@@ -8,7 +8,6 @@ let cachedArticles: ApiArticle[] = [];
 let pendingFetch: Promise<ApiArticle[]> | null = null;
 
 async function loadArticles(): Promise<ApiArticle[]> {
-  if (cachedArticles.length > 0) return cachedArticles;
   if (pendingFetch) return pendingFetch;
 
   pendingFetch = fetchArticles({ limit: 300 }).then((data) => {
@@ -25,23 +24,42 @@ export function useApiNews() {
   const [articles, setArticles] = useState<ApiArticle[]>(cachedArticles);
   const [loading, setLoading] = useState(cachedArticles.length === 0);
   const [error, setError] = useState<string | null>(null);
+  const pollingIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
-    if (cachedArticles.length > 0) {
+    // İlk yükleme
+    if (cachedArticles.length === 0) {
+      setLoading(true);
+      loadArticles()
+        .then((data) => {
+          setArticles(data);
+          setLoading(false);
+        })
+        .catch((err: Error) => {
+          setError(err.message);
+          setLoading(false);
+        });
+    } else {
       setArticles(cachedArticles);
       setLoading(false);
-      return;
     }
-    setLoading(true);
-    loadArticles()
-      .then((data) => {
-        setArticles(data);
-        setLoading(false);
-      })
-      .catch((err: Error) => {
-        setError(err.message);
-        setLoading(false);
-      });
+
+    // Her 30 saniyede yeni haberler kontrol et (polling)
+    pollingIntervalRef.current = setInterval(() => {
+      loadArticles()
+        .then((data) => {
+          setArticles(data);
+        })
+        .catch(() => {
+          // Hata sessiz geçsin, UI etkilemesin
+        });
+    }, 30 * 1000); // 30 saniye
+
+    return () => {
+      if (pollingIntervalRef.current) {
+        clearInterval(pollingIntervalRef.current);
+      }
+    };
   }, []);
 
   return { articles, loading, error };
