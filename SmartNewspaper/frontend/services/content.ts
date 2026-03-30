@@ -5,6 +5,8 @@ export type ContentCategory =
   | 'Saglik'
   | 'Kultur'
   | 'Siyaset'
+  | 'Kaza'
+  | 'Deprem'
   | 'Magazin';
 
 export type EventItem = {
@@ -47,6 +49,8 @@ export const CATEGORIES: ContentCategory[] = [
   'Saglik',
   'Kultur',
   'Siyaset',
+  'Kaza',
+  'Deprem',
   'Magazin',
 ];
 
