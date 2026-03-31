@@ -1,61 +1,50 @@
 import { Router, Request, Response } from 'express';
-import { EVENTS_SEED, ANNOUNCEMENTS_SEED } from '../data/eventsData';
-import { EventCategory } from '../models/Event';
+import { getEvents, getEventById, getAnnouncements } from '../db/eventsRepository';
 
 const router = Router();
 
 // GET /api/events — Tüm etkinlikleri getir (filtrelenebilir)
-router.get('/', (req: Request, res: Response) => {
-  const { category, important, upcoming } = req.query;
-  const now = new Date().toISOString();
+router.get('/', async (req: Request, res: Response) => {
+  try {
+    const { category, important, upcoming } = req.query;
 
-  let events = [...EVENTS_SEED];
+    const result = await getEvents({
+      category: category ? String(category) : undefined,
+      important: important === 'true' ? true : undefined,
+      upcoming: upcoming === 'true' ? true : upcoming === 'false' ? false : undefined,
+    });
 
-  if (category) {
-    events = events.filter((e) => e.category === (category as EventCategory));
+    res.json(result);
+  } catch (err) {
+    console.error('[EventsAPI] Etkinlik listesi hatası:', err);
+    res.status(500).json({ error: 'Etkinlikler alınamadı' });
   }
-
-  if (important === 'true') {
-    events = events.filter((e) => e.isImportant);
-  }
-
-  // upcoming=true → sadece gelecekteki etkinlikler, upcoming=false → geçmiş
-  if (upcoming === 'true') {
-    events = events.filter((e) => e.date >= now);
-  } else if (upcoming === 'false') {
-    events = events.filter((e) => e.date < now);
-  }
-
-  // Tarihe göre artan sırala (yaklaşan en üstte)
-  events.sort((a, b) => a.date.localeCompare(b.date));
-
-  res.json({ total: events.length, events });
-});
-
-// GET /api/events/:id — Tek etkinlik
-router.get('/:id', (req: Request, res: Response) => {
-  const event = EVENTS_SEED.find((e) => e.id === req.params.id);
-  if (!event) return res.status(404).json({ error: 'Etkinlik bulunamadı' });
-  return res.json(event);
 });
 
 // GET /api/events/announcements/list — Tüm duyurular
-router.get('/announcements/list', (req: Request, res: Response) => {
-  const now = new Date().toISOString();
-  const { priority } = req.query;
-
-  let announcements = ANNOUNCEMENTS_SEED.filter(
-    (a) => !a.expiresAt || a.expiresAt > now
-  );
-
-  if (priority) {
-    announcements = announcements.filter((a) => a.priority === priority);
+router.get('/announcements/list', async (req: Request, res: Response) => {
+  try {
+    const { priority } = req.query;
+    const result = await getAnnouncements({
+      priority: priority ? String(priority) : undefined,
+    });
+    res.json(result);
+  } catch (err) {
+    console.error('[EventsAPI] Duyuru listesi hatası:', err);
+    res.status(500).json({ error: 'Duyurular alınamadı' });
   }
+});
 
-  // Tarihe göre azalan sırala (en yeni üstte)
-  announcements.sort((a, b) => b.publishedAt.localeCompare(a.publishedAt));
-
-  res.json({ total: announcements.length, announcements });
+// GET /api/events/:id — Tek etkinlik
+router.get('/:id', async (req: Request, res: Response) => {
+  try {
+    const event = await getEventById(req.params.id);
+    if (!event) return res.status(404).json({ error: 'Etkinlik bulunamadı' });
+    return res.json(event);
+  } catch (err) {
+    console.error('[EventsAPI] Etkinlik detay hatası:', err);
+    return res.status(500).json({ error: 'Etkinlik alınamadı' });
+  }
 });
 
 export default router;

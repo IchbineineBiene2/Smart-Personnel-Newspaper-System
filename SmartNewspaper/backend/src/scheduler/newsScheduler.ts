@@ -3,20 +3,29 @@ import { fetchAllRssFeeds } from '../collectors/rssCollector';
 import { fetchAllCategories } from '../collectors/newsApiCollector';
 import { fetchGuardianArticles } from '../collectors/guardianCollector';
 import { enrichArticlesWithContent } from '../collectors/scraper';
-import { filterDuplicates, clearCache } from '../processors/duplicateDetector';
-import { Article } from '../models/Article';
+import { filterDuplicates, clearCache, loadSeenIdsFromDb } from '../processors/duplicateDetector';
+import { upsertArticles } from '../db/articleRepository';
+import { query } from '../db/index';
 
-// Bellekte tutulan haber önbelleği (production'da DB'ye yazılmalı)
-let articleCache: Article[] = [];
-
-export function getArticleCache(): Article[] {
-  return articleCache;
-}
-
-async function runCollection(): Promise<void> {
+// NewsAPI developer planı: 100 istek/24s → sadece her 6 saatte bir çalışır
+async function runCollection(includeNewsApi = false): Promise<void> {
   console.log(`[Scheduler] Haber toplama başladı: ${new Date().toISOString()}`);
-  const newsApiKey = process.env.NEWS_API_KEY;
+  const startTime = Date.now();
+  const newsApiKey = includeNewsApi ? process.env.NEWS_API_KEY : undefined;
   const guardianKey = process.env.GUARDIAN_API_KEY;
+
+  // collection_runs kaydı aç
+  let runId: number | null = null;
+  try {
+    const runResult = await query<{ id: number }>(
+      `INSERT INTO collection_runs (source_types, status)
+       VALUES ($1, 'running') RETURNING id`,
+      [['rss', newsApiKey ? 'newsapi' : null, guardianKey ? 'guardian' : null].filter(Boolean)]
+    );
+    runId = runResult.rows[0].id;
+  } catch (err) {
+    console.warn('[Scheduler] collection_runs kaydı oluşturulamadı:', (err as Error).message);
+  }
 
   try {
     const rssArticles = await fetchAllRssFeeds();
@@ -27,7 +36,6 @@ async function runCollection(): Promise<void> {
     const unique = filterDuplicates(allArticles);
 
     // RSS haberleri için tam metin scraping (ilk 100 RSS haberi, batchSize=5)
-    // BBC, DW, Tagesschau ve Türk kaynakları dahil
     console.log('[Scheduler] RSS haberleri için scraping başlıyor...');
     const rssOnly = unique.filter((a) => a.source.type === 'rss').slice(0, 100);
     const enriched = await enrichArticlesWithContent(rssOnly, 5);
@@ -40,28 +48,60 @@ async function runCollection(): Promise<void> {
       ...unique.filter((a) => !enrichedIds.has(a.id)),
     ];
 
-    // Yeni haberleri cache'e ekle, toplamda max 2000 tut
-    articleCache = [...finalArticles, ...articleCache].slice(0, 2000);
+    // DB'ye yaz
+    const { inserted, skipped } = await upsertArticles(finalArticles);
 
-    console.log(`[Scheduler] Toplandı: ${allArticles.length} haber, ${unique.length} tekrarsız, ${enrichedCount} tam metin`);
+    const duration = Date.now() - startTime;
+    console.log(
+      `[Scheduler] Toplandı: ${allArticles.length} haber, ${unique.length} tekrarsız, ` +
+      `${enrichedCount} tam metin | DB: +${inserted} yeni, ${skipped} hata (${duration}ms)`
+    );
+
+    // collection_runs güncelle
+    if (runId !== null) {
+      await query(
+        `UPDATE collection_runs SET
+           completed_at = NOW(), status = 'success',
+           articles_collected = $1, articles_new = $2,
+           articles_duplicate = $3, duration_ms = $4
+         WHERE id = $5`,
+        [allArticles.length, inserted, allArticles.length - unique.length, duration, runId]
+      ).catch(() => {});
+    }
   } catch (err) {
     console.error('[Scheduler] Haber toplama hatası:', err);
+    if (runId !== null) {
+      await query(
+        `UPDATE collection_runs SET
+           completed_at = NOW(), status = 'failed',
+           error_message = $1, duration_ms = $2
+         WHERE id = $3`,
+        [(err as Error).message, Date.now() - startTime, runId]
+      ).catch(() => {});
+    }
   }
 }
 
 export function startScheduler(): void {
-  // Her 10 dakikada bir haber topla (daha sık)
-  cron.schedule('*/10 * * * *', runCollection);
+  // RSS + Guardian: her 10 dakikada bir (NewsAPI dahil değil)
+  cron.schedule('*/10 * * * *', () => runCollection(false));
 
-  // Her gece saat 03:00'da cache ve duplicate set'i sıfırla
-  cron.schedule('0 3 * * *', () => {
-    console.log('[Scheduler] Günlük sıfırlama yapılıyor...');
+  // NewsAPI: her 6 saatte bir (00:00, 06:00, 12:00, 18:00) — günde 4 × 16 = 64 istek
+  cron.schedule('0 0,6,12,18 * * *', () => runCollection(true));
+
+  // Her gece saat 03:00'da in-memory duplicate setini sıfırla
+  cron.schedule('0 3 * * *', async () => {
+    console.log('[Scheduler] Günlük sıfırlama: in-memory duplicate set temizleniyor...');
     clearCache();
-    articleCache = [];
+    await loadSeenIdsFromDb().catch((e) =>
+      console.warn('[Scheduler] ID yeniden yükleme hatası:', e.message)
+    );
   });
 
-  console.log('[Scheduler] Zamanlayıcılar başlatıldı (her 10dk + gece 03:00 sıfırlama)');
+  console.log('[Scheduler] Zamanlayıcılar başlatıldı (RSS her 10dk | NewsAPI her 6s | sıfırlama 03:00)');
 
-  // Başlangıçta hemen bir kez çalıştır
-  runCollection();
+  // Başlangıçta DB'den ID'leri yükle, sonra RSS+NewsAPI ile haber topla
+  loadSeenIdsFromDb()
+    .then(() => runCollection(true))
+    .catch(() => runCollection(false));
 }

@@ -63,8 +63,13 @@ export async function fetchAllCategories(apiKey: string): Promise<Article[]> {
       try {
         const articles = await fetchTopHeadlines(apiKey, language, category);
         results.push(...articles);
-      } catch (err) {
-        console.error(`NewsAPI fetch failed: ${language}/${category}`, err);
+      } catch (err: unknown) {
+        const status = (err as { response?: { status?: number } })?.response?.status;
+        if (status === 429) {
+          console.warn('[NewsAPI] Rate limit (429) — kalan kategoriler atlanıyor.');
+          return results; // Daha fazla istek atmadan çık
+        }
+        console.error(`NewsAPI fetch failed: ${language}/${category}`, (err as Error).message);
       }
     }
   }
