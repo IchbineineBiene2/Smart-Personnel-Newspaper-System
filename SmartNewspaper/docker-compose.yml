@@ -6,11 +6,14 @@ services:
       dockerfile: Dockerfile
     container_name: smartnews-backend
     restart: unless-stopped
+    dns:
+      - 8.8.8.8
+      - 8.8.4.4
     environment:
       PORT: 3000
       NEWS_API_KEY: ${NEWS_API_KEY}
       GUARDIAN_API_KEY: ${GUARDIAN_API_KEY}
-      DB_HOST: host.docker.internal   # Sunucudaki PostgreSQL'e bağlan
+      DB_HOST: 172.17.0.1        # Docker bridge gateway — host'taki PostgreSQL'e erişir
       DB_PORT: 5432
       DB_NAME: ${DB_NAME}
       DB_USER: ${DB_USER}
@@ -18,9 +21,6 @@ services:
       DB_MAX_CONNECTIONS: 20
       DB_IDLE_TIMEOUT_MS: 30000
       DB_CONNECTION_TIMEOUT_MS: 5000
-    extra_hosts:
-      - "host.docker.internal:host-gateway"   # Linux'ta host IP'sini çözmek için
-    # Backend sadece Docker ağı içinde erişilebilir, dışarı açılmıyor
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:3000/health"]
       interval: 30s
@@ -33,6 +33,9 @@ services:
       dockerfile: Dockerfile
     container_name: smartnews-frontend
     restart: unless-stopped
+    dns:
+      - 8.8.8.8
+      - 8.8.4.4
     ports:
       - "8080:80"
     depends_on:
