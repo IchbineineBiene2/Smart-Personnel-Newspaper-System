@@ -1,7 +1,11 @@
 import { Platform } from 'react-native';
 
 const API_BASE =
-  Platform.OS === 'android' ? 'http://10.0.2.2:3000' : 'http://localhost:3000';
+  Platform.OS === 'web'
+    ? ''
+    : Platform.OS === 'android'
+    ? 'http://10.0.2.2:3000'
+    : 'http://localhost:3000';
 
 export type EventCategory = 'akademik' | 'sosyal' | 'son-tarih' | 'sinav' | 'genel';
 

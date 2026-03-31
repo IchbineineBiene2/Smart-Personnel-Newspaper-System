@@ -1,9 +1,14 @@
 import { Platform } from 'react-native';
 import { ContentCategory } from './content';
 
-// Android emülatörde localhost yerine 10.0.2.2 kullanılır
+// Web (Docker/nginx): relative URL — nginx /api → backend:3000 proxy'si kullanır
+// Android emülatör: 10.0.2.2, iOS/geliştirme: localhost
 const API_BASE =
-  Platform.OS === 'android' ? 'http://10.0.2.2:3000' : 'http://localhost:3000';
+  Platform.OS === 'web'
+    ? ''
+    : Platform.OS === 'android'
+    ? 'http://10.0.2.2:3000'
+    : 'http://localhost:3000';
 
 export interface ApiArticle {
   id: string;

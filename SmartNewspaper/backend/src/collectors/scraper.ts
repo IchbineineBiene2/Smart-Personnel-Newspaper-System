@@ -33,8 +33,8 @@ const SITE_RULES: SiteRule[] = [
   },
   {
     domain: 'sabah.com.tr',
-    contentSelector: '.newsArticle, .article-content, #news-body, .story-body, .field--name-body',
-    removeSelectors: ['.tag-cloud', '.share', 'script', 'style', '.advertisement'],
+    contentSelector: '.newsDetailText, .newsBox, .newsArticle, .article-content, #news-body',
+    removeSelectors: ['.tag-cloud', '.share', 'script', 'style', '.advertisement', '.detail-google-news', '.newsImage'],
   },
   {
     domain: 'ntv.com.tr',
