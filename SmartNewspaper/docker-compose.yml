@@ -20,8 +20,7 @@ services:
       DB_CONNECTION_TIMEOUT_MS: 5000
     extra_hosts:
       - "host.docker.internal:host-gateway"   # Linux'ta host IP'sini çözmek için
-    ports:
-      - "3000:3000"
+    # Backend sadece Docker ağı içinde erişilebilir, dışarı açılmıyor
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:3000/health"]
       interval: 30s
