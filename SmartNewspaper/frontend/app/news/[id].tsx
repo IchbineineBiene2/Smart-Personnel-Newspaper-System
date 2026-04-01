@@ -835,22 +835,7 @@ export default function NewsDetailPage() {
             </View>
           )}
 
-          {secondaryImages.length ? (
-            <View style={styles(colors).galleryWrap}>
-              {secondaryImages.map((img, idx) => (
-                <Image
-                  key={`img-${idx}`}
-                  source={{ uri: img }}
-                  style={[
-                    styles(colors).galleryImage,
-                    { aspectRatio: imageAspectRatios[img] ?? 4 / 3 },
-                    idx % 2 === 0 ? styles(colors).galleryImageLeft : styles(colors).galleryImageRight,
-                  ]}
-                  resizeMode="contain"
-                />
-              ))}
-            </View>
-          ) : null}
+          {/* Secondary images inline display removed intentionally as they cause irrelevant images from article footers */}
         </View>
         )}
 
