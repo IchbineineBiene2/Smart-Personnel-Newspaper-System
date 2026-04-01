@@ -41,6 +41,66 @@ const SITE_RULES: SiteRule[] = [
     contentSelector: '.article-content, .news-text, .story-body, .article__content',
     removeSelectors: ['script', 'style', '.share-area', '.related-content'],
   },
+  {
+    domain: 'trthaber.com',
+    contentSelector: '.news-content, .detail-content, .editor-text, .article-content, .news-text',
+    removeSelectors: ['script', 'style', '.news-tags', '.share-buttons', '.related-news'],
+  },
+  {
+    domain: 'haberturk.com',
+    contentSelector: '.content, .news-detail, .article-body, figure, .content-text',
+    removeSelectors: ['script', 'style', '.social-shares', '.tags', '.advertisement'],
+  },
+  {
+    domain: 'cumhuriyet.com.tr',
+    contentSelector: '.haberMetni, .news-content, .news-detail, .haber-detay',
+    removeSelectors: ['script', 'style', '.post-tags', '.share-buttons', '.reklam'],
+  },
+  {
+    domain: 'gazeteduvar.com.tr',
+    contentSelector: '.content-text, .news-content, .article-content',
+    removeSelectors: ['script', 'style', '.social-share', '.tags', '.related-news'],
+  },
+  {
+    domain: 'karar.com',
+    contentSelector: '.article-content, .news-content, .news-text',
+    removeSelectors: ['script', 'style', '.post-tags', '.share-list', '.ad-box'],
+  },
+  {
+    domain: 'indyturk.com',
+    contentSelector: '.article-text, .content-body, .news-content, .field-name-body',
+    removeSelectors: ['script', 'style', '.share-buttons', '.tags'],
+  },
+  {
+    domain: 'diken.com.tr',
+    contentSelector: '.entry-content, .article-content, .news-content',
+    removeSelectors: ['script', 'style', '.social-share', '.post-tags'],
+  },
+  {
+    domain: 'aspor.com.tr',
+    contentSelector: '.haber-detay, .article-content, .news-content',
+    removeSelectors: ['script', 'style', '.share-list', '.tag-list', '.ad-container'],
+  },
+  {
+    domain: 'trtspor.com.tr',
+    contentSelector: '.news-content, .article-content, .detail-content, .news-text',
+    removeSelectors: ['script', 'style', '.social-shares', '.tags', '.related-news'],
+  },
+  {
+    domain: 'shiftdelete.net',
+    contentSelector: '.post-content, .article-content, .entry-content',
+    removeSelectors: ['script', 'style', '.post-tags', '.share-buttons', '.ad-container'],
+  },
+  {
+    domain: 'donanimhaber.com',
+    contentSelector: '.haber-metni, .article-content, .news-content, .content',
+    removeSelectors: ['script', 'style', '.tags', '.social-share', '.ad'],
+  },
+  {
+    domain: 'webtekno.com',
+    contentSelector: '.content-text, .article-content, .news-content',
+    removeSelectors: ['script', 'style', '.tags', '.share-bar', '.ad-box'],
+  },
   // ── İngilizce ───────────────────────────────────────────────────────────
   {
     domain: 'bbc.com',
