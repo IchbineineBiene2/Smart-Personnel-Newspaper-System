@@ -6,6 +6,7 @@ import { enrichArticlesWithContent } from '../collectors/scraper';
 import { filterDuplicates, clearCache, loadSeenIdsFromDb } from '../processors/duplicateDetector';
 import { upsertArticles } from '../db/articleRepository';
 import { query } from '../db/index';
+import { findAndSaveSimilarArticles } from '../processors/similarity-processor';
 
 // NewsAPI developer planı: 100 istek/24s → sadece her 6 saatte bir çalışır
 async function runCollection(includeNewsApi = false): Promise<void> {
@@ -99,6 +100,15 @@ export function startScheduler(): void {
   });
 
   console.log('[Scheduler] Zamanlayıcılar başlatıldı (RSS her 10dk | NewsAPI her 6s | sıfırlama 03:00)');
+
+  cron.schedule('0 * * * *', async () => {
+    console.log('[Scheduler] Benzerlik analizi başlatılıyor...');
+    try {
+      await findAndSaveSimilarArticles();
+    } catch (e) {
+      console.error('[Scheduler] Benzerlik analizi hatası:', e);
+    }
+  });
 
   // Başlangıçta DB'den ID'leri yükle, sonra RSS+NewsAPI ile haber topla
   loadSeenIdsFromDb()

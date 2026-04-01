@@ -18,7 +18,7 @@ import { Radius, Spacing, Typography } from '@/constants/theme';
 import { useApiNews } from '@/hooks/useNews';
 import { useBookmarks } from '@/hooks/useBookmarks';
 import { useTheme } from '@/hooks/useTheme';
-import { fetchArticleFullContent, mapToContentCategory, proxyImageUrl } from '@/services/newsApi';
+import { fetchArticleFullContent, fetchSimilarArticlesFromDb, mapToContentCategory, proxyImageUrl } from '@/services/newsApi';
 import { getPublisherIdFromSourceName } from '@/services/publisherProfiles';
 
 function stripHtml(value: string): string {
@@ -333,10 +333,31 @@ export default function NewsDetailPage() {
   const sourceUrl = articleFromCache?.source?.url;
   const currentLanguage = articleFromCache?.language;
 
-  const similarArticles = useMemo(
-    () => getSimilarArticles(params.id!, category, resolvedTitle ?? '', currentLanguage, articles),
-    [params.id, category, resolvedTitle, currentLanguage, articles]
-  );
+  const [similarArticles, setSimilarArticles] = useState<ArticleLike[]>([]);
+
+  useEffect(() => {
+    let active = true;
+    if (!params.id) return;
+
+    const fallbackSimilar = getSimilarArticles(params.id, category, resolvedTitle ?? '', currentLanguage, articles as ArticleLike[]);
+
+    fetchSimilarArticlesFromDb(params.id)
+      .then((dbSimilar) => {
+        if (!active) return;
+        if (dbSimilar && dbSimilar.length > 0) {
+          setSimilarArticles(dbSimilar);
+        } else {
+          setSimilarArticles(fallbackSimilar);
+        }
+      })
+      .catch((err) => {
+        if (active) setSimilarArticles(fallbackSimilar);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [params.id, category, resolvedTitle, currentLanguage, articles]);
   const publisherLogoUrl = useMemo(
     () => buildPublisherLogoUrl(sourceName, sourceUrl),
     [sourceName, sourceUrl]

@@ -4,6 +4,7 @@ import cors from 'cors';
 import newsRouter from './api/news.routes';
 import proxyRouter from './api/proxy.routes';
 import eventsRouter from './api/events.routes';
+import similarityRouter from './api/similarity.routes';
 import { startScheduler } from './scheduler/newsScheduler';
 import { runMigrations } from './db/migrate';
 
@@ -17,6 +18,7 @@ app.use(express.json());
 app.use('/api/news', newsRouter);
 app.use('/api/proxy', proxyRouter);
 app.use('/api/events', eventsRouter);
+app.use('/api/similarity', similarityRouter);
 
 app.get('/health', (_req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });

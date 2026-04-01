@@ -1370,3 +1370,16 @@ export async function fetchArticleFullContent(id: string): Promise<{ content: st
   if (!res.ok) throw new Error(`API hatası: ${res.status}`);
   return (await res.json()) as { content: string; images?: string[]; fromSource: boolean };
 }
+
+export async function fetchSimilarArticlesFromDb(id: string, threshold = 0.3): Promise<any[]> {
+  const res = await fetch(`${API_BASE}/api/similarity/${encodeURIComponent(id)}?threshold=${threshold}`);
+  if (!res.ok) return [];
+  const rows = await res.json();
+  return rows.map((r: any) => ({
+    id: r.id,
+    title: r.title,
+    url: r.url,
+    publishedAt: r.published_at,
+    source: { name: r.source_name }
+  }));
+}
