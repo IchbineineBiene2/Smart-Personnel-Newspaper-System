@@ -291,7 +291,7 @@ function collectContainerImages(
   keywords: Set<string>
 ): ImageCandidate[] {
   const sanitizedRoot = root.clone();
-  sanitizedRoot.find('aside, nav, [class*="related"], [class*="recommend"], [class*="teaser"], [class*="promo"], [class*="ad"], [id*="ad"]').remove();
+  sanitizedRoot.find('aside, nav, header, footer, [class*="related"], [class*="recommend"], [class*="teaser"], [class*="promo"], [class*="ad"], [id*="ad"], [class*="sidebar"], [id*="sidebar"], [class*="ticker"], [class*="breadcrumb"]').remove();
 
   const imgs = sanitizedRoot
     .find('img')
@@ -575,6 +575,7 @@ export async function scrapeArticleDetails(url: string, context?: { title?: stri
 
     // Gereksiz elementleri kaldır
     (rule.removeSelectors ?? []).forEach((sel) => $(sel).remove());
+    $('aside, nav, header, footer, [class*="related"], [class*="recommend"], [class*="teaser"], [class*="promo"], [class*="ad"], [id*="ad"], [class*="sidebar"], [id*="sidebar"], [class*="ticker"], [class*="breadcrumb"]').remove();
 
     // Ana içeriği çek (tek eleman yerine tüm eşleşmeleri birleştir)
     const contentNodes = $(rule.contentSelector);

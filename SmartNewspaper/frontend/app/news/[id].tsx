@@ -187,14 +187,12 @@ function getSimilarArticles(
   return allArticles
     .filter((a) => a.id !== currentId)
     .map((a) => {
-      let score = 0;
-      const aCat = mapToContentCategory(a.category, a.title, a.description);
-      if (aCat === currentCategory) score += 4;
-      if (a.language && currentLanguage && a.language === currentLanguage) score += 2;
+      let wordMatches = 0;
       const aWords = a.title.toLowerCase().split(/\s+/);
-      titleWords.forEach((w) => { if (aWords.some((aw) => aw.startsWith(w) || w.startsWith(aw))) score += 1; });
-      return { article: a, score };
+      titleWords.forEach((w) => { if (aWords.some((aw) => aw.startsWith(w) || w.startsWith(aw))) wordMatches += 1; });
+      return { article: a, score: wordMatches * 10 };
     })
+    .filter((s) => s.score >= 20)
     .sort((a, b) => b.score - a.score || new Date(b.article.publishedAt).getTime() - new Date(a.article.publishedAt).getTime())
     .slice(0, count)
     .map((s) => s.article);
