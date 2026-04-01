@@ -49,8 +49,18 @@ async function runCollection(includeNewsApi = false): Promise<void> {
       ...unique.filter((a) => !enrichedIds.has(a.id)),
     ];
 
-    // DB'ye yaz
     const { inserted, skipped } = await upsertArticles(finalArticles);
+
+    // Compute embeddings!
+    if (inserted > 0) {
+      console.log('[Scheduler] Generating embeddings for new articles...');
+      try {
+        const { computeAndSaveEmbeddings } = require('../processors/embedding');
+        await computeAndSaveEmbeddings();
+      } catch(e) {
+        console.error('[Embedding Error]', e);
+      }
+    }
 
     const duration = Date.now() - startTime;
     console.log(
