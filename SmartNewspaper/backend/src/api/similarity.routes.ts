@@ -17,7 +17,10 @@ router.get("/:articleId", async (req: Request, res: Response) => {
         a.title,
         a.source_name,
         a.url,
-        a.published_at
+        a.published_at,
+        a.image_url,
+        a.category,
+        a.language
       FROM similar_articles sa
       JOIN articles a ON (a.id = sa.article_id_1 OR a.id = sa.article_id_2) AND a.id != $1
       WHERE (sa.article_id_1 = $1 OR sa.article_id_2 = $1)

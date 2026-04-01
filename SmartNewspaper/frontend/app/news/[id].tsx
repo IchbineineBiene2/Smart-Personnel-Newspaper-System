@@ -199,7 +199,7 @@ function getSimilarArticles(
 }
 
 // ─── Yatay Öneri Kartı ───────────────────────────────────────────────────────
-function RelatedArticleCard({ article, onPress, colors }: { article: ArticleLike; onPress: () => void; colors: any }) {
+function RelatedArticleCard({ article, onPress, colors, isSidebar = false }: { article: ArticleLike; onPress: () => void; colors: any, isSidebar?: boolean }) {
   const cat = mapToContentCategory(article.category, article.title, article.description);
   const diff = Date.now() - new Date(article.publishedAt).getTime();
   const mins = Math.floor(diff / 60000);
@@ -210,15 +210,16 @@ function RelatedArticleCard({ article, onPress, colors }: { article: ArticleLike
     <Pressable
       style={({ pressed }) => [
         relatedStyles.card,
+        isSidebar && { width: '100%', maxWidth: 360, flexDirection: 'row', alignItems: 'center', height: 110 },
         { backgroundColor: colors.surface, borderColor: colors.borderSubtle },
         pressed && { opacity: 0.82 },
       ]}
       onPress={onPress}
     >
       {imgUrl ? (
-        <Image source={{ uri: imgUrl }} style={relatedStyles.thumb} resizeMode="cover" />
+        <Image source={{ uri: imgUrl }} style={[relatedStyles.thumb, isSidebar && { width: 110, height: 110 }]} resizeMode="cover" />
       ) : (
-        <View style={[relatedStyles.thumbPlaceholder, { backgroundColor: colors.surfaceInput }]}>
+        <View style={[relatedStyles.thumbPlaceholder, isSidebar && { width: 110, height: 110 }, { backgroundColor: colors.surfaceInput }]}>
           <Text style={relatedStyles.thumbEmoji}>📰</Text>
         </View>
       )}
@@ -231,7 +232,7 @@ function RelatedArticleCard({ article, onPress, colors }: { article: ArticleLike
         </View>
       ) : null}
 
-      <View style={relatedStyles.cardBody}>
+      <View style={[relatedStyles.cardBody, isSidebar && { flex: 1, padding: 12, gap: 6 }]}>
         <View style={[relatedStyles.catBadge, { backgroundColor: colors.accent + '1A' }]}>
           <Text style={[relatedStyles.catText, { color: colors.accent }]}>{cat}</Text>
         </View>
@@ -247,7 +248,7 @@ function RelatedArticleCard({ article, onPress, colors }: { article: ArticleLike
 }
 
 const relatedStyles = StyleSheet.create({
-  card:             { width: 200, borderRadius: Radius.lg, borderWidth: 1, overflow: 'hidden', position: 'relative' },
+  card:             { width: 220, borderRadius: Radius.lg, borderWidth: 1, overflow: 'hidden', position: 'relative' },
   thumb:            { width: '100%', height: 112 },
   thumbPlaceholder: { width: '100%', height: 112, alignItems: 'center', justifyContent: 'center' },
   thumbEmoji:       { fontSize: 24 },
@@ -865,6 +866,7 @@ export default function NewsDetailPage() {
                   key={`exact-web-${item.id}`}
                   article={item}
                   colors={colors}
+                  isSidebar={true}
                   onPress={() => router.push({ pathname: '/news/[id]', params: { id: item.id } })}
                 />
               ))}
