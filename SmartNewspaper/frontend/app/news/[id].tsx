@@ -169,7 +169,7 @@ function buildPublisherLogoUrl(sourceName: string, sourceUrl?: string): string |
 }
 
 // ─── Benzer Haber Skorlama ───────────────────────────────────────────────────
-type ArticleLike = { id: string; category?: string; title: string; language: string; description: string; source: { name: string }; publishedAt: string; imageUrl?: string };
+type ArticleLike = { id: string; category?: string; title: string; language: string; description: string; source: { name: string }; publishedAt: string; imageUrl?: string; similarityScore?: number };
 
 function getSimilarArticles(
   currentId: string,
@@ -224,6 +224,15 @@ function RelatedArticleCard({ article, onPress, colors }: { article: ArticleLike
           <Text style={relatedStyles.thumbEmoji}>📰</Text>
         </View>
       )}
+      
+      {article.similarityScore && (
+        <View style={relatedStyles.similarityBadge}>
+          <Text style={relatedStyles.similarityText}>
+            %{Math.round(article.similarityScore * 100)} Uyumlu
+          </Text>
+        </View>
+      )}
+
       <View style={relatedStyles.cardBody}>
         <View style={[relatedStyles.catBadge, { backgroundColor: colors.accent + '1A' }]}>
           <Text style={[relatedStyles.catText, { color: colors.accent }]}>{cat}</Text>
@@ -240,10 +249,12 @@ function RelatedArticleCard({ article, onPress, colors }: { article: ArticleLike
 }
 
 const relatedStyles = StyleSheet.create({
-  card:             { width: 200, borderRadius: Radius.lg, borderWidth: 1, overflow: 'hidden' },
+  card:             { width: 200, borderRadius: Radius.lg, borderWidth: 1, overflow: 'hidden', position: 'relative' },
   thumb:            { width: '100%', height: 112 },
   thumbPlaceholder: { width: '100%', height: 112, alignItems: 'center', justifyContent: 'center' },
   thumbEmoji:       { fontSize: 24 },
+  similarityBadge:  { position: 'absolute', top: 8, right: 8, backgroundColor: 'rgba(0,0,0,0.7)', paddingHorizontal: 6, paddingVertical: 3, borderRadius: 6, zIndex: 10, backdropFilter: 'blur(4px)' },
+  similarityText:   { color: '#5EEAD4', fontSize: 10, fontWeight: '800', letterSpacing: 0.5 },
   cardBody:         { padding: Spacing.sm, gap: 5 },
   catBadge:         { alignSelf: 'flex-start', paddingHorizontal: 7, paddingVertical: 2, borderRadius: Radius.full },
   catText:          { fontSize: 10, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.3 },
@@ -850,7 +861,7 @@ export default function NewsDetailPage() {
         <View style={styles(colors).relatedSection}>
           <View style={styles(colors).relatedHeader}>
             <View style={[styles(colors).relatedDot, { backgroundColor: colors.accent }]} />
-            <Text style={styles(colors).relatedTitle}>Benzer Haberler</Text>
+            <Text style={styles(colors).relatedTitle}>Farklı Kaynaklarda Bu Haber</Text>
           </View>
           <ScrollView
             horizontal

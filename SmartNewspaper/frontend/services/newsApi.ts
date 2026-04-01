@@ -1380,6 +1380,7 @@ export async function fetchSimilarArticlesFromDb(id: string, threshold = 0.3): P
     title: r.title,
     url: r.url,
     publishedAt: r.published_at,
-    source: { name: r.source_name }
+    source: { name: r.source_name },
+    similarityScore: r.similarity_score
   }));
 }
