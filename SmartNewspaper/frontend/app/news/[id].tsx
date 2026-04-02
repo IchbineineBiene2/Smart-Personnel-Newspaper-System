@@ -18,7 +18,7 @@ import { Radius, Spacing, Typography } from '@/constants/theme';
 import { useApiNews } from '@/hooks/useNews';
 import { useBookmarks } from '@/hooks/useBookmarks';
 import { useTheme } from '@/hooks/useTheme';
-import { fetchArticleFullContent, mapToContentCategory, proxyImageUrl } from '@/services/newsApi';
+import { fetchArticleFullContent, fetchSimilarArticlesFromDb, mapToContentCategory, proxyImageUrl } from '@/services/newsApi';
 import { getPublisherIdFromSourceName } from '@/services/publisherProfiles';
 
 function stripHtml(value: string): string {
@@ -169,7 +169,7 @@ function buildPublisherLogoUrl(sourceName: string, sourceUrl?: string): string |
 }
 
 // ─── Benzer Haber Skorlama ───────────────────────────────────────────────────
-type ArticleLike = { id: string; category?: string; title: string; language: string; description: string; source: { name: string }; publishedAt: string; imageUrl?: string };
+type ArticleLike = { id: string; category?: string; title: string; language: string; description: string; source: { name: string }; publishedAt: string; imageUrl?: string; similarityScore?: number };
 
 function getSimilarArticles(
   currentId: string,
@@ -187,21 +187,19 @@ function getSimilarArticles(
   return allArticles
     .filter((a) => a.id !== currentId)
     .map((a) => {
-      let score = 0;
-      const aCat = mapToContentCategory(a.category, a.title, a.description);
-      if (aCat === currentCategory) score += 4;
-      if (a.language && currentLanguage && a.language === currentLanguage) score += 2;
+      let wordMatches = 0;
       const aWords = a.title.toLowerCase().split(/\s+/);
-      titleWords.forEach((w) => { if (aWords.some((aw) => aw.startsWith(w) || w.startsWith(aw))) score += 1; });
-      return { article: a, score };
+      titleWords.forEach((w) => { if (aWords.some((aw) => aw.startsWith(w) || w.startsWith(aw))) wordMatches += 1; });
+      return { article: a, score: wordMatches * 10 };
     })
+    .filter((s) => s.score >= 20)
     .sort((a, b) => b.score - a.score || new Date(b.article.publishedAt).getTime() - new Date(a.article.publishedAt).getTime())
     .slice(0, count)
     .map((s) => s.article);
 }
 
 // ─── Yatay Öneri Kartı ───────────────────────────────────────────────────────
-function RelatedArticleCard({ article, onPress, colors }: { article: ArticleLike; onPress: () => void; colors: any }) {
+function RelatedArticleCard({ article, onPress, colors, isSidebar = false }: { article: ArticleLike; onPress: () => void; colors: any, isSidebar?: boolean }) {
   const cat = mapToContentCategory(article.category, article.title, article.description);
   const diff = Date.now() - new Date(article.publishedAt).getTime();
   const mins = Math.floor(diff / 60000);
@@ -212,19 +210,29 @@ function RelatedArticleCard({ article, onPress, colors }: { article: ArticleLike
     <Pressable
       style={({ pressed }) => [
         relatedStyles.card,
+        isSidebar && { width: '100%', maxWidth: 360, flexDirection: 'row', alignItems: 'center', height: 110 },
         { backgroundColor: colors.surface, borderColor: colors.borderSubtle },
         pressed && { opacity: 0.82 },
       ]}
       onPress={onPress}
     >
       {imgUrl ? (
-        <Image source={{ uri: imgUrl }} style={relatedStyles.thumb} resizeMode="cover" />
+        <Image source={{ uri: imgUrl }} style={[relatedStyles.thumb, isSidebar && { width: 110, height: 110 }]} resizeMode="cover" />
       ) : (
-        <View style={[relatedStyles.thumbPlaceholder, { backgroundColor: colors.surfaceInput }]}>
+        <View style={[relatedStyles.thumbPlaceholder, isSidebar && { width: 110, height: 110 }, { backgroundColor: colors.surfaceInput }]}>
           <Text style={relatedStyles.thumbEmoji}>📰</Text>
         </View>
       )}
-      <View style={relatedStyles.cardBody}>
+      
+      {article.similarityScore ? (
+        <View style={[relatedStyles.similarityBadge, { backgroundColor: 'rgba(20,83,45,0.85)' }]}>
+          <Text style={relatedStyles.similarityText}>
+            %{Math.round(article.similarityScore * 100)} AYNI
+          </Text>
+        </View>
+      ) : null}
+
+      <View style={[relatedStyles.cardBody, isSidebar && { flex: 1, padding: 12, gap: 6 }]}>
         <View style={[relatedStyles.catBadge, { backgroundColor: colors.accent + '1A' }]}>
           <Text style={[relatedStyles.catText, { color: colors.accent }]}>{cat}</Text>
         </View>
@@ -240,10 +248,12 @@ function RelatedArticleCard({ article, onPress, colors }: { article: ArticleLike
 }
 
 const relatedStyles = StyleSheet.create({
-  card:             { width: 200, borderRadius: Radius.lg, borderWidth: 1, overflow: 'hidden' },
+  card:             { width: 220, borderRadius: Radius.lg, borderWidth: 1, overflow: 'hidden', position: 'relative' },
   thumb:            { width: '100%', height: 112 },
   thumbPlaceholder: { width: '100%', height: 112, alignItems: 'center', justifyContent: 'center' },
   thumbEmoji:       { fontSize: 24 },
+  similarityBadge:  { position: 'absolute', top: 8, right: 8, backgroundColor: 'rgba(0,0,0,0.7)', paddingHorizontal: 6, paddingVertical: 3, borderRadius: 6, zIndex: 10, backdropFilter: 'blur(4px)' },
+  similarityText:   { color: '#5EEAD4', fontSize: 10, fontWeight: '800', letterSpacing: 0.5 },
   cardBody:         { padding: Spacing.sm, gap: 5 },
   catBadge:         { alignSelf: 'flex-start', paddingHorizontal: 7, paddingVertical: 2, borderRadius: Radius.full },
   catText:          { fontSize: 10, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.3 },
@@ -333,10 +343,31 @@ export default function NewsDetailPage() {
   const sourceUrl = articleFromCache?.source?.url;
   const currentLanguage = articleFromCache?.language;
 
-  const similarArticles = useMemo(
-    () => getSimilarArticles(params.id!, category, resolvedTitle ?? '', currentLanguage, articles),
-    [params.id, category, resolvedTitle, currentLanguage, articles]
-  );
+  const [exactMatches, setExactMatches] = useState<ArticleLike[]>([]);
+  const [relatedArticles, setRelatedArticles] = useState<ArticleLike[]>([]);
+
+  useEffect(() => {
+    let active = true;
+    if (!params.id) return;
+
+    const fallbackSimilar = getSimilarArticles(params.id, category, resolvedTitle ?? '', currentLanguage, articles as ArticleLike[]);
+    setRelatedArticles(fallbackSimilar);
+
+    fetchSimilarArticlesFromDb(params.id)
+      .then((dbSimilar) => {
+        if (!active) return;
+        if (dbSimilar && dbSimilar.length > 0) {
+          setExactMatches(dbSimilar);
+        }
+      })
+      .catch((err) => {
+        // ignore
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [params.id, category, resolvedTitle, currentLanguage, articles]);
   const publisherLogoUrl = useMemo(
     () => buildPublisherLogoUrl(sourceName, sourceUrl),
     [sourceName, sourceUrl]
@@ -804,46 +835,63 @@ export default function NewsDetailPage() {
             </View>
           )}
 
-          {secondaryImages.length ? (
-            <View style={styles(colors).galleryWrap}>
-              {secondaryImages.map((img, idx) => (
-                <Image
-                  key={`img-${idx}`}
-                  source={{ uri: img }}
-                  style={[
-                    styles(colors).galleryImage,
-                    { aspectRatio: imageAspectRatios[img] ?? 4 / 3 },
-                    idx % 2 === 0 ? styles(colors).galleryImageLeft : styles(colors).galleryImageRight,
-                  ]}
-                  resizeMode="contain"
+          {/* Secondary images inline display removed intentionally as they cause irrelevant images from article footers */}
+        </View>
+        )}
+
+        {isWeb && exactMatches.length > 0 && (
+          <View style={[styles(colors).mediaCol, styles(colors).mediaColWeb]}>
+            <View style={styles(colors).relatedHeader}>
+              <View style={[styles(colors).relatedDot, { backgroundColor: colors.accent }]} />
+              <Text style={styles(colors).relatedTitle}>FARKLI KAYNAKLARDA BU HABER</Text>
+            </View>
+            <View style={{ gap: 12, marginTop: 8 }}>
+              {exactMatches.map((item) => (
+                <RelatedArticleCard
+                  key={`exact-web-${item.id}`}
+                  article={item}
+                  colors={colors}
+                  isSidebar={true}
+                  onPress={() => router.push({ pathname: '/news/[id]', params: { id: item.id } })}
                 />
               ))}
             </View>
-          ) : null}
-        </View>
+          </View>
         )}
       </View>
 
-      {/* ── Önerilen Haberler ── */}
-      {similarArticles.length > 0 && (
+      {!isWeb && exactMatches.length > 0 && (
+        <View style={styles(colors).relatedSection}>
+          <View style={styles(colors).relatedHeader}>
+            <View style={[styles(colors).relatedDot, { backgroundColor: colors.accent }]} />
+            <Text style={styles(colors).relatedTitle}>Farklı Kaynaklarda Bu Haber</Text>
+          </View>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles(colors).relatedList}>
+            {exactMatches.map((item) => (
+              <RelatedArticleCard
+                key={`exact-mob-${item.id}`}
+                article={item}
+                colors={colors}
+                onPress={() => router.push({ pathname: '/news/[id]', params: { id: item.id } })}
+              />
+            ))}
+          </ScrollView>
+        </View>
+      )}
+
+      {relatedArticles.length > 0 && (
         <View style={styles(colors).relatedSection}>
           <View style={styles(colors).relatedHeader}>
             <View style={[styles(colors).relatedDot, { backgroundColor: colors.accent }]} />
             <Text style={styles(colors).relatedTitle}>Benzer Haberler</Text>
           </View>
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles(colors).relatedList}
-          >
-            {similarArticles.map((item) => (
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles(colors).relatedList}>
+            {relatedArticles.map((item) => (
               <RelatedArticleCard
-                key={item.id}
+                key={`related-${item.id}`}
                 article={item}
                 colors={colors}
-                onPress={() =>
-                  router.push({ pathname: '/news/[id]', params: { id: item.id } })
-                }
+                onPress={() => router.push({ pathname: '/news/[id]', params: { id: item.id } })}
               />
             ))}
           </ScrollView>

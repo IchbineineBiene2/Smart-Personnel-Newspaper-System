@@ -1,9 +1,14 @@
 import { Platform } from 'react-native';
 import { ContentCategory } from './content';
 
-// Android emülatörde localhost yerine 10.0.2.2 kullanılır
+// Web (Docker/nginx): relative URL — nginx /api → backend:3000 proxy'si kullanır
+// Android emülatör: 10.0.2.2, iOS/geliştirme: localhost
 const API_BASE =
-  Platform.OS === 'android' ? 'http://10.0.2.2:3000' : 'http://localhost:3000';
+  Platform.OS === 'web'
+    ? ''
+    : Platform.OS === 'android'
+    ? 'http://10.0.2.2:3000'
+    : 'http://localhost:3000';
 
 export interface ApiArticle {
   id: string;
@@ -1364,4 +1369,21 @@ export async function fetchArticleFullContent(id: string): Promise<{ content: st
   const res = await fetch(`${API_BASE}/api/news/${encodeURIComponent(id)}/full-content`);
   if (!res.ok) throw new Error(`API hatası: ${res.status}`);
   return (await res.json()) as { content: string; images?: string[]; fromSource: boolean };
+}
+
+export async function fetchSimilarArticlesFromDb(id: string, threshold = 0.3): Promise<any[]> {
+  const res = await fetch(`${API_BASE}/api/similarity/${encodeURIComponent(id)}?threshold=${threshold}`);
+  if (!res.ok) return [];
+  const rows = await res.json();
+  return rows.map((r: any) => ({
+    id: r.id,
+    title: r.title,
+    url: r.url,
+    publishedAt: r.published_at,
+    imageUrl: r.image_url,
+    category: r.category,
+    language: r.language,
+    source: { name: r.source_name },
+    similarityScore: r.similarity_score
+  }));
 }

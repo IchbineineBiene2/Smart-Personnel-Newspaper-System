@@ -13,29 +13,41 @@ export const RSS_SOURCES: RssSource[] = [
   { name: 'Sabah', url: 'https://www.sabah.com.tr/rss/anasayfa.xml', language: 'tr', category: 'general' },
   { name: 'BBC Türkçe', url: 'https://feeds.bbci.co.uk/turkce/rss.xml', language: 'tr', category: 'general' },
   { name: 'NTV', url: 'https://www.ntv.com.tr/son-dakika.rss', language: 'tr', category: 'breaking' },
-  
+  { name: 'TRT Haber', url: 'https://www.trthaber.com/xml_mobile.php', language: 'tr', category: 'general' },
+  { name: 'Habertürk', url: 'https://www.haberturk.com/rss/manset.xml', language: 'tr', category: 'general' },
+  { name: 'Cumhuriyet', url: 'https://www.cumhuriyet.com.tr/rss', language: 'tr', category: 'general' },
+  { name: 'Gazete Duvar', url: 'https://www.gazeteduvar.com.tr/rss', language: 'tr', category: 'general' },
+  { name: 'Karar', url: 'https://www.karar.com/rss', language: 'tr', category: 'general' },
+  { name: 'Independent Türkçe', url: 'https://www.indyturk.com/rss.xml', language: 'tr', category: 'general' },
+  { name: 'Diken', url: 'https://www.diken.com.tr/feed/', language: 'tr', category: 'general' },
+
   // ── Türkçe Spor ─────────────────────────────────────────────────────────
   { name: 'Hürriyet Spor', url: 'https://www.hurriyet.com.tr/rss/spor', language: 'tr', category: 'sports' },
   { name: 'Sabah Spor', url: 'https://www.sabah.com.tr/rss/spor.xml', language: 'tr', category: 'sports' },
   { name: 'Fanatik', url: 'https://www.fanatik.com.tr/rss.xml', language: 'tr', category: 'sports' },
   { name: 'Goal.com Türkiye', url: 'https://www.goal.com/tr/rss', language: 'tr', category: 'sports' },
   { name: 'Sozcusports', url: 'https://www.sozcu.com.tr/spor/rss/', language: 'tr', category: 'sports' },
-  
+  { name: 'A Spor', url: 'https://www.aspor.com.tr/rss/anasayfa.xml', language: 'tr', category: 'sports' },
+  { name: 'TRT Spor', url: 'https://www.trtspor.com.tr/rss/anasayfa.xml', language: 'tr', category: 'sports' },
+
   // ── Türkçe Ekonomi ──────────────────────────────────────────────────────
   { name: 'Hürriyet Ekonomi', url: 'https://www.hurriyet.com.tr/rss/ekonomi', language: 'tr', category: 'business' },
   { name: 'Milliyet Ekonomi', url: 'https://ekonomi.milliyet.com.tr/rss/rssNew/ekonomiRss.xml', language: 'tr', category: 'business' },
   { name: 'BloombergHT', url: 'https://www.bloomberght.com/rss/ekonomi.xml', language: 'tr', category: 'business' },
   { name: 'Yatırım Finansal Haberler', url: 'https://www.yatirim.com.tr/rss', language: 'tr', category: 'business' },
   { name: 'Para.com.tr', url: 'https://www.para.com.tr/rss.xml', language: 'tr', category: 'business' },
-  
+
   // ── Türkçe Sağlık ───────────────────────────────────────────────────────
   { name: 'Sağlık Haberleri', url: 'https://www.saglik.gov.tr/rss', language: 'tr', category: 'health' },
   { name: 'Medicana Sağlık', url: 'https://www.medicana.com.tr/haberler/rss', language: 'tr', category: 'health' },
-  
+
   // ── Türkçe Teknoloji ────────────────────────────────────────────────────
   { name: 'Hürriyet Teknoloji', url: 'https://www.hurriyet.com.tr/rss/teknoloji', language: 'tr', category: 'technology' },
   { name: 'Kristal Soft', url: 'https://www.kristalsoft.com/rss', language: 'tr', category: 'technology' },
-  
+  { name: 'ShiftDelete.Net', url: 'https://shiftdelete.net/feed', language: 'tr', category: 'technology' },
+  { name: 'DonanımHaber', url: 'https://www.donanimhaber.com/rss/tum/', language: 'tr', category: 'technology' },
+  { name: 'Webtekno', url: 'https://www.webtekno.com/rss.xml', language: 'tr', category: 'technology' },
+
   // ── Türkçe Politika ─────────────────────────────────────────────────────
   { name: 'Hürriyet Politika', url: 'https://www.hurriyet.com.tr/rss/politika', language: 'tr', category: 'politics' },
   { name: 'Milliyet Politika', url: 'https://www.milliyet.com.tr/rss/rssNew/politikaRss.xml', language: 'tr', category: 'politics' },
