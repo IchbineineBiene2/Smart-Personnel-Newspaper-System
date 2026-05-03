@@ -3,6 +3,7 @@ import { fetchAllRssFeeds } from '../collectors/rssCollector';
 import { fetchAllCategories } from '../collectors/newsApiCollector';
 import { fetchGuardianArticles } from '../collectors/guardianCollector';
 import { fetchCalendarificHolidays } from '../collectors/calendarificCollector';
+import { concertCollector } from '../collectors/concertCollector';
 import { enrichArticlesWithContent } from '../collectors/scraper';
 import { filterDuplicates, clearCache, loadSeenIdsFromDb } from '../processors/duplicateDetector';
 import { upsertArticles } from '../db/articleRepository';
@@ -60,6 +61,26 @@ async function runCalendarificCollection(): Promise<void> {
     console.log(`[Calendarific] ${inserted} holiday event inserted.`);
   } catch (err) {
     console.error('[Calendarific] Holiday collection failed:', err);
+  }
+}
+
+async function runConcertCollection(): Promise<void> {
+  try {
+    console.log('[Concert Collector] Konser, tiyatro ve stand-up etkinlikleri toplanıyor...');
+    const concerts = await concertCollector.collectAll();
+    
+    if (concerts.length === 0) {
+      console.log('[Concert Collector] Konser bulunamadı.');
+      return;
+    }
+
+    // Şimdilik konser verilerini logluyoruz (DB'ye kaydetmek için API route'unda handle edilecek)
+    console.log(`[Concert Collector] ✅ ${concerts.length} etkinlik toplandı`);
+    
+    // TODO: concerts verisini Event table'ına kaydet
+    // Şimdilik API endpoint'leri üzerinden kullanıcıya sunulacak
+  } catch (err) {
+    console.error('[Concert Collector] Konser toplama hatası:', err);
   }
 }
 
@@ -151,12 +172,16 @@ async function runCollection(includeNewsApi = false): Promise<void> {
 
 export function startScheduler(): void {
   runCalendarificCollection();
+  runConcertCollection(); // Başlangıçta konserler toplanır
 
   // RSS + Guardian: her 10 dakikada bir (NewsAPI dahil değil)
   cron.schedule('*/10 * * * *', () => runCollection(false));
 
   // NewsAPI: her 6 saatte bir (00:00, 06:00, 12:00, 18:00) — günde 4 × 16 = 64 istek
   cron.schedule('0 0,6,12,18 * * *', () => runCollection(true));
+
+  // Konserler: her 6 saatte bir (00:00, 06:00, 12:00, 18:00)
+  cron.schedule('0 1,7,13,19 * * *', () => runConcertCollection());
 
   // Calendarific holidays: weekly on Sunday at 00:00
   cron.schedule('0 0 * * 0', () => runCalendarificCollection());
@@ -170,7 +195,7 @@ export function startScheduler(): void {
     );
   });
 
-  console.log('[Scheduler] Zamanlayıcılar başlatıldı (RSS her 10dk | NewsAPI her 6s | sıfırlama 03:00)');
+  console.log('[Scheduler] Zamanlayıcılar başlatıldı (RSS her 10dk | NewsAPI her 6s | Konser her 6s | sıfırlama 03:00)');
 
   cron.schedule('0 * * * *', async () => {
     console.log('[Scheduler] Benzerlik analizi başlatılıyor...');

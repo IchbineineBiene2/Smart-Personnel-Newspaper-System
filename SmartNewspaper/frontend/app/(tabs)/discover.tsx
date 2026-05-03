@@ -6,14 +6,18 @@ import {
   StyleSheet,
   Text,
   View,
+  Image,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 
 import { useEvents, useAnnouncements } from '@/hooks/useEvents';
+import { useConcerts } from '@/hooks/useConcerts';
 import { useTheme } from '@/hooks/useTheme';
 import { EventCategory, EVENT_CATEGORY_LABELS, EVENT_CATEGORY_COLORS } from '@/services/eventsApi';
+import { ConcertTicketModal } from '@/components/ConcertTicketModal';
 import { Radius, Spacing, Typography } from '@/constants/theme';
+import type { ConcertEvent } from '@/hooks/useConcerts';
 
 type FilterCat = EventCategory | 'tumu';
 
@@ -21,6 +25,9 @@ const CATEGORY_FILTERS: { key: FilterCat; label: string; icon: string }[] = [
   { key: 'tumu',      label: 'Tümü',      icon: 'apps-outline' },
   { key: 'akademik',  label: 'Akademik',  icon: 'school-outline' },
   { key: 'sosyal',    label: 'Sosyal',    icon: 'people-outline' },
+  { key: 'konser',    label: 'Konser',    icon: 'musical-notes-outline' },
+  { key: 'tiyatro',   label: 'Tiyatro',   icon: 'theater-outline' },
+  { key: 'stand-up',  label: 'Stand-up',  icon: 'mic-outline' },
   { key: 'son-tarih', label: 'Son Tarih', icon: 'alarm-outline' },
   { key: 'sinav',     label: 'Sınav',     icon: 'document-text-outline' },
   { key: 'genel',     label: 'Genel',     icon: 'information-circle-outline' },
@@ -60,18 +67,32 @@ export default function Discover() {
         }
       : themeColors;
   const [activeCategory, setActiveCategory] = useState<FilterCat>('tumu');
+  const [selectedConcert, setSelectedConcert] = useState<ConcertEvent | null>(null);
+  const [showConcertModal, setShowConcertModal] = useState(false);
 
   const selectedCat = activeCategory === 'tumu' ? undefined : activeCategory;
-  const { upcoming, past, loading: eventsLoading, error: eventsError } = useEvents(selectedCat);
+  
+  // Konserler için kategori (akademik değil, konser/tiyatro/stand-up ise)
+  const isConcertCategory = activeCategory === 'konser' || activeCategory === 'tiyatro' || activeCategory === 'stand-up';
+  const concertCategoryType = isConcertCategory ? (activeCategory as 'konser' | 'tiyatro' | 'stand-up') : undefined;
+  
+  const { upcoming, past, loading: eventsLoading, error: eventsError } = useEvents(isConcertCategory ? null : selectedCat);
+  const { upcoming: upcomingConcerts, loading: concertsLoading } = useConcerts(concertCategoryType);
   const { critical, normal, loading: annLoading } = useAnnouncements();
 
   const s = styles(colors);
 
+  // Hangi verileri gösterecek
+  const displayEvents = isConcertCategory ? upcomingConcerts : upcoming;
+  const displayLoading = isConcertCategory ? concertsLoading : eventsLoading;
+  const displayError = isConcertCategory ? null : eventsError;
+
   // Özet istatistikler
-  const thisWeek = upcoming.filter((e) => daysUntil(e.date) <= 7);
-  const important = upcoming.filter((e) => e.isImportant);
+  const thisWeek = displayEvents.filter((e: any) => daysUntil(e.date) <= 7);
+  const important = isConcertCategory ? [] : (upcoming as any[]).filter((e) => e.isImportant);
 
   return (
+    <>
     <ScrollView style={s.container} contentContainerStyle={s.content}>
 
       {/* ── Özet İstatistik Satırı ── */}
@@ -150,106 +171,273 @@ export default function Discover() {
         </Text>
       )}
 
-      {/* ── Yaklaşan Etkinlikler ── */}
-      {!eventsLoading && upcoming.length > 0 && (
+      {/* ── Konser Kartları (Konser/Tiyatro/Stand-up kategorilerinde) ── */}
+      {isConcertCategory && (
         <>
-          <SectionDivider
-            label="Yaklaşan Etkinlikler"
-            count={upcoming.length}
-            dotColor={colors.accent}
-            colors={colors}
-          />
+          {concertsLoading && (
+            <ActivityIndicator color={colors.accent} style={{ marginVertical: Spacing.xl }} />
+          )}
 
-          {upcoming.map((event) => {
-            const { day, month, time } = formatEventDate(event.date);
-            const catColor = EVENT_CATEGORY_COLORS[event.category];
-            const days = daysUntil(event.date);
-            const countdownLabel =
-              days === 0 ? 'Bugün' : days === 1 ? 'Yarın' : `${days} gün`;
-            const countdownUrgent = days <= 3;
+          {!concertsLoading && upcomingConcerts.length > 0 && (
+            <>
+              <SectionDivider
+                label={activeCategory === 'konser' ? 'Yaklaşan Konserler' : 
+                       activeCategory === 'tiyatro' ? 'Yaklaşan Tiyatrolar' :
+                       'Yaklaşan Stand-up Gösterileri'}
+                count={upcomingConcerts.length}
+                dotColor={EVENT_CATEGORY_COLORS[activeCategory as EventCategory]}
+                colors={colors}
+              />
 
-            return (
-              <Pressable
-                key={event.id}
-                style={s.eventCard}
-                onPress={() => router.push({ pathname: '/events/[id]', params: { id: event.id } })}
-              >
-                {/* Sol renkli çizgi */}
-                <View style={[s.cardAccent, { backgroundColor: catColor }]} />
+              {upcomingConcerts.map((concert) => {
+                const { day, month, time } = formatEventDate(concert.date);
+                const days = daysUntil(concert.date);
+                const countdownLabel = days === 0 ? 'Bugün' : days === 1 ? 'Yarın' : `${days} gün`;
+                const catColor = EVENT_CATEGORY_COLORS[concert.category];
 
-                <View style={s.cardInner}>
-                  {/* Üst satır: kategori + önemli + countdown */}
-                  <View style={s.cardTopRow}>
-                    <View style={[s.catPill, { backgroundColor: catColor + '22', borderColor: catColor + '55' }]}>
-                      <Text style={[s.catPillText, { color: catColor }]}>
-                        {EVENT_CATEGORY_LABELS[event.category]}
+                return (
+                  <Pressable
+                    key={concert.id}
+                    style={s.eventCard}
+                    onPress={() => {
+                      setSelectedConcert(concert);
+                      setShowConcertModal(true);
+                    }}
+                  >
+                    {/* Sol renkli çizgi */}
+                    <View style={[s.cardAccent, { backgroundColor: catColor }]} />
+
+                    <View style={s.cardInner}>
+                      {/* Üst satır */}
+                      <View style={s.cardTopRow}>
+                        <View style={[s.catPill, { backgroundColor: catColor + '22', borderColor: catColor + '55' }]}>
+                          <Text style={[s.catPillText, { color: catColor }]}>
+                            {concert.category.toUpperCase()}
+                          </Text>
+                        </View>
+                        <View style={{ flex: 1 }} />
+                        <View style={[s.countdownBadge, { backgroundColor: colors.surfaceInput, borderColor: colors.borderSubtle }]}>
+                          <Ionicons name="time-outline" size={11} color={colors.textMuted} />
+                          <Text style={[s.countdownText, { color: colors.textMuted }]}>
+                            {countdownLabel}
+                          </Text>
+                        </View>
+                      </View>
+
+                      {/* Başlık (Sanatçı) */}
+                      <Text style={s.cardTitle} numberOfLines={1}>
+                        🎤 {concert.artist}
                       </Text>
-                    </View>
-                    {event.isImportant && (
-                      <View style={s.starBadge}>
-                        <Ionicons name="star" size={10} color="#F59E0B" />
-                      </View>
-                    )}
-                    <View style={{ flex: 1 }} />
-                    <View style={[
-                      s.countdownBadge,
-                      countdownUrgent
-                        ? { backgroundColor: '#FEF2F2', borderColor: '#FECACA' }
-                        : { backgroundColor: colors.surfaceInput, borderColor: colors.borderSubtle },
-                    ]}>
-                      <Ionicons
-                        name="time-outline"
-                        size={11}
-                        color={countdownUrgent ? '#EF4444' : colors.textMuted}
-                      />
-                      <Text style={[
-                        s.countdownText,
-                        { color: countdownUrgent ? '#EF4444' : colors.textMuted },
-                      ]}>
-                        {countdownLabel}
+
+                      {/* Etkinlik Adı */}
+                      <Text style={s.cardSummary} numberOfLines={2}>
+                        {concert.title}
                       </Text>
-                    </View>
-                  </View>
 
-                  {/* Başlık */}
-                  <Text style={s.cardTitle} numberOfLines={2}>{event.title}</Text>
+                      {/* Alt satır: tarih + mekan + bilet butonu */}
+                      <View style={[s.cardMeta, { justifyContent: 'space-between' }]}>
+                        <View style={{ flex: 1, gap: 6 }}>
+                          <View style={[s.datePill, { borderColor: catColor + '40' }]}>
+                            <Text style={[s.datePillDay, { color: catColor }]}>{day}</Text>
+                            <Text style={[s.datePillMonth, { color: catColor }]}>{month}</Text>
+                          </View>
+                          <View style={s.metaRow}>
+                            <Ionicons name="location-outline" size={12} color={colors.textMuted} />
+                            <Text style={s.metaText} numberOfLines={1}>{concert.venue}</Text>
+                          </View>
+                        </View>
 
-                  {/* Özet */}
-                  <Text style={s.cardSummary} numberOfLines={2}>{event.summary}</Text>
-
-                  {/* Alt satır: tarih + yer */}
-                  <View style={s.cardMeta}>
-                    {/* Tarih kutusu */}
-                    <View style={[s.datePill, { borderColor: catColor + '40' }]}>
-                      <Text style={[s.datePillDay, { color: catColor }]}>{day}</Text>
-                      <Text style={[s.datePillMonth, { color: catColor }]}>{month}</Text>
-                    </View>
-                    <View style={s.cardMetaRight}>
-                      <View style={s.metaRow}>
-                        <Ionicons name="time-outline" size={12} color={colors.textMuted} />
-                        <Text style={s.metaText}>{time}</Text>
+                        {/* Bilet Butonu */}
+                        <Pressable
+                          style={[
+                            styles(colors).ticketButton,
+                            { backgroundColor: catColor }
+                          ]}
+                          onPress={() => {
+                            setSelectedConcert(concert);
+                            setShowConcertModal(true);
+                          }}
+                        >
+                          <Ionicons name="ticket" size={12} color="#fff" />
+                          <Text style={styles(colors).ticketButtonText}>Bilet</Text>
+                        </Pressable>
                       </View>
-                      <View style={s.metaRow}>
-                        <Ionicons name="location-outline" size={12} color={colors.textMuted} />
-                        <Text style={s.metaText} numberOfLines={1}>{event.location}</Text>
-                      </View>
                     </View>
-                  </View>
-                </View>
-              </Pressable>
-            );
-          })}
+                  </Pressable>
+                );
+              })}
+            </>
+          )}
+
+          {!concertsLoading && upcomingConcerts.length === 0 && (
+            <View style={s.emptyBox}>
+              <View style={[s.emptyIconBox, { borderColor: colors.borderSubtle }]}>
+                <Ionicons name="musical-notes-outline" size={28} color={colors.textMuted} />
+              </View>
+              <Text style={s.emptyTitle}>
+                {activeCategory === 'konser' ? 'Konser bulunamadı' :
+                 activeCategory === 'tiyatro' ? 'Tiyatro bulunamadı' :
+                 'Stand-up bulunamadı'}
+              </Text>
+              <Text style={s.emptyText}>Bu kategoride henüz etkinlik eklenmemiş.</Text>
+            </View>
+          )}
         </>
       )}
 
-      {!eventsLoading && upcoming.length === 0 && !eventsError && (
-        <View style={s.emptyBox}>
-          <View style={[s.emptyIconBox, { borderColor: colors.borderSubtle }]}>
-            <Ionicons name="calendar-outline" size={28} color={colors.textMuted} />
-          </View>
-          <Text style={s.emptyTitle}>Yaklaşan etkinlik yok</Text>
-          <Text style={s.emptyText}>Bu kategoride henüz etkinlik eklenmemiş.</Text>
-        </View>
+      {/* ── Normal Etkinlikler (Konser değilse) ── */}
+      {!isConcertCategory && (
+        <>
+          {/* ── Yaklaşan Etkinlikler ── */}
+          {!eventsLoading && upcoming.length > 0 && (
+            <>
+              <SectionDivider
+                label="Yaklaşan Etkinlikler"
+                count={upcoming.length}
+                dotColor={colors.accent}
+                colors={colors}
+              />
+
+              {upcoming.map((event) => {
+                const { day, month, time } = formatEventDate(event.date);
+                const catColor = EVENT_CATEGORY_COLORS[event.category];
+                const days = daysUntil(event.date);
+                const countdownLabel =
+                  days === 0 ? 'Bugün' : days === 1 ? 'Yarın' : `${days} gün`;
+                const countdownUrgent = days <= 3;
+
+                return (
+                  <Pressable
+                    key={event.id}
+                    style={s.eventCard}
+                    onPress={() => router.push({ pathname: '/events/[id]', params: { id: event.id } })}
+                  >
+                    {/* Sol renkli çizgi */}
+                    <View style={[s.cardAccent, { backgroundColor: catColor }]} />
+
+                    <View style={s.cardInner}>
+                      {/* Üst satır: kategori + önemli + countdown */}
+                      <View style={s.cardTopRow}>
+                        <View style={[s.catPill, { backgroundColor: catColor + '22', borderColor: catColor + '55' }]}>
+                          <Text style={[s.catPillText, { color: catColor }]}>
+                            {EVENT_CATEGORY_LABELS[event.category]}
+                          </Text>
+                        </View>
+                        {event.isImportant && (
+                          <View style={s.starBadge}>
+                            <Ionicons name="star" size={10} color="#F59E0B" />
+                          </View>
+                        )}
+                        <View style={{ flex: 1 }} />
+                        <View style={[
+                          s.countdownBadge,
+                          countdownUrgent
+                            ? { backgroundColor: '#FEF2F2', borderColor: '#FECACA' }
+                            : { backgroundColor: colors.surfaceInput, borderColor: colors.borderSubtle },
+                        ]}>
+                          <Ionicons
+                            name="time-outline"
+                            size={11}
+                            color={countdownUrgent ? '#EF4444' : colors.textMuted}
+                          />
+                          <Text style={[
+                            s.countdownText,
+                            { color: countdownUrgent ? '#EF4444' : colors.textMuted },
+                          ]}>
+                            {countdownLabel}
+                          </Text>
+                        </View>
+                      </View>
+
+                      {/* Başlık */}
+                      <Text style={s.cardTitle} numberOfLines={2}>{event.title}</Text>
+
+                      {/* Özet */}
+                      <Text style={s.cardSummary} numberOfLines={2}>{event.summary}</Text>
+
+                      {/* Alt satır: tarih + yer */}
+                      <View style={s.cardMeta}>
+                        {/* Tarih kutusu */}
+                        <View style={[s.datePill, { borderColor: catColor + '40' }]}>
+                          <Text style={[s.datePillDay, { color: catColor }]}>{day}</Text>
+                          <Text style={[s.datePillMonth, { color: catColor }]}>{month}</Text>
+                        </View>
+                        <View style={s.cardMetaRight}>
+                          <View style={s.metaRow}>
+                            <Ionicons name="time-outline" size={12} color={colors.textMuted} />
+                            <Text style={s.metaText}>{time}</Text>
+                          </View>
+                          <View style={s.metaRow}>
+                            <Ionicons name="location-outline" size={12} color={colors.textMuted} />
+                            <Text style={s.metaText} numberOfLines={1}>{event.location}</Text>
+                          </View>
+                        </View>
+                      </View>
+                    </View>
+                  </Pressable>
+                );
+              })}
+            </>
+          )}
+
+          {!eventsLoading && upcoming.length === 0 && !eventsError && (
+            <View style={s.emptyBox}>
+              <View style={[s.emptyIconBox, { borderColor: colors.borderSubtle }]}>
+                <Ionicons name="calendar-outline" size={28} color={colors.textMuted} />
+              </View>
+              <Text style={s.emptyTitle}>Yaklaşan etkinlik yok</Text>
+              <Text style={s.emptyText}>Bu kategoride henüz etkinlik eklenmemiş.</Text>
+            </View>
+          )}
+
+          {/* ── Geçmiş Etkinlikler ── */}
+          {!eventsLoading && past.length > 0 && (
+            <>
+              <SectionDivider
+                label="Geçmiş Etkinlikler"
+                count={past.length}
+                dotColor={colors.textMuted}
+                colors={colors}
+                muted
+              />
+
+              {past.map((event) => {
+                const { day, month } = formatEventDate(event.date);
+                return (
+                  <Pressable
+                    key={event.id}
+                    style={[s.eventCard, s.eventCardPast]}
+                    onPress={() => router.push({ pathname: '/events/[id]', params: { id: event.id } })}
+                  >
+                    <View style={[s.cardAccent, { backgroundColor: colors.borderSubtle }]} />
+                    <View style={s.cardInner}>
+                      <View style={s.cardTopRow}>
+                        <View style={[s.catPill, { backgroundColor: colors.surfaceInput, borderColor: colors.borderSubtle }]}>
+                          <Text style={[s.catPillText, { color: colors.textMuted }]}>
+                            {EVENT_CATEGORY_LABELS[event.category]}
+                          </Text>
+                        </View>
+                      </View>
+                      <Text style={[s.cardTitle, { color: colors.textMuted }]} numberOfLines={1}>
+                        {event.title}
+                      </Text>
+                      <View style={s.cardMeta}>
+                        <View style={[s.datePill, { borderColor: colors.borderSubtle }]}>
+                          <Text style={[s.datePillDay, { color: colors.textMuted }]}>{day}</Text>
+                          <Text style={[s.datePillMonth, { color: colors.textMuted }]}>{month}</Text>
+                        </View>
+                        <View style={s.metaRow}>
+                          <Ionicons name="location-outline" size={12} color={colors.textMuted} />
+                          <Text style={s.metaText} numberOfLines={1}>{event.location}</Text>
+                        </View>
+                      </View>
+                    </View>
+                  </Pressable>
+                );
+              })}
+            </>
+          )}
+        </>
       )}
 
       {/* ── Geçmiş Etkinlikler ── */}
@@ -329,6 +517,18 @@ export default function Discover() {
       )}
 
     </ScrollView>
+
+    {/* Konser Bilet Modal */}
+    <ConcertTicketModal
+      concert={selectedConcert}
+      isVisible={showConcertModal}
+      onClose={() => {
+        setShowConcertModal(false);
+        setSelectedConcert(null);
+      }}
+      colors={colors}
+    />
+  </>
   );
 }
 
@@ -593,5 +793,22 @@ const styles = (colors: any) =>
     annDate: {
       fontSize: Typography.fontSize.xs,
       color: colors.textMuted,
+    },
+
+    // Bilet butonu (konser kartları için)
+    ticketButton: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 4,
+      paddingHorizontal: 10,
+      paddingVertical: 6,
+      borderRadius: Radius.md,
+      justifyContent: 'center',
+      marginLeft: Spacing.xs,
+    },
+    ticketButtonText: {
+      fontSize: Typography.fontSize.xs,
+      fontWeight: Typography.fontWeight.bold,
+      color: '#fff',
     },
   });
