@@ -7,7 +7,16 @@ const API_BASE =
     ? 'http://10.0.2.2:3000'
     : 'http://localhost:3000';
 
-export type EventCategory = 'akademik' | 'sosyal' | 'son-tarih' | 'sinav' | 'genel';
+export type EventCategory = 'akademik' | 'sosyal' | 'son-tarih' | 'sinav' | 'genel' | 'konser' | 'tiyatro' | 'stand-up';
+
+export type TicketSource = 'biletix' | 'bubilet' | 'passo';
+
+export interface TicketOption {
+  source: TicketSource;
+  url: string;
+  price?: string;
+  available: boolean;
+}
 
 export interface ApiEvent {
   id: string;
@@ -20,6 +29,9 @@ export interface ApiEvent {
   isImportant: boolean;
   imageUrl?: string;
   createdAt: string;
+  ticketOptions?: TicketOption[];
+  artist?: string;
+  venue?: string;
 }
 
 export interface ApiAnnouncement {
@@ -70,6 +82,9 @@ export async function fetchAnnouncements(params?: {
 export const EVENT_CATEGORY_LABELS: Record<EventCategory, string> = {
   akademik: 'Akademik',
   sosyal: 'Sosyal',
+  konser: 'Konser',
+  tiyatro: 'Tiyatro',
+  'stand-up': 'Stand-up',
   'son-tarih': 'Son Tarih',
   sinav: 'Sınav',
   genel: 'Genel',
@@ -78,6 +93,9 @@ export const EVENT_CATEGORY_LABELS: Record<EventCategory, string> = {
 export const EVENT_CATEGORY_COLORS: Record<EventCategory, string> = {
   akademik: '#3B82F6',
   sosyal: '#10B981',
+  konser: '#EC4899',   // Pink
+  tiyatro: '#8B5CF6',  // Purple
+  'stand-up': '#F97316', // Orange
   'son-tarih': '#EF4444',
   sinav: '#F59E0B',
   genel: '#6B7280',
