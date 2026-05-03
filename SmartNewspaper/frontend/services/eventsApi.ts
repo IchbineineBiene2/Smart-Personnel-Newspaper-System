@@ -2,7 +2,7 @@ import { Platform } from 'react-native';
 
 const API_BASE =
   Platform.OS === 'web'
-    ? ''
+    ? 'http://localhost:3000'
     : Platform.OS === 'android'
     ? 'http://10.0.2.2:3000'
     : 'http://localhost:3000';
@@ -45,7 +45,7 @@ export async function fetchEvents(params?: {
   const res = await fetch(`${API_BASE}/api/events${qs ? `?${qs}` : ''}`);
   if (!res.ok) throw new Error('Etkinlikler yüklenemedi');
   const data = await res.json();
-  return data.events as ApiEvent[];
+  return Array.isArray(data.events) ? data.events as ApiEvent[] : [];
 }
 
 export async function fetchEventById(id: string): Promise<ApiEvent> {
@@ -64,7 +64,7 @@ export async function fetchAnnouncements(params?: {
   const res = await fetch(`${API_BASE}/api/events/announcements/list${qs ? `?${qs}` : ''}`);
   if (!res.ok) throw new Error('Duyurular yüklenemedi');
   const data = await res.json();
-  return data.announcements as ApiAnnouncement[];
+  return Array.isArray(data.announcements) ? data.announcements as ApiAnnouncement[] : [];
 }
 
 export const EVENT_CATEGORY_LABELS: Record<EventCategory, string> = {

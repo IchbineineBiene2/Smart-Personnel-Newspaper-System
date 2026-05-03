@@ -16,22 +16,28 @@ let pendingAnnouncements: Promise<ApiAnnouncement[]> | null = null;
 async function loadEvents(): Promise<ApiEvent[]> {
   if (cachedEvents.length > 0) return cachedEvents;
   if (pendingEvents) return pendingEvents;
-  pendingEvents = fetchEvents().then((data) => {
-    cachedEvents = data;
-    pendingEvents = null;
-    return data;
-  });
+  pendingEvents = fetchEvents()
+    .then((data) => {
+      cachedEvents = data;
+      return data;
+    })
+    .finally(() => {
+      pendingEvents = null;
+    });
   return pendingEvents;
 }
 
 async function loadAnnouncements(): Promise<ApiAnnouncement[]> {
   if (cachedAnnouncements.length > 0) return cachedAnnouncements;
   if (pendingAnnouncements) return pendingAnnouncements;
-  pendingAnnouncements = fetchAnnouncements().then((data) => {
-    cachedAnnouncements = data;
-    pendingAnnouncements = null;
-    return data;
-  });
+  pendingAnnouncements = fetchAnnouncements()
+    .then((data) => {
+      cachedAnnouncements = data;
+      return data;
+    })
+    .finally(() => {
+      pendingAnnouncements = null;
+    });
   return pendingAnnouncements;
 }
 
@@ -43,6 +49,7 @@ export function useEvents(category?: EventCategory | null) {
   useEffect(() => {
     if (cachedEvents.length > 0) {
       setEvents(cachedEvents);
+      setError(null);
       setLoading(false);
       return;
     }
@@ -50,6 +57,7 @@ export function useEvents(category?: EventCategory | null) {
     loadEvents()
       .then((data) => {
         setEvents(data);
+        setError(null);
         setLoading(false);
       })
       .catch((err: Error) => {
@@ -74,6 +82,7 @@ export function useAnnouncements() {
   useEffect(() => {
     if (cachedAnnouncements.length > 0) {
       setAnnouncements(cachedAnnouncements);
+      setError(null);
       setLoading(false);
       return;
     }
@@ -81,6 +90,7 @@ export function useAnnouncements() {
     loadAnnouncements()
       .then((data) => {
         setAnnouncements(data);
+        setError(null);
         setLoading(false);
       })
       .catch((err: Error) => {

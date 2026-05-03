@@ -2,11 +2,66 @@ import cron from 'node-cron';
 import { fetchAllRssFeeds } from '../collectors/rssCollector';
 import { fetchAllCategories } from '../collectors/newsApiCollector';
 import { fetchGuardianArticles } from '../collectors/guardianCollector';
+import { fetchCalendarificHolidays } from '../collectors/calendarificCollector';
 import { enrichArticlesWithContent } from '../collectors/scraper';
 import { filterDuplicates, clearCache, loadSeenIdsFromDb } from '../processors/duplicateDetector';
 import { upsertArticles } from '../db/articleRepository';
 import { query } from '../db/index';
 import { findAndSaveSimilarArticles } from '../processors/similarity-processor';
+
+const STARTUP_NEWSAPI_DELAY_MS = 10 * 60 * 1000;
+const MIN_NEWSAPI_STARTUP_INTERVAL_MS = 2 * 60 * 60 * 1000;
+let lastNewsApiRunAt: number | null = null;
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function getLastNewsApiRunAt(): Promise<number | null> {
+  let lastRunAt = lastNewsApiRunAt;
+
+  try {
+    const result = await query<{ started_at: Date | string }>(
+      `SELECT started_at
+       FROM collection_runs
+       WHERE 'newsapi' = ANY(source_types)
+       ORDER BY started_at DESC
+       LIMIT 1`
+    );
+    const dbStartedAt = result.rows[0]?.started_at;
+    if (dbStartedAt) {
+      const dbTime = new Date(dbStartedAt).getTime();
+      lastRunAt = lastRunAt === null ? dbTime : Math.max(lastRunAt, dbTime);
+    }
+  } catch (err) {
+    console.warn('[Scheduler] Son NewsAPI çalışması DBden okunamadı:', (err as Error).message);
+  }
+
+  return lastRunAt;
+}
+
+async function runStartupNewsApiCollection(): Promise<void> {
+  await delay(STARTUP_NEWSAPI_DELAY_MS);
+
+  const lastRunAt = await getLastNewsApiRunAt();
+  if (lastRunAt !== null && Date.now() - lastRunAt < MIN_NEWSAPI_STARTUP_INTERVAL_MS) {
+    console.log('[Scheduler] Startup NewsAPI çalışması atlandı: son çalışma 2 saatten yeni.');
+    return;
+  }
+
+  await runCollection(true);
+}
+
+async function runCalendarificCollection(): Promise<void> {
+  if (!process.env.CALENDARIFIC_API_KEY || process.env.CALENDARIFIC_API_KEY === 'your_key_here') return;
+
+  try {
+    const inserted = await fetchCalendarificHolidays();
+    console.log(`[Calendarific] ${inserted} holiday event inserted.`);
+  } catch (err) {
+    console.error('[Calendarific] Holiday collection failed:', err);
+  }
+}
 
 // NewsAPI developer planı: 100 istek/24s → sadece her 6 saatte bir çalışır
 async function runCollection(includeNewsApi = false): Promise<void> {
@@ -14,6 +69,7 @@ async function runCollection(includeNewsApi = false): Promise<void> {
   const startTime = Date.now();
   const newsApiKey = includeNewsApi ? process.env.NEWS_API_KEY : undefined;
   const guardianKey = process.env.GUARDIAN_API_KEY;
+  if (newsApiKey) lastNewsApiRunAt = startTime;
 
   // collection_runs kaydı aç
   let runId: number | null = null;
@@ -94,11 +150,16 @@ async function runCollection(includeNewsApi = false): Promise<void> {
 }
 
 export function startScheduler(): void {
+  runCalendarificCollection();
+
   // RSS + Guardian: her 10 dakikada bir (NewsAPI dahil değil)
   cron.schedule('*/10 * * * *', () => runCollection(false));
 
   // NewsAPI: her 6 saatte bir (00:00, 06:00, 12:00, 18:00) — günde 4 × 16 = 64 istek
   cron.schedule('0 0,6,12,18 * * *', () => runCollection(true));
+
+  // Calendarific holidays: weekly on Sunday at 00:00
+  cron.schedule('0 0 * * 0', () => runCalendarificCollection());
 
   // Her gece saat 03:00'da in-memory duplicate setini sıfırla
   cron.schedule('0 3 * * *', async () => {
@@ -122,6 +183,11 @@ export function startScheduler(): void {
 
   // Başlangıçta DB'den ID'leri yükle, sonra RSS+NewsAPI ile haber topla
   loadSeenIdsFromDb()
-    .then(() => runCollection(true))
+    .then(() => {
+      console.log('[Scheduler] Startup NewsAPI çalışması 10 dakika geciktirildi.');
+      runStartupNewsApiCollection().catch((err) =>
+        console.error('[Scheduler] Startup NewsAPI çalışması hatası:', err)
+      );
+    })
     .catch(() => runCollection(false));
 }
