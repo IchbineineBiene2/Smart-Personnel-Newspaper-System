@@ -5,8 +5,8 @@ import { RSS_SOURCES, RssSource } from '../config/sources';
 
 // media:thumbnail ve media:content alanlarını da parse et (BBC, DW, Tagesschau için)
 const parser = new Parser({
-  timeout: 12000,
-  headers: { 'User-Agent': 'Mozilla/5.0 (compatible; SmartNewspaper/1.0)' },
+  timeout: 30000,
+  headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36' },
   customFields: {
     item: [
       ['media:thumbnail', 'mediaThumbnail'],
@@ -46,8 +46,19 @@ function extractImageUrl(item: Record<string, unknown>): string | undefined {
   return undefined;
 }
 
+async function fetchWithRetry(url: string, options: any, retries = 2): Promise<any> {
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      return await parser.parseURL(url);
+    } catch (err) {
+      if (attempt === retries) throw err;
+      await new Promise(res => setTimeout(res, 2000 * (attempt + 1)));
+    }
+  }
+}
+
 async function fetchFeed(source: RssSource): Promise<Article[]> {
-  const feed = await parser.parseURL(source.url);
+  const feed = await fetchWithRetry(source.url, { requestOptions: { headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36' } } });
   return (feed.items as unknown as Record<string, unknown>[])
     .filter((item) => item.link && item.title)
     .map((item) => ({
