@@ -26,7 +26,11 @@ const CATEGORY_FILTERS: { key: FilterCat; label: string; icon: string }[] = [
   { key: 'akademik',  label: 'Akademik',  icon: 'school-outline' },
   { key: 'sosyal',    label: 'Sosyal',    icon: 'people-outline' },
   { key: 'konser',    label: 'Konser',    icon: 'musical-notes-outline' },
+
+  { key: 'tiyatro',   label: 'Tiyatro',   icon: 'sparkles' },
+
   { key: 'tiyatro',   label: 'Tiyatro',   icon: 'theater-outline' },
+
   { key: 'stand-up',  label: 'Stand-up',  icon: 'mic-outline' },
   { key: 'son-tarih', label: 'Son Tarih', icon: 'alarm-outline' },
   { key: 'sinav',     label: 'Sınav',     icon: 'document-text-outline' },

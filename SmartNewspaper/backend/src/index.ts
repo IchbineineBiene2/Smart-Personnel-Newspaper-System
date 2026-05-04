@@ -5,7 +5,10 @@ import newsRouter from './api/news.routes';
 import proxyRouter from './api/proxy.routes';
 import eventsRouter from './api/events.routes';
 import concertsRouter from './api/concerts.routes';
+ events
+
 import similarityRouter from './api/similarity.routes';
+main
 import { startScheduler } from './scheduler/newsScheduler';
 import { runMigrations } from './db/migrate';
 
@@ -20,7 +23,9 @@ app.use('/api/news', newsRouter);
 app.use('/api/proxy', proxyRouter);
 app.use('/api/events', eventsRouter);
 app.use('/api/concerts', concertsRouter);
+
 app.use('/api/similarity', similarityRouter);
+
 
 app.get('/health', (_req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });

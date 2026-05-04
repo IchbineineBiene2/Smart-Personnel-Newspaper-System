@@ -1,6 +1,10 @@
+
+import { ticketmasterCollector } from './ticketmasterCollector';
+
 import axios from 'axios';
 import * as cheerio from 'cheerio';
 import { v4 as uuidv4 } from 'uuid';
+
 
 export interface ConcertEvent {
   id: string;
@@ -12,13 +16,39 @@ export interface ConcertEvent {
   description: string;
   imageUrl?: string;
   ticketOptions: Array<{
+
+    source: 'ticketmaster';
+
     source: 'biletix' | 'bubilet' | 'passo';
+
     url: string;
     price?: string;
     available: boolean;
   }>;
   category: 'konser' | 'tiyatro' | 'stand-up';
 }
+
+
+/**
+ * Ticketmaster API'den konser/tiyatro/stand-up etkinlikleri topla
+ */
+class ConcertCollector {
+  async collectAll(): Promise<ConcertEvent[]> {
+    console.log('🎪 Konser verisi toplamaya başlanıyor...');
+    
+    try {
+      const events = await ticketmasterCollector.fetchTurkeyEvents(50);
+      console.log(`✅ Ticketmaster'dan ${events.length} etkinlik yüklendi`);
+      return events;
+    } catch (error) {
+      console.error('❌ Konser toplama hatası:', error instanceof Error ? error.message : error);
+      return [];
+    }
+  }
+}
+
+export const concertCollector = new ConcertCollector();
+export { ConcertCollector };
 
 class ConcertCollector {
   private baseDelay = 1000; // 1 saniye, rate limit'e saygı
