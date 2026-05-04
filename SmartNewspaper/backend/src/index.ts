@@ -5,10 +5,7 @@ import newsRouter from './api/news.routes';
 import proxyRouter from './api/proxy.routes';
 import eventsRouter from './api/events.routes';
 import concertsRouter from './api/concerts.routes';
- events
-
 import similarityRouter from './api/similarity.routes';
-main
 import { startScheduler } from './scheduler/newsScheduler';
 import { runMigrations } from './db/migrate';
 

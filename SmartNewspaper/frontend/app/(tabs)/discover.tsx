@@ -1,12 +1,13 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
-  ActivityIndicator,
+  Animated,
   Pressable,
   ScrollView,
   StyleSheet,
   Text,
   View,
   Image,
+  Platform,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -16,803 +17,332 @@ import { useConcerts } from '@/hooks/useConcerts';
 import { useTheme } from '@/hooks/useTheme';
 import { EventCategory, EVENT_CATEGORY_LABELS, EVENT_CATEGORY_COLORS } from '@/services/eventsApi';
 import { ConcertTicketModal } from '@/components/ConcertTicketModal';
-import { Radius, Spacing, Typography } from '@/constants/theme';
 import type { ConcertEvent } from '@/hooks/useConcerts';
 
 type FilterCat = EventCategory | 'tumu';
+type ViewFilter = 'week' | 'calendar';
 
 const CATEGORY_FILTERS: { key: FilterCat; label: string; icon: string }[] = [
   { key: 'tumu',      label: 'Tümü',      icon: 'apps-outline' },
   { key: 'akademik',  label: 'Akademik',  icon: 'school-outline' },
   { key: 'sosyal',    label: 'Sosyal',    icon: 'people-outline' },
   { key: 'konser',    label: 'Konser',    icon: 'musical-notes-outline' },
-
-  { key: 'tiyatro',   label: 'Tiyatro',   icon: 'sparkles' },
-
-  { key: 'tiyatro',   label: 'Tiyatro',   icon: 'theater-outline' },
-
+  { key: 'tiyatro',   label: 'Tiyatro',   icon: 'color-palette-outline' },
   { key: 'stand-up',  label: 'Stand-up',  icon: 'mic-outline' },
   { key: 'son-tarih', label: 'Son Tarih', icon: 'alarm-outline' },
   { key: 'sinav',     label: 'Sınav',     icon: 'document-text-outline' },
   { key: 'genel',     label: 'Genel',     icon: 'information-circle-outline' },
 ];
 
+const MONTHS_TR = ['Oca','Şub','Mar','Nis','May','Haz','Tem','Ağu','Eyl','Eki','Kas','Ara'];
+
 function formatEventDate(isoDate: string) {
   const d = new Date(isoDate);
-  const months = ['Oca','Şub','Mar','Nis','May','Haz','Tem','Ağu','Eyl','Eki','Kas','Ara'];
   return {
-    day:   String(d.getDate()).padStart(2, '0'),
-    month: months[d.getMonth()],
+    day:   String(d.getDate()),
+    month: MONTHS_TR[d.getMonth()].toUpperCase(),
     time:  `${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`,
   };
 }
 
-function daysUntil(isoDate: string): number {
-  const diff = new Date(isoDate).getTime() - Date.now();
-  return Math.ceil(diff / (1000 * 60 * 60 * 24));
-}
+const CATEGORY_ACCENT: Record<string, string> = {
+  akademik: '#5442F5', sosyal: '#10b981', konser: '#f59e0b',
+  tiyatro: '#ec4899', 'stand-up': '#8b5cf6', 'son-tarih': '#ef4444',
+  sinav: '#3b82f6', genel: '#6b7280',
+};
 
-function formatAnnDate(isoDate: string): string {
-  return new Date(isoDate).toLocaleDateString('tr-TR', {
-    day: 'numeric', month: 'long', year: 'numeric',
-  });
-}
-
-export default function Discover() {
-  const router   = useRouter();
-  const { colors: themeColors, themeName } = useTheme();
-  const colors =
-    themeName === 'vincent'
-      ? {
-          ...themeColors,
-          background: themeColors.surface,
-          surfaceHigh: themeColors.surface,
-          surfaceInput: themeColors.surface,
-        }
-      : themeColors;
-  const [activeCategory, setActiveCategory] = useState<FilterCat>('tumu');
+export default function DiscoverTab() {
+  const { colors, themeName } = useTheme();
+  const router = useRouter();
+  const { events, loading: eventsLoading } = useEvents();
+  const { announcements, loading: annLoading } = useAnnouncements();
+  const { concerts, loading: concertsLoading } = useConcerts();
+  const [filterCat, setFilterCat] = useState<FilterCat>('tumu');
+  const [viewFilter, setViewFilter] = useState<ViewFilter>('week');
   const [selectedConcert, setSelectedConcert] = useState<ConcertEvent | null>(null);
-  const [showConcertModal, setShowConcertModal] = useState(false);
+  const [showModal, setShowModal] = useState(false);
 
-  const selectedCat = activeCategory === 'tumu' ? undefined : activeCategory;
-  
-  // Konserler için kategori (akademik değil, konser/tiyatro/stand-up ise)
-  const isConcertCategory = activeCategory === 'konser' || activeCategory === 'tiyatro' || activeCategory === 'stand-up';
-  const concertCategoryType = isConcertCategory ? (activeCategory as 'konser' | 'tiyatro' | 'stand-up') : undefined;
-  
-  const { upcoming, past, loading: eventsLoading, error: eventsError } = useEvents(isConcertCategory ? null : selectedCat);
-  const { upcoming: upcomingConcerts, loading: concertsLoading } = useConcerts(concertCategoryType);
-  const { critical, normal, loading: annLoading } = useAnnouncements();
+  const headerFade = useRef(new Animated.Value(0)).current;
+  const listFade = useRef(new Animated.Value(0)).current;
 
-  const s = styles(colors);
+  const isWeb = Platform.OS === 'web';
+  const bg = colors.background;
 
-  // Hangi verileri gösterecek
-  const displayEvents = isConcertCategory ? upcomingConcerts : upcoming;
-  const displayLoading = isConcertCategory ? concertsLoading : eventsLoading;
-  const displayError = isConcertCategory ? null : eventsError;
+  useEffect(() => {
+    Animated.stagger(80, [
+      Animated.timing(headerFade, { toValue: 1, duration: 350, useNativeDriver: true }),
+      Animated.timing(listFade, { toValue: 1, duration: 500, useNativeDriver: true }),
+    ]).start();
+  }, []);
 
-  // Özet istatistikler
-  const thisWeek = displayEvents.filter((e: any) => daysUntil(e.date) <= 7);
-  const important = isConcertCategory ? [] : (upcoming as any[]).filter((e) => e.isImportant);
+  const filteredEvents = filterCat === 'tumu'
+    ? events
+    : events.filter((e) => e.category === filterCat);
+
+  const filteredConcerts = filterCat === 'tumu' || ['konser','tiyatro','stand-up'].includes(filterCat)
+    ? concerts
+    : [];
+
+  const allItems = [
+    ...filteredEvents.map((e) => ({ ...e, _type: 'event' as const })),
+    ...filteredConcerts.map((c) => ({ ...c, _type: 'concert' as const })),
+  ].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
 
   return (
-    <>
-    <ScrollView style={s.container} contentContainerStyle={s.content}>
+    <ScrollView
+      style={[styles.root, { backgroundColor: bg }]}
+      contentContainerStyle={[styles.content, isWeb && styles.webContent]}
+      showsVerticalScrollIndicator={false}
+    >
+      {/* ── Header ── */}
+      <Animated.View style={[styles.header, { opacity: headerFade }]}>
+        <View>
+          <Text style={[styles.pageTitle, { color: colors.textPrimary }]}>
+            Yaklaşan{' '}
+            <Text style={{ color: colors.accent, fontStyle: 'italic' }}>Etkinlikler</Text>
+          </Text>
+          <Text style={[styles.pageSubtitle, { color: colors.textMuted }]}>
+            Sizin için seçilmiş şehir gündemi ve global buluşmalar.
+          </Text>
+        </View>
+        <View style={styles.viewFilters}>
+          <Pressable
+            style={[styles.viewBtn, viewFilter === 'week' && { backgroundColor: colors.accent }]}
+            onPress={() => setViewFilter('week')}
+          >
+            <Text style={[styles.viewBtnText, { color: viewFilter === 'week' ? '#fff' : colors.textMuted }]}>
+              Bu Hafta
+            </Text>
+          </Pressable>
+          <Pressable
+            style={[styles.viewBtn, viewFilter === 'calendar' && { backgroundColor: colors.accent }, { backgroundColor: viewFilter === 'calendar' ? colors.accent : colors.surface, borderColor: colors.borderSubtle, borderWidth: 1 }]}
+            onPress={() => setViewFilter('calendar')}
+          >
+            <Text style={[styles.viewBtnText, { color: viewFilter === 'calendar' ? '#fff' : colors.textMuted }]}>
+              Takvim
+            </Text>
+          </Pressable>
+        </View>
+      </Animated.View>
 
-      {/* ── Özet İstatistik Satırı ── */}
-      <View style={s.statsRow}>
-        <View style={s.statCard}>
-          <Text style={s.statNum}>{upcoming.length}</Text>
-          <Text style={s.statLabel}>Yaklaşan</Text>
-        </View>
-        <View style={[s.statCard, s.statCardMid]}>
-          <Text style={[s.statNum, { color: '#F59E0B' }]}>{thisWeek.length}</Text>
-          <Text style={s.statLabel}>Bu Hafta</Text>
-        </View>
-        <View style={s.statCard}>
-          <Text style={[s.statNum, { color: '#EF4444' }]}>{important.length}</Text>
-          <Text style={s.statLabel}>Önemli</Text>
-        </View>
-      </View>
-
-      {/* ── Kritik Duyurular ── */}
-      {!annLoading && critical.length > 0 && (
-        <>
-          {critical.map((ann) => (
-            <View key={ann.id} style={s.criticalCard}>
-              <View style={s.criticalLeft}>
-                <View style={s.criticalIconBox}>
-                  <Ionicons name="alert-circle" size={16} color="#fff" />
-                </View>
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={s.criticalTitle}>{ann.title}</Text>
-                <Text style={s.criticalBody}>{ann.content}</Text>
-                {ann.expiresAt && (
-                  <Text style={s.criticalExpiry}>
-                    Son tarih: {formatAnnDate(ann.expiresAt)}
-                  </Text>
-                )}
-              </View>
-            </View>
-          ))}
-        </>
+      {/* ── Category Filters ── */}
+      {!isWeb && (
+        <Animated.View style={{ opacity: headerFade }}>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filterRow}>
+            {CATEGORY_FILTERS.map((f) => (
+              <Pressable
+                key={f.key}
+                style={[
+                  styles.filterChip,
+                  {
+                    backgroundColor: filterCat === f.key ? colors.accent : colors.surface,
+                    borderColor: filterCat === f.key ? colors.accent : colors.borderSubtle,
+                  },
+                ]}
+                onPress={() => setFilterCat(f.key)}
+              >
+                <Ionicons
+                  name={f.icon as any}
+                  size={13}
+                  color={filterCat === f.key ? '#fff' : colors.textMuted}
+                />
+                <Text style={[styles.filterChipText, { color: filterCat === f.key ? '#fff' : colors.textMuted }]}>
+                  {f.label}
+                </Text>
+              </Pressable>
+            ))}
+          </ScrollView>
+        </Animated.View>
       )}
 
-      {/* ── Kategori Filtresi ── */}
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        contentContainerStyle={s.filterRow}
-      >
-        {CATEGORY_FILTERS.map(({ key, label, icon }) => {
-          const isActive = activeCategory === key;
-          const color = key === 'tumu' ? colors.accent : EVENT_CATEGORY_COLORS[key as EventCategory];
+      {/* ── Event List ── */}
+      <Animated.View style={[styles.list, { opacity: listFade }]}>
+        {(eventsLoading || concertsLoading) && allItems.length === 0 && (
+          <View style={styles.loadingRow}>
+            <Text style={[styles.loadingText, { color: colors.textMuted }]}>Etkinlikler yükleniyor...</Text>
+          </View>
+        )}
+
+        {allItems.map((item, idx) => {
+          const { day, month, time } = formatEventDate(item.date);
+          const catKey = ('category' in item ? item.category : 'genel') as string;
+          const accent = CATEGORY_ACCENT[catKey] ?? colors.accent;
+          const label = EVENT_CATEGORY_LABELS?.[catKey as EventCategory] ?? catKey;
+          const venue = ('venue' in item ? item.venue : item.location) ?? '';
+          const isConcert = item._type === 'concert';
+
           return (
-            <Pressable
-              key={key}
-              style={[s.chip, isActive && { backgroundColor: color, borderColor: color }]}
-              onPress={() => setActiveCategory(key)}
+            <Animated.View
+              key={item.id + idx}
+              style={[
+                styles.eventCard,
+                {
+                  backgroundColor: colors.surface,
+                  borderColor: colors.borderSubtle,
+                  opacity: listFade,
+                  transform: [{ translateX: listFade.interpolate({ inputRange: [0, 1], outputRange: [-20, 0] }) }],
+                },
+              ]}
             >
-              <Ionicons
-                name={icon as any}
-                size={13}
-                color={isActive ? '#fff' : colors.textMuted}
-              />
-              <Text style={[s.chipText, isActive && { color: '#fff' }]}>{label}</Text>
-            </Pressable>
+              {/* Date column */}
+              <View style={[styles.dateCol, { borderRightColor: colors.borderSubtle }]}>
+                <Text style={[styles.dateDay, { color: accent }]}>{day}</Text>
+                <Text style={[styles.dateMonth, { color: colors.textMuted }]}>{month}</Text>
+              </View>
+
+              {/* Details */}
+              <View style={styles.details}>
+                <View style={[styles.categoryBadge, { backgroundColor: accent + '15' }]}>
+                  <Text style={[styles.categoryBadgeText, { color: accent }]}>
+                    {label.toUpperCase()}
+                  </Text>
+                </View>
+                <Text style={[styles.eventTitle, { color: colors.textPrimary }]} numberOfLines={2}>
+                  {item.title}
+                </Text>
+                <View style={styles.metaRow}>
+                  <View style={styles.metaItem}>
+                    <Ionicons name="location-outline" size={13} color="#ef4444" />
+                    <Text style={[styles.metaText, { color: colors.textSecondary }]} numberOfLines={1}>
+                      {venue || 'Belirtilmedi'}
+                    </Text>
+                  </View>
+                  <View style={styles.metaItem}>
+                    <Ionicons name="time-outline" size={13} color="#10b981" />
+                    <Text style={[styles.metaText, { color: colors.textSecondary }]}>{time}</Text>
+                  </View>
+                </View>
+              </View>
+
+              {/* Action */}
+              <Pressable
+                style={({ pressed }) => [
+                  styles.actionBtn,
+                  {
+                    backgroundColor: pressed ? accent : colors.surfaceHigh,
+                    borderColor: colors.borderSubtle,
+                  },
+                ]}
+                onPress={() => {
+                  if (isConcert) {
+                    setSelectedConcert(item as any);
+                    setShowModal(true);
+                  } else {
+                    router.push({ pathname: '/events/[id]', params: { id: item.id } });
+                  }
+                }}
+              >
+                <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
+              </Pressable>
+            </Animated.View>
           );
         })}
-      </ScrollView>
 
-      {/* ── Yükleniyor / Hata ── */}
-      {eventsLoading && (
-        <ActivityIndicator color={colors.accent} style={{ marginVertical: Spacing.xl }} />
-      )}
-      {eventsError && (
-        <Text style={[s.emptyText, { color: colors.error }]}>
-          Etkinlikler yüklenemedi: {eventsError}
-        </Text>
-      )}
+        {allItems.length === 0 && !eventsLoading && !concertsLoading && (
+          <View style={styles.emptyState}>
+            <Ionicons name="calendar-outline" size={40} color={colors.textMuted} />
+            <Text style={[styles.emptyText, { color: colors.textMuted }]}>
+              Bu kategori için etkinlik bulunamadı.
+            </Text>
+          </View>
+        )}
+      </Animated.View>
 
-      {/* ── Konser Kartları (Konser/Tiyatro/Stand-up kategorilerinde) ── */}
-      {isConcertCategory && (
-        <>
-          {concertsLoading && (
-            <ActivityIndicator color={colors.accent} style={{ marginVertical: Spacing.xl }} />
-          )}
-
-          {!concertsLoading && upcomingConcerts.length > 0 && (
-            <>
-              <SectionDivider
-                label={activeCategory === 'konser' ? 'Yaklaşan Konserler' : 
-                       activeCategory === 'tiyatro' ? 'Yaklaşan Tiyatrolar' :
-                       'Yaklaşan Stand-up Gösterileri'}
-                count={upcomingConcerts.length}
-                dotColor={EVENT_CATEGORY_COLORS[activeCategory as EventCategory]}
-                colors={colors}
-              />
-
-              {upcomingConcerts.map((concert) => {
-                const { day, month, time } = formatEventDate(concert.date);
-                const days = daysUntil(concert.date);
-                const countdownLabel = days === 0 ? 'Bugün' : days === 1 ? 'Yarın' : `${days} gün`;
-                const catColor = EVENT_CATEGORY_COLORS[concert.category];
-
-                return (
-                  <Pressable
-                    key={concert.id}
-                    style={s.eventCard}
-                    onPress={() => {
-                      setSelectedConcert(concert);
-                      setShowConcertModal(true);
-                    }}
-                  >
-                    {/* Sol renkli çizgi */}
-                    <View style={[s.cardAccent, { backgroundColor: catColor }]} />
-
-                    <View style={s.cardInner}>
-                      {/* Üst satır */}
-                      <View style={s.cardTopRow}>
-                        <View style={[s.catPill, { backgroundColor: catColor + '22', borderColor: catColor + '55' }]}>
-                          <Text style={[s.catPillText, { color: catColor }]}>
-                            {concert.category.toUpperCase()}
-                          </Text>
-                        </View>
-                        <View style={{ flex: 1 }} />
-                        <View style={[s.countdownBadge, { backgroundColor: colors.surfaceInput, borderColor: colors.borderSubtle }]}>
-                          <Ionicons name="time-outline" size={11} color={colors.textMuted} />
-                          <Text style={[s.countdownText, { color: colors.textMuted }]}>
-                            {countdownLabel}
-                          </Text>
-                        </View>
-                      </View>
-
-                      {/* Başlık (Sanatçı) */}
-                      <Text style={s.cardTitle} numberOfLines={1}>
-                        🎤 {concert.artist}
-                      </Text>
-
-                      {/* Etkinlik Adı */}
-                      <Text style={s.cardSummary} numberOfLines={2}>
-                        {concert.title}
-                      </Text>
-
-                      {/* Alt satır: tarih + mekan + bilet butonu */}
-                      <View style={[s.cardMeta, { justifyContent: 'space-between' }]}>
-                        <View style={{ flex: 1, gap: 6 }}>
-                          <View style={[s.datePill, { borderColor: catColor + '40' }]}>
-                            <Text style={[s.datePillDay, { color: catColor }]}>{day}</Text>
-                            <Text style={[s.datePillMonth, { color: catColor }]}>{month}</Text>
-                          </View>
-                          <View style={s.metaRow}>
-                            <Ionicons name="location-outline" size={12} color={colors.textMuted} />
-                            <Text style={s.metaText} numberOfLines={1}>{concert.venue}</Text>
-                          </View>
-                        </View>
-
-                        {/* Bilet Butonu */}
-                        <Pressable
-                          style={[
-                            styles(colors).ticketButton,
-                            { backgroundColor: catColor }
-                          ]}
-                          onPress={() => {
-                            setSelectedConcert(concert);
-                            setShowConcertModal(true);
-                          }}
-                        >
-                          <Ionicons name="ticket" size={12} color="#fff" />
-                          <Text style={styles(colors).ticketButtonText}>Bilet</Text>
-                        </Pressable>
-                      </View>
-                    </View>
-                  </Pressable>
-                );
-              })}
-            </>
-          )}
-
-          {!concertsLoading && upcomingConcerts.length === 0 && (
-            <View style={s.emptyBox}>
-              <View style={[s.emptyIconBox, { borderColor: colors.borderSubtle }]}>
-                <Ionicons name="musical-notes-outline" size={28} color={colors.textMuted} />
-              </View>
-              <Text style={s.emptyTitle}>
-                {activeCategory === 'konser' ? 'Konser bulunamadı' :
-                 activeCategory === 'tiyatro' ? 'Tiyatro bulunamadı' :
-                 'Stand-up bulunamadı'}
-              </Text>
-              <Text style={s.emptyText}>Bu kategoride henüz etkinlik eklenmemiş.</Text>
-            </View>
-          )}
-        </>
+      {/* More button */}
+      {allItems.length > 0 && (
+        <Pressable style={styles.moreBtn}>
+          <Text style={[styles.moreBtnText, { color: colors.textMuted }]}>DAHA FAZLA GÖSTER</Text>
+        </Pressable>
       )}
 
-      {/* ── Normal Etkinlikler (Konser değilse) ── */}
-      {!isConcertCategory && (
-        <>
-          {/* ── Yaklaşan Etkinlikler ── */}
-          {!eventsLoading && upcoming.length > 0 && (
-            <>
-              <SectionDivider
-                label="Yaklaşan Etkinlikler"
-                count={upcoming.length}
-                dotColor={colors.accent}
-                colors={colors}
-              />
-
-              {upcoming.map((event) => {
-                const { day, month, time } = formatEventDate(event.date);
-                const catColor = EVENT_CATEGORY_COLORS[event.category];
-                const days = daysUntil(event.date);
-                const countdownLabel =
-                  days === 0 ? 'Bugün' : days === 1 ? 'Yarın' : `${days} gün`;
-                const countdownUrgent = days <= 3;
-
-                return (
-                  <Pressable
-                    key={event.id}
-                    style={s.eventCard}
-                    onPress={() => router.push({ pathname: '/events/[id]', params: { id: event.id } })}
-                  >
-                    {/* Sol renkli çizgi */}
-                    <View style={[s.cardAccent, { backgroundColor: catColor }]} />
-
-                    <View style={s.cardInner}>
-                      {/* Üst satır: kategori + önemli + countdown */}
-                      <View style={s.cardTopRow}>
-                        <View style={[s.catPill, { backgroundColor: catColor + '22', borderColor: catColor + '55' }]}>
-                          <Text style={[s.catPillText, { color: catColor }]}>
-                            {EVENT_CATEGORY_LABELS[event.category]}
-                          </Text>
-                        </View>
-                        {event.isImportant && (
-                          <View style={s.starBadge}>
-                            <Ionicons name="star" size={10} color="#F59E0B" />
-                          </View>
-                        )}
-                        <View style={{ flex: 1 }} />
-                        <View style={[
-                          s.countdownBadge,
-                          countdownUrgent
-                            ? { backgroundColor: '#FEF2F2', borderColor: '#FECACA' }
-                            : { backgroundColor: colors.surfaceInput, borderColor: colors.borderSubtle },
-                        ]}>
-                          <Ionicons
-                            name="time-outline"
-                            size={11}
-                            color={countdownUrgent ? '#EF4444' : colors.textMuted}
-                          />
-                          <Text style={[
-                            s.countdownText,
-                            { color: countdownUrgent ? '#EF4444' : colors.textMuted },
-                          ]}>
-                            {countdownLabel}
-                          </Text>
-                        </View>
-                      </View>
-
-                      {/* Başlık */}
-                      <Text style={s.cardTitle} numberOfLines={2}>{event.title}</Text>
-
-                      {/* Özet */}
-                      <Text style={s.cardSummary} numberOfLines={2}>{event.summary}</Text>
-
-                      {/* Alt satır: tarih + yer */}
-                      <View style={s.cardMeta}>
-                        {/* Tarih kutusu */}
-                        <View style={[s.datePill, { borderColor: catColor + '40' }]}>
-                          <Text style={[s.datePillDay, { color: catColor }]}>{day}</Text>
-                          <Text style={[s.datePillMonth, { color: catColor }]}>{month}</Text>
-                        </View>
-                        <View style={s.cardMetaRight}>
-                          <View style={s.metaRow}>
-                            <Ionicons name="time-outline" size={12} color={colors.textMuted} />
-                            <Text style={s.metaText}>{time}</Text>
-                          </View>
-                          <View style={s.metaRow}>
-                            <Ionicons name="location-outline" size={12} color={colors.textMuted} />
-                            <Text style={s.metaText} numberOfLines={1}>{event.location}</Text>
-                          </View>
-                        </View>
-                      </View>
-                    </View>
-                  </Pressable>
-                );
-              })}
-            </>
-          )}
-
-          {!eventsLoading && upcoming.length === 0 && !eventsError && (
-            <View style={s.emptyBox}>
-              <View style={[s.emptyIconBox, { borderColor: colors.borderSubtle }]}>
-                <Ionicons name="calendar-outline" size={28} color={colors.textMuted} />
-              </View>
-              <Text style={s.emptyTitle}>Yaklaşan etkinlik yok</Text>
-              <Text style={s.emptyText}>Bu kategoride henüz etkinlik eklenmemiş.</Text>
-            </View>
-          )}
-
-          {/* ── Geçmiş Etkinlikler ── */}
-          {!eventsLoading && past.length > 0 && (
-            <>
-              <SectionDivider
-                label="Geçmiş Etkinlikler"
-                count={past.length}
-                dotColor={colors.textMuted}
-                colors={colors}
-                muted
-              />
-
-              {past.map((event) => {
-                const { day, month } = formatEventDate(event.date);
-                return (
-                  <Pressable
-                    key={event.id}
-                    style={[s.eventCard, s.eventCardPast]}
-                    onPress={() => router.push({ pathname: '/events/[id]', params: { id: event.id } })}
-                  >
-                    <View style={[s.cardAccent, { backgroundColor: colors.borderSubtle }]} />
-                    <View style={s.cardInner}>
-                      <View style={s.cardTopRow}>
-                        <View style={[s.catPill, { backgroundColor: colors.surfaceInput, borderColor: colors.borderSubtle }]}>
-                          <Text style={[s.catPillText, { color: colors.textMuted }]}>
-                            {EVENT_CATEGORY_LABELS[event.category]}
-                          </Text>
-                        </View>
-                      </View>
-                      <Text style={[s.cardTitle, { color: colors.textMuted }]} numberOfLines={1}>
-                        {event.title}
-                      </Text>
-                      <View style={s.cardMeta}>
-                        <View style={[s.datePill, { borderColor: colors.borderSubtle }]}>
-                          <Text style={[s.datePillDay, { color: colors.textMuted }]}>{day}</Text>
-                          <Text style={[s.datePillMonth, { color: colors.textMuted }]}>{month}</Text>
-                        </View>
-                        <View style={s.metaRow}>
-                          <Ionicons name="location-outline" size={12} color={colors.textMuted} />
-                          <Text style={s.metaText} numberOfLines={1}>{event.location}</Text>
-                        </View>
-                      </View>
-                    </View>
-                  </Pressable>
-                );
-              })}
-            </>
-          )}
-        </>
-      )}
-
-      {/* ── Geçmiş Etkinlikler ── */}
-      {!eventsLoading && past.length > 0 && (
-        <>
-          <SectionDivider
-            label="Geçmiş Etkinlikler"
-            count={past.length}
-            dotColor={colors.textMuted}
-            colors={colors}
-            muted
-          />
-
-          {past.map((event) => {
-            const { day, month } = formatEventDate(event.date);
-            return (
-              <Pressable
-                key={event.id}
-                style={[s.eventCard, s.eventCardPast]}
-                onPress={() => router.push({ pathname: '/events/[id]', params: { id: event.id } })}
-              >
-                <View style={[s.cardAccent, { backgroundColor: colors.borderSubtle }]} />
-                <View style={s.cardInner}>
-                  <View style={s.cardTopRow}>
-                    <View style={[s.catPill, { backgroundColor: colors.surfaceInput, borderColor: colors.borderSubtle }]}>
-                      <Text style={[s.catPillText, { color: colors.textMuted }]}>
-                        {EVENT_CATEGORY_LABELS[event.category]}
-                      </Text>
-                    </View>
-                  </View>
-                  <Text style={[s.cardTitle, { color: colors.textMuted }]} numberOfLines={1}>
-                    {event.title}
-                  </Text>
-                  <View style={s.cardMeta}>
-                    <View style={[s.datePill, { borderColor: colors.borderSubtle }]}>
-                      <Text style={[s.datePillDay, { color: colors.textMuted }]}>{day}</Text>
-                      <Text style={[s.datePillMonth, { color: colors.textMuted }]}>{month}</Text>
-                    </View>
-                    <View style={s.metaRow}>
-                      <Ionicons name="location-outline" size={12} color={colors.textMuted} />
-                      <Text style={s.metaText} numberOfLines={1}>{event.location}</Text>
-                    </View>
-                  </View>
-                </View>
-              </Pressable>
-            );
-          })}
-        </>
-      )}
-
-      {/* ── Normal Duyurular ── */}
-      {!annLoading && normal.length > 0 && (
-        <>
-          <SectionDivider
-            label="Duyurular"
-            count={normal.length}
-            dotColor="#10B981"
-            colors={colors}
-          />
-
-          {normal.map((ann, i) => (
-            <View
-              key={ann.id}
-              style={[s.annCard, i === normal.length - 1 && { borderBottomWidth: 0 }]}
-            >
-              <View style={[s.annDot, { backgroundColor: '#10B98122' }]}>
-                <Ionicons name="megaphone-outline" size={15} color="#10B981" />
-              </View>
-              <View style={{ flex: 1, gap: 3 }}>
-                <Text style={s.annTitle}>{ann.title}</Text>
-                <Text style={s.annBody}>{ann.content}</Text>
-                <Text style={s.annDate}>{formatAnnDate(ann.publishedAt)}</Text>
-              </View>
-            </View>
-          ))}
-        </>
-      )}
-
-    </ScrollView>
-
-    {/* Konser Bilet Modal */}
-    <ConcertTicketModal
-      concert={selectedConcert}
-      isVisible={showConcertModal}
-      onClose={() => {
-        setShowConcertModal(false);
-        setSelectedConcert(null);
-      }}
-      colors={colors}
-    />
-  </>
-  );
-}
-
-// ─── Section Divider Bileşeni ───────────────────────────────────────────────
-function SectionDivider({
-  label, count, dotColor, colors, muted = false,
-}: {
-  label: string; count: number; dotColor: string; colors: any; muted?: boolean;
-}) {
-  return (
-    <View style={sdStyles.row}>
-      <View style={[sdStyles.dot, { backgroundColor: dotColor }]} />
-      <Text style={[sdStyles.label, { color: muted ? colors.textMuted : colors.textPrimary }]}>
-        {label}
-      </Text>
-      <View style={[sdStyles.line, { backgroundColor: colors.borderSubtle }]} />
-      <View style={[sdStyles.badge, { backgroundColor: colors.surfaceInput }]}>
-        <Text style={[sdStyles.badgeText, { color: colors.textMuted }]}>{count}</Text>
+      {/* Footer */}
+      <View style={[styles.footer, { borderTopColor: colors.borderSubtle }]}>
+        <View style={{ flexDirection: 'row', gap: 16, alignItems: 'center' }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
+            <Ionicons name="sparkles" size={11} color={colors.accent} />
+            <Text style={[styles.footerText, { color: colors.textMuted }]}>AI Destekli Gazete</Text>
+          </View>
+          <Text style={[styles.footerText, { color: colors.textMuted }]}>Gizlilik</Text>
+          <Text style={[styles.footerText, { color: colors.textMuted }]}>Destek</Text>
+        </View>
+        <Text style={[styles.footerText, { color: colors.textMuted }]}>© 2026 GazeteAI Hub v2.0</Text>
       </View>
-    </View>
+
+      <ConcertTicketModal
+        concert={selectedConcert}
+        isVisible={showModal}
+        onClose={() => { setShowModal(false); setSelectedConcert(null); }}
+        colors={colors}
+      />
+    </ScrollView>
   );
 }
 
-const sdStyles = StyleSheet.create({
-  row:       { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 6 },
-  dot:       { width: 7, height: 7, borderRadius: 4 },
-  label:     { fontSize: 11, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.8 },
-  line:      { flex: 1, height: 1 },
-  badge:     { paddingHorizontal: 7, paddingVertical: 2, borderRadius: 99 },
-  badgeText: { fontSize: 11, fontWeight: '700' },
+const styles = StyleSheet.create({
+  root: { flex: 1 },
+  content: { padding: 24, paddingBottom: 40, gap: 24 },
+  webContent: { maxWidth: 760, width: '100%' as any, alignSelf: 'center' },
+
+  // Header
+  header: {
+    flexDirection: 'row', justifyContent: 'space-between',
+    alignItems: 'flex-end', flexWrap: 'wrap', gap: 16,
+  },
+  pageTitle: { fontSize: 34, fontWeight: '900', letterSpacing: -0.5 },
+  pageSubtitle: { fontSize: 13, fontStyle: 'italic', marginTop: 4, fontWeight: '500' },
+  viewFilters: { flexDirection: 'row', gap: 8 },
+  viewBtn: { paddingHorizontal: 16, paddingVertical: 8, borderRadius: 12 },
+  viewBtnText: { fontSize: 12, fontWeight: '700' },
+
+  // Filters
+  filterRow: { gap: 8, paddingVertical: 4 },
+  filterChip: {
+    flexDirection: 'row', alignItems: 'center', gap: 6,
+    paddingHorizontal: 12, paddingVertical: 7,
+    borderRadius: 20, borderWidth: 1,
+  },
+  filterChipText: { fontSize: 11, fontWeight: '700' },
+
+  // List
+  list: { gap: 12 },
+  loadingRow: { paddingVertical: 32, alignItems: 'center' },
+  loadingText: { fontSize: 13 },
+
+  // Event Card
+  eventCard: {
+    flexDirection: 'row', alignItems: 'center', gap: 0,
+    borderRadius: 20, borderWidth: 1, overflow: 'hidden',
+  },
+  dateCol: {
+    width: 80, paddingVertical: 20, alignItems: 'center',
+    justifyContent: 'center', borderRightWidth: 1, gap: 2,
+  },
+  dateDay: { fontSize: 28, fontWeight: '900', lineHeight: 30 },
+  dateMonth: { fontSize: 10, fontWeight: '800', letterSpacing: 1.5 },
+  details: { flex: 1, padding: 16, gap: 8 },
+  categoryBadge: { alignSelf: 'flex-start', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6 },
+  categoryBadgeText: { fontSize: 9, fontWeight: '900', letterSpacing: 1 },
+  eventTitle: { fontSize: 15, fontWeight: '700', lineHeight: 20 },
+  metaRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 12 },
+  metaItem: { flexDirection: 'row', alignItems: 'center', gap: 5 },
+  metaText: { fontSize: 12, fontWeight: '500', maxWidth: 160 },
+  actionBtn: {
+    width: 52, alignSelf: 'stretch', alignItems: 'center',
+    justifyContent: 'center', borderLeftWidth: 1,
+  },
+
+  // Empty
+  emptyState: { paddingVertical: 40, alignItems: 'center', gap: 12 },
+  emptyText: { fontSize: 14, fontWeight: '500', textAlign: 'center' },
+
+  // More
+  moreBtn: { alignItems: 'center', paddingVertical: 12 },
+  moreBtnText: { fontSize: 11, fontWeight: '800', letterSpacing: 2 },
+
+  // Footer
+  footer: {
+    flexDirection: 'row', justifyContent: 'space-between', flexWrap: 'wrap',
+    gap: 8, paddingTop: 20, borderTopWidth: 1,
+  },
+  footerText: { fontSize: 10, fontWeight: '700', letterSpacing: 0.8, textTransform: 'uppercase' },
 });
-
-// ─── Styles ─────────────────────────────────────────────────────────────────
-const styles = (colors: any) =>
-  StyleSheet.create({
-    container: { flex: 1, backgroundColor: colors.background },
-    content:   { padding: Spacing.lg, paddingBottom: 100, gap: Spacing.md },
-
-    // İstatistik satırı
-    statsRow: {
-      flexDirection: 'row',
-      gap: Spacing.sm,
-    },
-    statCard: {
-      flex: 1,
-      backgroundColor: colors.surface,
-      borderRadius: Radius.lg,
-      borderWidth: 1,
-      borderColor: colors.borderSubtle,
-      paddingVertical: Spacing.md,
-      alignItems: 'center',
-      gap: 2,
-    },
-    statCardMid: {
-      borderColor: '#F59E0B44',
-    },
-    statNum: {
-      fontSize: Typography.fontSize.xl,
-      fontWeight: '800',
-      color: colors.accent,
-    },
-    statLabel: {
-      fontSize: Typography.fontSize.xs,
-      color: colors.textMuted,
-      fontWeight: Typography.fontWeight.medium,
-    },
-
-    // Kritik duyuru kartı
-    criticalCard: {
-      flexDirection: 'row',
-      backgroundColor: '#FEF2F2',
-      borderRadius: Radius.lg,
-      borderWidth: 1,
-      borderColor: '#FECACA',
-      overflow: 'hidden',
-      gap: Spacing.sm,
-      padding: Spacing.md,
-    },
-    criticalLeft: { justifyContent: 'flex-start', paddingTop: 1 },
-    criticalIconBox: {
-      width: 28,
-      height: 28,
-      borderRadius: Radius.md,
-      backgroundColor: '#EF4444',
-      alignItems: 'center',
-      justifyContent: 'center',
-    },
-    criticalTitle: {
-      fontSize: Typography.fontSize.base,
-      fontWeight: Typography.fontWeight.bold,
-      color: '#991B1B',
-      marginBottom: 3,
-    },
-    criticalBody: {
-      fontSize: Typography.fontSize.sm,
-      color: '#7F1D1D',
-      lineHeight: 18,
-    },
-    criticalExpiry: {
-      fontSize: Typography.fontSize.xs,
-      color: '#EF4444',
-      marginTop: 5,
-      fontWeight: Typography.fontWeight.medium,
-    },
-
-    // Kategori filtresi
-    filterRow: { gap: Spacing.sm, paddingVertical: Spacing.xs },
-    chip: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: 5,
-      paddingHorizontal: Spacing.md,
-      paddingVertical: 7,
-      borderRadius: Radius.full,
-      borderWidth: 1,
-      borderColor: colors.border,
-      backgroundColor: colors.surface,
-    },
-    chipText: {
-      fontSize: Typography.fontSize.sm,
-      fontWeight: Typography.fontWeight.medium,
-      color: colors.textSecondary,
-    },
-
-    // Etkinlik kartı
-    eventCard: {
-      flexDirection: 'row',
-      backgroundColor: colors.surface,
-      borderRadius: Radius.lg,
-      borderWidth: 1,
-      borderColor: colors.borderSubtle,
-      overflow: 'hidden',
-    },
-    eventCardPast: { opacity: 0.6 },
-    cardAccent: { width: 4 },
-    cardInner: {
-      flex: 1,
-      padding: Spacing.md,
-      gap: 6,
-    },
-
-    // Kart üst satır
-    cardTopRow: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: Spacing.xs,
-    },
-    catPill: {
-      paddingHorizontal: 8,
-      paddingVertical: 3,
-      borderRadius: Radius.full,
-      borderWidth: 1,
-    },
-    catPillText: { fontSize: 10, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.4 },
-    starBadge: {
-      width: 20,
-      height: 20,
-      borderRadius: 10,
-      backgroundColor: '#FEF3C7',
-      alignItems: 'center',
-      justifyContent: 'center',
-    },
-    countdownBadge: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: 3,
-      paddingHorizontal: 8,
-      paddingVertical: 3,
-      borderRadius: Radius.full,
-      borderWidth: 1,
-    },
-    countdownText: { fontSize: 11, fontWeight: '700' },
-
-    // Kart başlık / özet
-    cardTitle: {
-      fontSize: Typography.fontSize.base,
-      fontWeight: '700',
-      color: colors.textPrimary,
-      lineHeight: 21,
-    },
-    cardSummary: {
-      fontSize: Typography.fontSize.sm,
-      color: colors.textSecondary,
-      lineHeight: 18,
-    },
-
-    // Kart alt meta
-    cardMeta: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: Spacing.sm,
-      marginTop: 2,
-    },
-    datePill: {
-      width: 38,
-      paddingVertical: 4,
-      borderRadius: Radius.sm,
-      borderWidth: 1,
-      alignItems: 'center',
-      justifyContent: 'center',
-      backgroundColor: 'transparent',
-    },
-    datePillDay:   { fontSize: 14, fontWeight: '800', lineHeight: 18 },
-    datePillMonth: { fontSize: 9, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.5 },
-    cardMetaRight: { flex: 1, gap: 3 },
-    metaRow: { flexDirection: 'row', alignItems: 'center', gap: 4 },
-    metaText: { fontSize: Typography.fontSize.xs, color: colors.textMuted, flex: 1 },
-
-    // Boş durum
-    emptyBox: {
-      alignItems: 'center',
-      paddingVertical: Spacing.xxl,
-      gap: Spacing.sm,
-    },
-    emptyIconBox: {
-      width: 64,
-      height: 64,
-      borderRadius: 32,
-      borderWidth: 1,
-      alignItems: 'center',
-      justifyContent: 'center',
-      marginBottom: 4,
-    },
-    emptyTitle: {
-      fontSize: Typography.fontSize.md,
-      fontWeight: Typography.fontWeight.bold,
-      color: colors.textSecondary,
-    },
-    emptyText: {
-      fontSize: Typography.fontSize.sm,
-      color: colors.textMuted,
-      textAlign: 'center',
-    },
-
-    // Duyuru kartı
-    annCard: {
-      flexDirection: 'row',
-      gap: Spacing.md,
-      paddingVertical: Spacing.md,
-      borderBottomWidth: 1,
-      borderBottomColor: colors.borderSubtle,
-      alignItems: 'flex-start',
-    },
-    annDot: {
-      width: 36,
-      height: 36,
-      borderRadius: Radius.md,
-      alignItems: 'center',
-      justifyContent: 'center',
-      flexShrink: 0,
-    },
-    annTitle: {
-      fontSize: Typography.fontSize.base,
-      fontWeight: Typography.fontWeight.bold,
-      color: colors.textPrimary,
-    },
-    annBody: {
-      fontSize: Typography.fontSize.sm,
-      color: colors.textSecondary,
-      lineHeight: 18,
-    },
-    annDate: {
-      fontSize: Typography.fontSize.xs,
-      color: colors.textMuted,
-    },
-
-    // Bilet butonu (konser kartları için)
-    ticketButton: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: 4,
-      paddingHorizontal: 10,
-      paddingVertical: 6,
-      borderRadius: Radius.md,
-      justifyContent: 'center',
-      marginLeft: Spacing.xs,
-    },
-    ticketButtonText: {
-      fontSize: Typography.fontSize.xs,
-      fontWeight: Typography.fontWeight.bold,
-      color: '#fff',
-    },
-  });

@@ -60,10 +60,10 @@ interface RootLayoutNavProps {
 
 function RootLayoutNav({ initialRouteName }: RootLayoutNavProps) {
   const { colors, themeName } = useTheme();
-  const pageBackground = themeName === 'vincent' ? colors.surface : colors.background;
+  const pageBackground = colors.background;
 
   const customTheme = {
-    dark: false,
+    dark: themeName !== 'sunset' && themeName !== 'vincent',
     colors: {
       primary: colors.accent,
       background: colors.background,

@@ -1,689 +1,346 @@
 import { useEffect, useRef, useState } from 'react';
 import {
-  ActivityIndicator,
-  FlatList,
+  Animated,
   Image,
   Pressable,
   ScrollView,
   StyleSheet,
   Text,
   TextInput,
+  Platform,
   View,
 } from 'react-native';
-import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
+import { useRouter } from 'expo-router';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import { useApiNews } from '@/hooks/useNews';
 import { useBookmarks } from '@/hooks/useBookmarks';
 import { useTheme } from '@/hooks/useTheme';
-import { useSearch, getTrendingArticles, useSavedArticles } from '@/hooks/useSearch';
-import { mapToContentCategory, proxyImageUrl } from '@/services/newsApi';
-import { CATEGORIES, ContentCategory } from '@/services/content';
-import { Radius, Spacing, Typography } from '@/constants/theme';
-import type { SortOption } from '@/hooks/useSearch';
+import { useSearch, getTrendingArticles } from '@/hooks/useSearch';
+import { proxyImageUrl } from '@/services/newsApi';
 
-const LANG_OPTIONS: { key: 'all' | 'tr' | 'en' | 'de'; label: string; flag: string }[] = [
-  { key: 'all', label: 'Tümü',    flag: '🌐' },
-  { key: 'tr',  label: 'Türkçe', flag: '🇹🇷' },
-  { key: 'en',  label: 'İngilizce', flag: '🇬🇧' },
-  { key: 'de',  label: 'Almanca',  flag: '🇩🇪' },
-];
-
-const SORT_OPTIONS: { key: SortOption; label: string; icon: string }[] = [
-  { key: 'newest',  label: 'En Yeni',  icon: 'time-outline' },
-  { key: 'oldest',  label: 'En Eski',  icon: 'hourglass-outline' },
-  { key: 'popular', label: 'Popüler',  icon: 'flame-outline' },
-];
-
-type ActiveTab = 'recent' | 'saved' | 'trending';
+const RECENT_KEY = 'recent-searches';
+const TRENDING_TAGS = ['#Kripto', '#MilliTakım', '#YapayZeka', '#ElonMusk', '#Seçim2026', '#GüneşFırtınası'];
 
 export default function SearchTab() {
   const router = useRouter();
-  const { colors: themeColors, themeName } = useTheme();
-  const colors =
-    themeName === 'vincent'
-      ? {
-          ...themeColors,
-          background: themeColors.surface,
-          surfaceHigh: themeColors.surface,
-          surfaceInput: themeColors.surface,
-        }
-      : themeColors;
-  const inputRef = useRef<TextInput>(null);
-  const [showFilters, setShowFilters] = useState(false);
-  const [activeTab, setActiveTab] = useState<ActiveTab>('recent');
-
-  const { articles, loading: articlesLoading } = useApiNews();
+  const { colors, themeName } = useTheme();
+  const { articles } = useApiNews();
   const { savedIds, toggleSaved } = useBookmarks();
-  const {
-    filters, results, debouncedQuery,
-    recentSearches, activeFilterCount, availableSources,
-    updateFilter, resetFilters, saveRecentSearch, clearRecentSearches,
-  } = useSearch(articles);
+  const { filters, results, updateFilter, debouncedQuery, recentSearches, clearRecentSearches } = useSearch(articles);
 
-  const trending = getTrendingArticles(articles, 10);
-  const savedArticles = useSavedArticles(savedIds, articles);
-  const hasQuery = debouncedQuery.length > 0;
-  const showResults = hasQuery || activeFilterCount > 0;
+  const [localQuery, setLocalQuery] = useState('');
+  const [recentLocal, setRecentLocal] = useState<string[]>([]);
+  const inputRef = useRef<TextInput>(null);
 
-  const s = styles(colors);
+  const headerFade = useRef(new Animated.Value(0)).current;
+  const listFade = useRef(new Animated.Value(0)).current;
+
+  const isWeb = Platform.OS === 'web';
+  const bg = colors.background;
+
+  useEffect(() => {
+    Animated.stagger(100, [
+      Animated.timing(headerFade, { toValue: 1, duration: 350, useNativeDriver: true }),
+      Animated.timing(listFade, { toValue: 1, duration: 450, useNativeDriver: true }),
+    ]).start();
+
+    AsyncStorage.getItem(RECENT_KEY).then((raw) => {
+      if (raw) try { setRecentLocal(JSON.parse(raw)); } catch {}
+    });
+  }, []);
+
+  const handleSearch = async (q: string) => {
+    if (!q.trim()) return;
+    updateFilter('query', q);
+    const updated = [q, ...recentLocal.filter((r) => r !== q)].slice(0, 6);
+    setRecentLocal(updated);
+    await AsyncStorage.setItem(RECENT_KEY, JSON.stringify(updated));
+  };
+
+  const handleClearRecent = async () => {
+    setRecentLocal([]);
+    await AsyncStorage.removeItem(RECENT_KEY);
+  };
+
+  const suggested = articles.slice(0, 5);
+  const isSearching = localQuery.trim().length > 0;
+  const searchResults = isSearching ? results : [];
 
   return (
-    <View style={s.root}>
-
-      {/* ── Arama Başlık Alanı ── */}
-      <View style={s.header}>
-        <View style={s.headerTop}>
-          <Text style={[s.headerTitle, { color: colors.textPrimary }]}>Ara</Text>
-          {activeFilterCount > 0 && (
-            <Pressable onPress={resetFilters} style={s.clearBtn}>
-              <Ionicons name="refresh-outline" size={13} color={colors.error} />
-              <Text style={[s.clearBtnText, { color: colors.error }]}>Sıfırla</Text>
-            </Pressable>
-          )}
-        </View>
-
-        {/* Input */}
-        <View style={[s.inputRow, { borderColor: showFilters ? colors.accent : colors.border, backgroundColor: colors.surfaceInput }]}>
+    <ScrollView
+      style={[styles.root, { backgroundColor: bg }]}
+      contentContainerStyle={[styles.content, isWeb && styles.webContent]}
+      showsVerticalScrollIndicator={false}
+      keyboardShouldPersistTaps="handled"
+    >
+      {/* ── Search Bar ── */}
+      <Animated.View style={[styles.searchWrap, { opacity: headerFade }]}>
+        <View style={[styles.searchBox, { backgroundColor: colors.surface, borderColor: colors.borderSubtle }]}>
           <Ionicons name="search-outline" size={18} color={colors.textMuted} />
           <TextInput
             ref={inputRef}
-            value={filters.query}
-            onChangeText={(t) => updateFilter('query', t)}
-            onSubmitEditing={() => saveRecentSearch(filters.query)}
-            placeholder="Haber, kaynak veya konu ara..."
+            style={[styles.searchInput, { color: colors.textPrimary }]}
+            placeholder="Tüm haber ağında keşfe çıkın..."
             placeholderTextColor={colors.textMuted}
-            style={[s.input, { color: colors.textPrimary }]}
+            value={localQuery}
+            onChangeText={(v) => { setLocalQuery(v); updateFilter('query', v); }}
+            onSubmitEditing={() => handleSearch(localQuery)}
             returnKeyType="search"
+            autoCorrect={false}
           />
-          {filters.query.length > 0 ? (
-            <Pressable onPress={() => updateFilter('query', '')} hitSlop={10}>
+          {localQuery.length > 0 && (
+            <Pressable onPress={() => { setLocalQuery(''); updateFilter('query', ''); }}>
               <Ionicons name="close-circle" size={18} color={colors.textMuted} />
             </Pressable>
-          ) : null}
-          <View style={[s.inputDivider, { backgroundColor: colors.borderSubtle }]} />
-          <Pressable
-            onPress={() => setShowFilters((v) => !v)}
-            style={[s.filterToggle, showFilters && { backgroundColor: colors.accent + '22' }]}
-            hitSlop={6}
-          >
-            <Ionicons
-              name="options-outline"
-              size={18}
-              color={showFilters ? colors.accent : colors.textMuted}
-            />
-            {activeFilterCount > 0 && (
-              <View style={s.filterDot} />
-            )}
-          </Pressable>
-        </View>
-
-        {/* Filtre Paneli */}
-        {showFilters && (
-          <View style={[s.filterPanel, { borderColor: colors.borderSubtle }]}>
-            {/* Kategori */}
-            <Text style={[s.filterLabel, { color: colors.textMuted }]}>KATEGORİ</Text>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.chipRow}>
-              {([null, ...CATEGORIES] as (ContentCategory | null)[]).map((cat) => {
-                const isActive = filters.category === cat;
-                return (
-                  <Pressable
-                    key={cat ?? '__all__'}
-                    style={[s.chip, isActive && { backgroundColor: colors.accent, borderColor: colors.accent }]}
-                    onPress={() => updateFilter('category', cat)}
-                  >
-                    <Text style={[s.chipText, { color: isActive ? '#fff' : colors.textSecondary }]}>
-                      {cat ?? 'Tümü'}
-                    </Text>
-                  </Pressable>
-                );
-              })}
-            </ScrollView>
-
-            {/* Dil + Sıralama yan yana */}
-            <View style={s.filterRow2}>
-              <View style={{ flex: 1 }}>
-                <Text style={[s.filterLabel, { color: colors.textMuted }]}>DİL</Text>
-                <View style={[s.segGroup, { borderColor: colors.border }]}>
-                  {LANG_OPTIONS.map(({ key, flag }) => {
-                    const isActive = filters.language === key;
-                    return (
-                      <Pressable
-                        key={key}
-                        style={[s.segItem, isActive && { backgroundColor: colors.accent }]}
-                        onPress={() => updateFilter('language', key)}
-                      >
-                        <Text style={s.segFlag}>{flag}</Text>
-                      </Pressable>
-                    );
-                  })}
-                </View>
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={[s.filterLabel, { color: colors.textMuted }]}>SIRALAMA</Text>
-                <View style={[s.segGroup, { borderColor: colors.border }]}>
-                  {SORT_OPTIONS.map(({ key, icon }) => {
-                    const isActive = filters.sortBy === key;
-                    return (
-                      <Pressable
-                        key={key}
-                        style={[s.segItem, isActive && { backgroundColor: colors.accent }]}
-                        onPress={() => updateFilter('sortBy', key)}
-                      >
-                        <Ionicons
-                          name={icon as any}
-                          size={14}
-                          color={isActive ? '#fff' : colors.textMuted}
-                        />
-                      </Pressable>
-                    );
-                  })}
-                </View>
-              </View>
-            </View>
-          </View>
-        )}
-      </View>
-
-      {/* ── İçerik ── */}
-      {articlesLoading ? (
-        <View style={s.centered}>
-          <ActivityIndicator size="large" color={colors.accent} />
-          <Text style={[s.loadingText, { color: colors.textMuted }]}>Haberler yükleniyor...</Text>
-        </View>
-      ) : showResults ? (
-        /* Arama Sonuçları */
-        <FlatList
-          data={results}
-          keyExtractor={(item) => item.id}
-          contentContainerStyle={s.listContent}
-          ListHeaderComponent={
-            <View style={s.resultsHeader}>
-              <Text style={[s.resultsCount, { color: colors.textMuted }]}>
-                <Text style={{ fontWeight: '700', color: colors.textPrimary }}>{results.length}</Text>
-                {' '}sonuç bulundu
-                {debouncedQuery ? ` — "${debouncedQuery}"` : ''}
-              </Text>
-            </View>
-          }
-          ListEmptyComponent={
-            <View style={s.emptyState}>
-              <View style={[s.emptyIcon, { borderColor: colors.borderSubtle }]}>
-                <Ionicons name="search-outline" size={30} color={colors.textMuted} />
-              </View>
-              <Text style={[s.emptyTitle, { color: colors.textSecondary }]}>Sonuç bulunamadı</Text>
-              <Text style={[s.emptyBody, { color: colors.textMuted }]}>
-                Farklı anahtar kelime deneyin veya filtreleri değiştirin.
-              </Text>
-            </View>
-          }
-          renderItem={({ item }) => {
-            const isSaved = savedIds.includes(item.id);
-            const cat = mapToContentCategory(item.category, item.title, item.description);
-            return (
-              <ArticleCard
-                title={item.title}
-                excerpt={item.description}
-                source={item.source.name}
-                category={cat}
-                publishedAt={item.publishedAt}
-                imageUrl={proxyImageUrl(item.imageUrl)}
-                isSaved={isSaved}
-                onPress={() => router.push({ pathname: '/news/[id]', params: { id: item.id } })}
-                onSave={() => toggleSaved(item.id)}
-                colors={colors}
-              />
-            );
-          }}
-        />
-      ) : (
-        /* Tab İçeriği */
-        <View style={{ flex: 1 }}>
-          {/* Tab Bar */}
-          <View style={[s.tabBar, { borderColor: colors.borderSubtle, backgroundColor: colors.surface }]}>
-            {(['recent', 'saved', 'trending'] as ActiveTab[]).map((tab) => {
-              const cfg = {
-                recent:   { label: 'Son Aramalar', icon: 'time-outline' },
-                saved:    { label: `Kaydedilen (${savedArticles.length})`, icon: 'bookmark-outline' },
-                trending: { label: 'Trend', icon: 'flame-outline' },
-              }[tab];
-              const isActive = activeTab === tab;
-              return (
-                <Pressable
-                  key={tab}
-                  style={[s.tabItem, isActive && { borderBottomColor: colors.accent }]}
-                  onPress={() => setActiveTab(tab)}
-                >
-                  <Ionicons
-                    name={cfg.icon as any}
-                    size={14}
-                    color={isActive ? colors.accent : colors.textMuted}
-                  />
-                  <Text style={[s.tabLabel, { color: isActive ? colors.accent : colors.textMuted }]}>
-                    {cfg.label}
-                  </Text>
-                </Pressable>
-              );
-            })}
-          </View>
-
-          {activeTab === 'recent' && (
-            <ScrollView contentContainerStyle={s.listContent}>
-              {recentSearches.length === 0 ? (
-                <View style={s.emptyState}>
-                  <View style={[s.emptyIcon, { borderColor: colors.borderSubtle }]}>
-                    <Ionicons name="time-outline" size={28} color={colors.textMuted} />
-                  </View>
-                  <Text style={[s.emptyTitle, { color: colors.textSecondary }]}>Henüz arama yapılmadı</Text>
-                  <Text style={[s.emptyBody, { color: colors.textMuted }]}>
-                    Yukarıdaki arama çubuğunu kullanarak haber bulun.
-                  </Text>
-                </View>
-              ) : (
-                <>
-                  <View style={s.sectionRow}>
-                    <Text style={[s.sectionLabel, { color: colors.textPrimary }]}>Son Aramalar</Text>
-                    <Pressable onPress={clearRecentSearches}>
-                      <Text style={[s.clearLink, { color: colors.accent }]}>Temizle</Text>
-                    </Pressable>
-                  </View>
-                  {recentSearches.map((term) => (
-                    <Pressable
-                      key={term}
-                      style={[s.recentItem, { borderColor: colors.borderSubtle }]}
-                      onPress={() => updateFilter('query', term)}
-                    >
-                      <View style={[s.recentIconBox, { backgroundColor: colors.surfaceInput }]}>
-                        <Ionicons name="time-outline" size={14} color={colors.textMuted} />
-                      </View>
-                      <Text style={[s.recentText, { color: colors.textSecondary }]}>{term}</Text>
-                      <Ionicons name="arrow-forward-outline" size={14} color={colors.textMuted} />
-                    </Pressable>
-                  ))}
-                </>
-              )}
-            </ScrollView>
-          )}
-
-          {activeTab === 'saved' && (
-            <FlatList
-              data={savedArticles}
-              keyExtractor={(item) => item.id}
-              contentContainerStyle={s.listContent}
-              ListEmptyComponent={
-                <View style={s.emptyState}>
-                  <View style={[s.emptyIcon, { borderColor: colors.borderSubtle }]}>
-                    <Ionicons name="bookmark-outline" size={28} color={colors.textMuted} />
-                  </View>
-                  <Text style={[s.emptyTitle, { color: colors.textSecondary }]}>Kaydedilen haber yok</Text>
-                  <Text style={[s.emptyBody, { color: colors.textMuted }]}>
-                    Haber kartındaki bookmark ikonuna basarak kaydedin.
-                  </Text>
-                </View>
-              }
-              renderItem={({ item }) => {
-                const cat = mapToContentCategory(item.category, item.title, item.description);
-                return (
-                  <ArticleCard
-                    title={item.title}
-                    excerpt={item.description}
-                    source={item.source.name}
-                    category={cat}
-                    publishedAt={item.publishedAt}
-                    imageUrl={item.imageUrl}
-                    isSaved
-                    onPress={() => router.push({ pathname: '/news/[id]', params: { id: item.id } })}
-                    onSave={() => toggleSaved(item.id)}
-                    colors={colors}
-                  />
-                );
-              }}
-            />
-          )}
-
-          {activeTab === 'trending' && (
-            <FlatList
-              data={trending}
-              keyExtractor={(item) => item.id}
-              contentContainerStyle={s.listContent}
-              ListHeaderComponent={
-                <View style={s.trendHeaderRow}>
-                  <Ionicons name="flame" size={16} color="#EF4444" />
-                  <Text style={[s.sectionLabel, { color: colors.textPrimary }]}>
-                    Son 24 Saatin Trend Haberleri
-                  </Text>
-                </View>
-              }
-              renderItem={({ item, index }) => {
-                const isSaved = savedIds.includes(item.id);
-                const cat = mapToContentCategory(item.category, item.title, item.description);
-                return (
-                  <ArticleCard
-                    rank={index + 1}
-                    title={item.title}
-                    excerpt={item.description}
-                    source={item.source.name}
-                    category={cat}
-                    publishedAt={item.publishedAt}
-                    imageUrl={proxyImageUrl(item.imageUrl)}
-                    isSaved={isSaved}
-                    onPress={() => router.push({ pathname: '/news/[id]', params: { id: item.id } })}
-                    onSave={() => toggleSaved(item.id)}
-                    colors={colors}
-                  />
-                );
-              }}
-            />
           )}
         </View>
+      </Animated.View>
+
+      {/* ── Search Results ── */}
+      {isSearching && (
+        <Animated.View style={{ opacity: listFade, gap: 12 }}>
+          <Text style={[styles.sectionTitle, { color: colors.textPrimary }]}>
+            {searchResults.length} sonuç bulundu
+          </Text>
+          {searchResults.slice(0, 10).map((item) => (
+            <ArticleRow
+              key={item.id}
+              article={item}
+              colors={colors}
+              isSaved={savedIds.includes(item.id)}
+              onPress={() => router.push({ pathname: '/news/[id]', params: { id: item.id } })}
+              onSave={() => toggleSaved(item.id)}
+            />
+          ))}
+          {searchResults.length === 0 && (
+            <View style={styles.noResult}>
+              <Ionicons name="search-outline" size={32} color={colors.textMuted} />
+              <Text style={[styles.noResultText, { color: colors.textMuted }]}>Sonuç bulunamadı</Text>
+            </View>
+          )}
+        </Animated.View>
       )}
-    </View>
+
+      {/* ── Not Searching ── */}
+      {!isSearching && (
+        <Animated.View style={{ opacity: listFade, gap: 28 }}>
+          {/* Two-column layout for web */}
+          <View style={styles.twoCol}>
+            {/* Left: Recent Searches */}
+            <View style={styles.col}>
+              <View style={styles.sectionHeader}>
+                <View style={styles.sectionTitleRow}>
+                  <Ionicons name="time-outline" size={14} color={colors.accent} />
+                  <Text style={[styles.sectionTitle, { color: colors.textPrimary }]}>SON ARAMALAR</Text>
+                </View>
+              </View>
+
+              <View style={styles.recentList}>
+                {(recentLocal.length > 0 ? recentLocal : ['Altın Fiyatları', 'Süper Lig', 'Enflasyon Tahmini', 'Yeni iPhone']).map((q) => (
+                  <Pressable
+                    key={q}
+                    style={({ pressed }) => [
+                      styles.recentItem,
+                      {
+                        backgroundColor: pressed ? colors.surfaceHigh : colors.surface,
+                        borderColor: colors.borderSubtle,
+                      },
+                    ]}
+                    onPress={() => { setLocalQuery(q); handleSearch(q); }}
+                  >
+                    <Text style={[styles.recentText, { color: colors.textPrimary }]}>{q}</Text>
+                    <Ionicons name="chevron-forward" size={14} color={colors.textMuted} />
+                  </Pressable>
+                ))}
+              </View>
+            </View>
+
+            {/* Right: Trending + Filters */}
+            <View style={styles.col}>
+              <View style={styles.sectionHeader}>
+                <View style={styles.sectionTitleRow}>
+                  <Ionicons name="trending-up" size={14} color={colors.accent} />
+                  <Text style={[styles.sectionTitle, { color: colors.textPrimary }]}>TREND BAŞLIKLAR</Text>
+                </View>
+              </View>
+
+              <View style={styles.tagCloud}>
+                {TRENDING_TAGS.map((tag) => (
+                  <Pressable
+                    key={tag}
+                    style={[styles.tag, { backgroundColor: colors.accent + '15', borderColor: colors.accent + '30' }]}
+                    onPress={() => { setLocalQuery(tag.replace('#', '')); handleSearch(tag.replace('#', '')); }}
+                  >
+                    <Text style={[styles.tagText, { color: colors.accent }]}>{tag}</Text>
+                  </Pressable>
+                ))}
+              </View>
+
+              {/* Smart filters card */}
+              <View style={[styles.filtersCard, { backgroundColor: colors.surface, borderColor: colors.borderSubtle }]}>
+                <View style={styles.filtersHeader}>
+                  <Text style={[styles.filtersTitle, { color: colors.textPrimary }]}>Akıllı Filtreler</Text>
+                  <Ionicons name="options-outline" size={16} color={colors.textMuted} />
+                </View>
+                <Text style={[styles.filtersDesc, { color: colors.textMuted }]}>
+                  Aramalarınızı zamana, kaynağa veya duyarlılığa göre özelleştirin.
+                </Text>
+                <Pressable
+                  style={[styles.filtersBtn, { backgroundColor: colors.surfaceHigh }]}
+                  onPress={() => {}}
+                >
+                  <Text style={[styles.filtersBtnText, { color: colors.textPrimary }]}>Filtre Paneline Git</Text>
+                </Pressable>
+              </View>
+            </View>
+          </View>
+
+          {/* Suggested Articles */}
+          <View style={styles.section}>
+            <View style={styles.sectionTitleRow}>
+              <Ionicons name="bookmark-outline" size={14} color={colors.accent} />
+              <Text style={[styles.sectionTitle, { color: colors.textPrimary }]}>ÖNERİLEN MAKALELER</Text>
+            </View>
+            <View style={styles.articleList}>
+              {suggested.map((item) => (
+                <ArticleRow
+                  key={item.id}
+                  article={item}
+                  colors={colors}
+                  isSaved={savedIds.includes(item.id)}
+                  onPress={() => router.push({ pathname: '/news/[id]', params: { id: item.id } })}
+                  onSave={() => toggleSaved(item.id)}
+                />
+              ))}
+            </View>
+          </View>
+        </Animated.View>
+      )}
+
+      {/* Footer */}
+      <View style={[styles.footer, { borderTopColor: colors.borderSubtle }]}>
+        <View style={styles.footerLeft}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
+            <Ionicons name="sparkles" size={11} color={colors.accent} />
+            <Text style={[styles.footerText, { color: colors.textMuted }]}>AI Destekli Gazete</Text>
+          </View>
+          <Text style={[styles.footerText, { color: colors.textMuted }]}>Gizlilik</Text>
+          <Text style={[styles.footerText, { color: colors.textMuted }]}>Destek</Text>
+        </View>
+        <Text style={[styles.footerText, { color: colors.textMuted }]}>© 2026 GazeteAI Hub v2.0</Text>
+      </View>
+    </ScrollView>
   );
 }
 
-// ─── Article Card ────────────────────────────────────────────────────────────
-function ArticleCard({
-  rank, title, excerpt, source, category, publishedAt,
-  imageUrl, isSaved, onPress, onSave, colors,
+function ArticleRow({
+  article,
+  colors,
+  isSaved,
+  onPress,
+  onSave,
 }: {
-  rank?: number; title: string; excerpt: string; source: string;
-  category: string; publishedAt: string; imageUrl?: string;
-  isSaved: boolean; onPress: () => void; onSave: () => void; colors: any;
+  article: any;
+  colors: any;
+  isSaved: boolean;
+  onPress: () => void;
+  onSave: () => void;
 }) {
-  const diff = Date.now() - new Date(publishedAt).getTime();
-  const mins = Math.floor(diff / 60000);
-  const timeLabel =
-    mins < 60 ? `${mins}dk` : mins < 1440 ? `${Math.floor(mins / 60)}sa` : `${Math.floor(mins / 1440)}g`;
-
+  const img = proxyImageUrl(article.imageUrl ?? '');
   return (
     <Pressable
       style={({ pressed }) => [
-        cardStyles.card,
-        { borderColor: colors.borderSubtle, backgroundColor: colors.surface },
-        pressed && { opacity: 0.85 },
+        styles.articleRow,
+        {
+          backgroundColor: pressed ? colors.surfaceHigh : colors.surface,
+          borderColor: colors.borderSubtle,
+        },
       ]}
       onPress={onPress}
     >
-      {rank !== undefined && (
-        <Text style={[cardStyles.rank, { color: colors.accent + '80' }]}>
-          {String(rank).padStart(2, '0')}
-        </Text>
+      {img ? (
+        <Image source={{ uri: img }} style={[styles.articleThumb, { backgroundColor: colors.surfaceHigh }]} />
+      ) : (
+        <View style={[styles.articleThumb, { backgroundColor: colors.surfaceHigh }]} />
       )}
-
-      <View style={cardStyles.body}>
-        {/* Üst meta satırı */}
-        <View style={cardStyles.meta}>
-          <View style={[cardStyles.catPill, { backgroundColor: colors.accent + '18' }]}>
-            <Text style={[cardStyles.catText, { color: colors.accent }]}>{category}</Text>
-          </View>
-          <Text style={[cardStyles.metaText, { color: colors.textMuted }]}>
-            {source}
-          </Text>
-          <Text style={[cardStyles.dot, { color: colors.borderSubtle }]}>·</Text>
-          <Text style={[cardStyles.metaText, { color: colors.textMuted }]}>{timeLabel}</Text>
-        </View>
-
-        {/* Başlık */}
-        <Text style={[cardStyles.title, { color: colors.textPrimary }]} numberOfLines={2}>
-          {title}
+      <View style={styles.articleText}>
+        <Text style={[styles.articleCat, { color: colors.accent }]}>
+          {article.category?.toUpperCase() ?? 'GENEL'}
         </Text>
-
-        {/* Özet */}
-        <Text style={[cardStyles.excerpt, { color: colors.textSecondary }]} numberOfLines={2}>
-          {excerpt}
+        <Text style={[styles.articleTitle, { color: colors.textPrimary }]} numberOfLines={2}>
+          {article.title}
         </Text>
       </View>
-
-      {/* Sağ: resim + bookmark */}
-      <View style={cardStyles.rightCol}>
-        {imageUrl ? (
-          <Image source={{ uri: imageUrl }} style={cardStyles.thumb} resizeMode="cover" />
-        ) : (
-          <View style={[cardStyles.thumbPlaceholder, { backgroundColor: colors.surfaceInput }]}>
-            <Ionicons name="newspaper-outline" size={20} color={colors.textMuted} />
-          </View>
-        )}
-        <Pressable onPress={onSave} hitSlop={10} style={cardStyles.saveBtn}>
-          <Ionicons
-            name={isSaved ? 'bookmark' : 'bookmark-outline'}
-            size={20}
-            color={isSaved ? colors.accent : colors.textMuted}
-          />
-        </Pressable>
-      </View>
+      <Ionicons name="chevron-forward" size={16} color={colors.textMuted} />
     </Pressable>
   );
 }
 
-const cardStyles = StyleSheet.create({
-  card: {
-    flexDirection: 'row',
-    borderRadius: Radius.lg,
-    borderWidth: 1,
-    padding: Spacing.md,
-    gap: Spacing.sm,
-    alignItems: 'flex-start',
+const styles = StyleSheet.create({
+  root: { flex: 1 },
+  content: { padding: 24, gap: 24, paddingBottom: 40 },
+  webContent: { maxWidth: 980, width: '100%' as any, alignSelf: 'center' },
+
+  // Search
+  searchWrap: {},
+  searchBox: {
+    flexDirection: 'row', alignItems: 'center', gap: 12,
+    paddingHorizontal: 20, paddingVertical: 14,
+    borderRadius: 28, borderWidth: 1,
   },
-  rank: {
-    fontSize: 20,
-    fontWeight: '900',
-    width: 30,
-    textAlign: 'center',
-    paddingTop: 4,
+  searchInput: { flex: 1, fontSize: 14, fontWeight: '500' },
+
+  // Two column
+  twoCol: { flexDirection: 'row', gap: 24, flexWrap: 'wrap' },
+  col: { flex: 1, minWidth: 240, gap: 14 },
+  section: { gap: 14 },
+  sectionHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  sectionTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 7 },
+  sectionTitle: { fontSize: 11, fontWeight: '900', letterSpacing: 1.5, textTransform: 'uppercase' },
+
+  // Recent
+  recentList: { gap: 8 },
+  recentItem: {
+    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
+    padding: 14, borderRadius: 14, borderWidth: 1,
   },
-  body: { flex: 1, gap: 5 },
-  meta: { flexDirection: 'row', alignItems: 'center', gap: 5, flexWrap: 'wrap' },
-  catPill: { paddingHorizontal: 7, paddingVertical: 2, borderRadius: Radius.full },
-  catText: { fontSize: 10, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.3 },
-  metaText: { fontSize: 11 },
-  dot: { fontSize: 11 },
-  title: { fontSize: Typography.fontSize.base, fontWeight: '700', lineHeight: 21 },
-  excerpt: { fontSize: Typography.fontSize.sm, lineHeight: 18 },
-  rightCol: { alignItems: 'flex-end', gap: Spacing.sm },
-  thumb: { width: 68, height: 68, borderRadius: Radius.md },
-  thumbPlaceholder: {
-    width: 68,
-    height: 68,
-    borderRadius: Radius.md,
-    alignItems: 'center',
-    justifyContent: 'center',
+  recentText: { fontSize: 13, fontWeight: '600' },
+
+  // Tags
+  tagCloud: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  tag: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 999, borderWidth: 1 },
+  tagText: { fontSize: 12, fontWeight: '700' },
+
+  // Filters card
+  filtersCard: { borderRadius: 18, borderWidth: 1, padding: 16, gap: 10, marginTop: 4 },
+  filtersHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  filtersTitle: { fontSize: 14, fontWeight: '700' },
+  filtersDesc: { fontSize: 12, lineHeight: 18 },
+  filtersBtn: { paddingVertical: 10, borderRadius: 10, alignItems: 'center' },
+  filtersBtnText: { fontSize: 12, fontWeight: '700' },
+
+  // Article list
+  articleList: { gap: 8 },
+  articleRow: {
+    flexDirection: 'row', alignItems: 'center', gap: 12,
+    padding: 14, borderRadius: 16, borderWidth: 1,
   },
-  saveBtn: { padding: 2 },
+  articleThumb: { width: 52, height: 52, borderRadius: 10 },
+  articleText: { flex: 1, gap: 4 },
+  articleCat: { fontSize: 9, fontWeight: '900', letterSpacing: 1.2 },
+  articleTitle: { fontSize: 13, fontWeight: '600', lineHeight: 18 },
+
+  // No result
+  noResult: { paddingVertical: 40, alignItems: 'center', gap: 10 },
+  noResultText: { fontSize: 14, fontWeight: '600' },
+
+  // Footer
+  footer: {
+    flexDirection: 'row', justifyContent: 'space-between', flexWrap: 'wrap',
+    gap: 8, paddingTop: 20, borderTopWidth: 1,
+  },
+  footerLeft: { flexDirection: 'row', gap: 16, alignItems: 'center' },
+  footerText: { fontSize: 10, fontWeight: '700', letterSpacing: 0.8, textTransform: 'uppercase' },
 });
-
-// ─── Screen Styles ────────────────────────────────────────────────────────────
-const styles = (colors: any) =>
-  StyleSheet.create({
-    root: { flex: 1, backgroundColor: colors.background },
-
-    // Header
-    header: {
-      backgroundColor: colors.surface,
-      borderBottomWidth: 1,
-      borderBottomColor: colors.borderSubtle,
-      paddingHorizontal: Spacing.lg,
-      paddingTop: Spacing.md,
-      paddingBottom: Spacing.sm,
-      gap: Spacing.sm,
-    },
-    headerTop: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      justifyContent: 'space-between',
-    },
-    headerTitle: {
-      fontSize: Typography.fontSize.xl,
-      fontWeight: '800',
-      letterSpacing: 0.3,
-    },
-    clearBtn: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: 4,
-    },
-    clearBtnText: { fontSize: Typography.fontSize.sm, fontWeight: Typography.fontWeight.medium },
-
-    // Input
-    inputRow: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: 10,
-      borderWidth: 1.5,
-      borderRadius: Radius.xl,
-      paddingHorizontal: 14,
-      height: 48,
-    },
-    input: {
-      flex: 1,
-      fontSize: Typography.fontSize.base,
-    },
-    inputDivider: { width: 1, height: 20 },
-    filterToggle: {
-      width: 32,
-      height: 32,
-      borderRadius: Radius.md,
-      alignItems: 'center',
-      justifyContent: 'center',
-      position: 'relative',
-    },
-    filterDot: {
-      position: 'absolute',
-      top: 4,
-      right: 4,
-      width: 7,
-      height: 7,
-      borderRadius: 4,
-      backgroundColor: '#EF4444',
-    },
-
-    // Filter panel
-    filterPanel: {
-      borderWidth: 1,
-      borderRadius: Radius.lg,
-      padding: Spacing.md,
-      gap: 10,
-      backgroundColor: colors.surface,
-    },
-    filterLabel: {
-      fontSize: 10,
-      fontWeight: '700',
-      letterSpacing: 1,
-    },
-    chipRow: { gap: 6 },
-    chip: {
-      paddingHorizontal: 12,
-      paddingVertical: 6,
-      borderRadius: Radius.full,
-      borderWidth: 1,
-      borderColor: colors.border,
-      backgroundColor: colors.background,
-    },
-    chipText: { fontSize: 12, fontWeight: '600' },
-    filterRow2: { flexDirection: 'row', gap: Spacing.md },
-    segGroup: {
-      flexDirection: 'row',
-      borderWidth: 1,
-      borderRadius: Radius.md,
-      overflow: 'hidden',
-    },
-    segItem: {
-      flex: 1,
-      alignItems: 'center',
-      justifyContent: 'center',
-      paddingVertical: 8,
-    },
-    segFlag: { fontSize: 14 },
-
-    // Tab bar
-    tabBar: {
-      flexDirection: 'row',
-      borderBottomWidth: 1,
-    },
-    tabItem: {
-      flex: 1,
-      flexDirection: 'row',
-      alignItems: 'center',
-      justifyContent: 'center',
-      gap: 5,
-      paddingVertical: 12,
-      borderBottomWidth: 2,
-      borderBottomColor: 'transparent',
-    },
-    tabLabel: { fontSize: 12, fontWeight: '600' },
-
-    // Content
-    listContent: { padding: Spacing.md, gap: Spacing.sm, paddingBottom: 90 },
-    centered: {
-      flex: 1,
-      alignItems: 'center',
-      justifyContent: 'center',
-      gap: Spacing.md,
-    },
-    loadingText: { fontSize: Typography.fontSize.sm },
-
-    // Results header
-    resultsHeader: { marginBottom: 4 },
-    resultsCount: { fontSize: Typography.fontSize.sm },
-
-    // Empty state
-    emptyState: {
-      alignItems: 'center',
-      paddingTop: 48,
-      gap: Spacing.sm,
-      paddingHorizontal: Spacing.xl,
-    },
-    emptyIcon: {
-      width: 64,
-      height: 64,
-      borderRadius: 32,
-      borderWidth: 1,
-      alignItems: 'center',
-      justifyContent: 'center',
-      marginBottom: 4,
-    },
-    emptyTitle: {
-      fontSize: Typography.fontSize.md,
-      fontWeight: Typography.fontWeight.bold,
-    },
-    emptyBody: {
-      fontSize: Typography.fontSize.sm,
-      textAlign: 'center',
-      lineHeight: 19,
-    },
-
-    // Recent searches
-    sectionRow: {
-      flexDirection: 'row',
-      justifyContent: 'space-between',
-      alignItems: 'center',
-      marginBottom: 4,
-    },
-    sectionLabel: {
-      fontSize: Typography.fontSize.base,
-      fontWeight: '700',
-    },
-    clearLink: { fontSize: Typography.fontSize.sm, fontWeight: Typography.fontWeight.medium },
-    recentItem: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: Spacing.sm,
-      paddingVertical: 11,
-      borderBottomWidth: 1,
-    },
-    recentIconBox: {
-      width: 30,
-      height: 30,
-      borderRadius: Radius.sm,
-      alignItems: 'center',
-      justifyContent: 'center',
-    },
-    recentText: { flex: 1, fontSize: Typography.fontSize.base },
-
-    // Trending
-    trendHeaderRow: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: 6,
-      marginBottom: 4,
-    },
-  });

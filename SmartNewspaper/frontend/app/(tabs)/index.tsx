@@ -1,2461 +1,512 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, Animated, Image, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useEffect, useRef, useState, useCallback } from 'react';
+import {
+  Animated,
+  Image,
+  Platform,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  useWindowDimensions,
+  View,
+} from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 
-import NewsQuickPreviewModal from '@/components/NewsQuickPreviewModal';
+import { useApiNews } from '@/hooks/useNews';
 import { usePersonalizedNews } from '@/hooks/useNews';
 import { useNewsNotifications } from '@/hooks/useNewsNotifications';
 import { useEventNotifications } from '@/hooks/useEventNotifications';
-import { ContentCategory } from '@/services/content';
-import { Radius, Spacing, Typography } from '@/constants/theme';
-import { usePreferences } from '@/hooks/usePreferences';
 import { useTheme } from '@/hooks/useTheme';
-import { useLanguage } from '@/hooks/useLanguage';
-import { buildPublisherDataset, getPublisherIdFromSourceName } from '@/services/publisherProfiles';
+import { usePreferences } from '@/hooks/usePreferences';
+import { proxyImageUrl } from '@/services/newsApi';
+import { WidgetCard, WidgetConfig } from '@/components/widgets/WidgetCard';
+import { NewsWidget } from '@/components/widgets/NewsWidget';
+import { CurrencyWidget } from '@/components/widgets/CurrencyWidget';
+import { WeatherWidget } from '@/components/widgets/WeatherWidget';
+import { SportsWidget } from '@/components/widgets/SportsWidget';
+import { WidgetPicker } from '@/components/widgets/WidgetPicker';
 
-type PeriodFilter = 'daily' | 'weekly';
-type SortKey = 'newest' | 'popularity' | 'relevance';
-type CountryFilter = 'all' | 'Turkiye' | 'Global';
-type LanguageFilter = 'all' | 'Turkce' | 'Ingilizce';
-type LangFilter = 'all' | 'tr' | 'en' | 'de';
-type MarketKind = 'Borsa' | 'Maden';
-type FilterSectionKey = 'period' | 'lang' | 'sorting' | 'category' | 'source' | 'followed';
+const WIDGET_STORAGE_KEY = 'dashboard-widgets-v2';
 
-const I18N = {
-  tr: {
-    filters: 'FILTRELER',
-    clear: 'Temizle',
-    period: 'DONEM',
-    daily: 'Gunluk',
-    weekly: 'Haftalik',
-    lang: 'DIL',
-    all: 'Tumu',
-    sorting: 'SIRALAMA',
-    newest: 'En Yeni',
-    popular: 'Populer',
-    related: 'Ilgili',
-    category: 'KATEGORI',
-    source: 'KAYNAK',
-    showing: 'haber gosteriliyor',
-    print: 'KISESEL BASKI',
-    newspaper: 'KİŞİSEL GAZETE',
-    slogan: 'Haberleri sizin icin derliyoruz',
-    topic: 'GUNUN\nKONUSU',
-    breaking: 'SON\nDAKIKA',
-    loading: 'Haberler yukleniyor...',
-    noNews: 'Secili filtreler icin haber bulunamadi.',
-    followed: 'Takip Edilen Kaynaklar',
-    country: 'Ulke',
-    language: 'Dil',
-    noSource: 'Eslesen kaynak bulunamadi.',
-    markets: 'Piyasalar',
-    importantUpdates: 'ONEMLI GUNCELLEMELER',
-    liveNow: 'CANLI',
-  },
-  en: {
-    filters: 'FILTERS',
-    clear: 'Clear',
-    period: 'PERIOD',
-    daily: 'Daily',
-    weekly: 'Weekly',
-    lang: 'LANG',
-    all: 'All',
-    sorting: 'SORTING',
-    newest: 'Newest',
-    popular: 'Popular',
-    related: 'Relevant',
-    category: 'CATEGORY',
-    source: 'SOURCE',
-    showing: 'articles shown',
-    print: 'PERSONAL EDITION',
-    newspaper: 'PERSONAL NEWSPAPER',
-    slogan: 'We curate the news for you',
-    topic: 'TOP\nTOPIC',
-    breaking: 'BREAKING\nNEWS',
-    loading: 'Loading news...',
-    noNews: 'No news found for selected filters.',
-    followed: 'Followed Sources',
-    country: 'Country',
-    language: 'Language',
-    noSource: 'No matching sources found.',
-    markets: 'Markets',
-    importantUpdates: 'IMPORTANT UPDATES',
-    liveNow: 'LIVE',
-  },
-  de: {
-    filters: 'FILTER',
-    clear: 'Loschen',
-    period: 'ZEITRAUM',
-    daily: 'Taglich',
-    weekly: 'Wochentlich',
-    lang: 'SPRACHE',
-    all: 'Alle',
-    sorting: 'SORTIERUNG',
-    newest: 'Neueste',
-    popular: 'Popular',
-    related: 'Relevant',
-    category: 'KATEGORIE',
-    source: 'QUELLE',
-    showing: 'Nachrichten angezeigt',
-    print: 'PERSONLICHE AUSGABE',
-    newspaper: 'PERSONLICHE ZEITUNG',
-    slogan: 'Wir kuratieren Nachrichten fur dich',
-    topic: 'THEMA\nDES TAGES',
-    breaking: 'EIL\nMELDUNG',
-    loading: 'Nachrichten werden geladen...',
-    noNews: 'Keine Nachrichten fur gewahlte Filter gefunden.',
-    followed: 'Gefolgte Quellen',
-    country: 'Land',
-    language: 'Sprache',
-    noSource: 'Keine passenden Quellen gefunden.',
-    markets: 'Markte',
-    importantUpdates: 'WICHTIGE UPDATES',
-    liveNow: 'LIVE',
-  },
-} as const;
-
-type MarketWatchItem = {
-  id: string;
-  label: string;
-  kind: MarketKind;
-  value: string;
-  change: string;
-  isPositive: boolean;
-};
-
-type PersonalizedNewsItem = {
-  id: string;
-  title: string;
-  summary: string;
-  content?: string;
-  source: string;
-  sourceUrl?: string;
-  publicationDate: string;
-  category: ContentCategory;
-  popularity: number;
-  relevance: number;
-  period: 'daily' | 'weekly' | 'both';
-  url?: string;
-  imageUrl?: string;
-  language?: string;
-};
-
-function getSourceMeta(sourceName: string, language?: string): { country: CountryFilter; language: LanguageFilter } {
-  const static_meta: Record<string, { country: CountryFilter; language: LanguageFilter }> = {
-    Sabah: { country: 'Turkiye', language: 'Turkce' },
-    Cumhuriyet: { country: 'Turkiye', language: 'Turkce' },
-    Hurriyet: { country: 'Turkiye', language: 'Turkce' },
-    Hürriyet: { country: 'Turkiye', language: 'Turkce' },
-    Sozcu: { country: 'Turkiye', language: 'Turkce' },
-    Milliyet: { country: 'Turkiye', language: 'Turkce' },
-    Reuters: { country: 'Global', language: 'Ingilizce' },
-    BBC: { country: 'Global', language: 'Ingilizce' },
-    'BBC News': { country: 'Global', language: 'Ingilizce' },
-    'BBC Türkçe': { country: 'Global', language: 'Turkce' },
-    'BBC Technology': { country: 'Global', language: 'Ingilizce' },
-    'BBC Business': { country: 'Global', language: 'Ingilizce' },
-    'DW News': { country: 'Global', language: 'Ingilizce' },
-    'DW Europe': { country: 'Global', language: 'Ingilizce' },
-    'DW Business': { country: 'Global', language: 'Ingilizce' },
-    'DW Deutsch': { country: 'Global', language: 'Ingilizce' },
-    Tagesschau: { country: 'Global', language: 'Ingilizce' },
-    Spiegel: { country: 'Global', language: 'Ingilizce' },
-    'Spiegel International': { country: 'Global', language: 'Ingilizce' },
-    'The Guardian': { country: 'Global', language: 'Ingilizce' },
-  };
-  if (static_meta[sourceName]) return static_meta[sourceName];
-  const isEnglish = language === 'en';
-  return { country: isEnglish ? 'Global' : 'Turkiye', language: isEnglish ? 'Ingilizce' : 'Turkce' };
-}
-
-const MARKET_WATCH: MarketWatchItem[] = [
-  { id: 'bist100', label: 'BIST 100', kind: 'Borsa', value: '10,412.35', change: '+1.42%', isPositive: true },
-  { id: 'xu030', label: 'XU030', kind: 'Borsa', value: '11,287.90', change: '-0.38%', isPositive: false },
-  { id: 'gold', label: 'Gram Altin', kind: 'Maden', value: '3,472 TL', change: '+0.91%', isPositive: true },
-  { id: 'silver', label: 'Gumus Ons', kind: 'Maden', value: '$27.84', change: '-0.21%', isPositive: false },
+const DEFAULT_WIDGETS: WidgetConfig[] = [
+  { id: '1', type: 'news',     title: 'Son Dakika', size: 'lg' },
+  { id: '2', type: 'currency', title: 'Piyasalar',  size: 'sm' },
+  { id: '3', type: 'weather',  title: 'Hava Durumu', size: 'sm' },
+  { id: '4', type: 'sports',   title: 'Spor Dünyası', size: 'md' },
 ];
 
-function formatDate(isoDate: string, locale: string) {
-  const date = new Date(isoDate);
-  const dateStr = date.toLocaleDateString(locale, {
-    day: '2-digit',
-    month: 'short',
-    year: 'numeric',
-  });
-  const timeStr = date.toLocaleTimeString(locale, {
-    hour: '2-digit',
-    minute: '2-digit',
-  });
-  return `${dateStr} ${timeStr}`;
-}
+type DashTab = 'foryou' | 'popular' | 'analysis';
 
-function formatRelativeTime(isoDate: string, language: 'tr' | 'en' | 'de', nowTs: number = Date.now()) {
-  const diffMs = nowTs - new Date(isoDate).getTime();
-  const diffMinutes = Math.max(0, Math.floor(diffMs / (1000 * 60)));
-
-  if (diffMinutes < 1) return language === 'en' ? 'just now' : language === 'de' ? 'gerade eben' : 'simdi';
-  if (diffMinutes < 60) return language === 'en' ? `${diffMinutes}m ago` : language === 'de' ? `vor ${diffMinutes} Min.` : `${diffMinutes} dk once`;
-
-  const diffHours = Math.floor(diffMinutes / 60);
-  if (diffHours < 24) return language === 'en' ? `${diffHours}h ago` : language === 'de' ? `vor ${diffHours} Std.` : `${diffHours} sa once`;
-
-  const diffDays = Math.floor(diffHours / 24);
-  return language === 'en' ? `${diffDays}d ago` : language === 'de' ? `vor ${diffDays} Tg.` : `${diffDays} gun once`;
-}
-
-function normalizeFilterValue(value: string) {
-  return value
-    .toLocaleLowerCase('tr-TR')
-    .replace(/Ä±/g, 'i')
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '');
-}
-
-function toLiveUpdateText(title: string, summary: string | undefined, language: 'tr' | 'en' | 'de') {
-  const seed = `${title ?? ''} ${summary ?? ''}`.trim();
-  const normalized = normalizeFilterValue(seed);
-  const cleanedTitle = (title ?? summary ?? '')
-    .replace(/\s+/g, ' ')
-    .replace(/\s+-\s+(reuters|ap|afp|bbc|dw|tagesschau|spiegel).*$/i, '')
-    .replace(/\s*\|\s*[^|]*$/g, '')
-    .trim();
-
-  const baseText = cleanedTitle.length >= 16 ? cleanedTitle : (summary ?? cleanedTitle).trim();
-  if (!baseText) {
-    return language === 'en' ? 'Update in progress' : language === 'de' ? 'Update laeuft' : 'Guncelleme suruyor';
+function renderWidgetContent(type: WidgetConfig['type']) {
+  switch (type) {
+    case 'news':     return <NewsWidget />;
+    case 'currency': return <CurrencyWidget />;
+    case 'weather':  return <WeatherWidget />;
+    case 'sports':   return <SportsWidget />;
+    default:
+      return null;
   }
-  return baseText;
 }
 
-const SOURCE_DOMAINS: Record<string, string> = {
-  hurriyet: 'https://www.hurriyet.com.tr',
-  'hürriyet': 'https://www.hurriyet.com.tr',
-  milliyet: 'https://www.milliyet.com.tr',
-  sabah: 'https://www.sabah.com.tr',
-  ntv: 'https://www.ntv.com.tr',
-  reuters: 'https://www.reuters.com',
-  spiegel: 'https://www.spiegel.de',
-  tagesschau: 'https://www.tagesschau.de',
-  'bbc türkçe': 'https://www.bbc.com/turkce',
-  'bbc news': 'https://www.bbc.com/news',
-  'bbc business': 'https://www.bbc.com/news/business',
-  'bbc technology': 'https://www.bbc.com/news/technology',
-  'dw deutsch': 'https://www.dw.com/de',
-  'dw news': 'https://www.dw.com/en',
-  'dw europe': 'https://www.dw.com/en',
-  'dw business': 'https://www.dw.com/en/business',
-};
-
-const HIGH_IMPACT_KEYWORDS = [
-  'son dakika',
-  'acil',
-  'savas',
-  'saldiri',
-  'catisma',
-  'vur',
-  'kriz',
-  'oldu',
-  'yarali',
-  'deprem',
-  'patlama',
-  'iran',
-  'israil',
-  'gaza',
-  'ukrayna',
-  'rusya',
-  'abd',
-  'nato',
-  'ambargo',
-  'attack',
-  'strike',
-  'missile',
-  'war',
-  'killed',
-  'urgent',
-  'breaking',
-  'earthquake',
-  'flood',
-  'wildfire',
-  'storm',
-  'tsunami',
-  'volcano',
-  'evacuation',
-  'alert',
-  'emergency',
-];
-
-function buildSourceLogoUrl(sourceName: string, sourceUrl?: string): string | undefined {
-  try {
-    if (sourceUrl) {
-      const origin = new URL(sourceUrl).origin;
-      return `https://www.google.com/s2/favicons?sz=128&domain_url=${encodeURIComponent(origin)}`;
-    }
-  } catch {
-    // Fall back to source-name mapping when URL cannot be parsed.
-  }
-
-  const mapped = SOURCE_DOMAINS[sourceName.toLocaleLowerCase('tr-TR').trim()];
-  if (!mapped) return undefined;
-  return `https://www.google.com/s2/favicons?sz=128&domain_url=${encodeURIComponent(mapped)}`;
-}
-
-type FilterPanelProps = {
-  colors: ReturnType<typeof useTheme>['colors'];
-  t: (typeof I18N)['tr'];
-  activeFilterCount: number;
-  activePeriod: PeriodFilter;
-  setActivePeriod: (value: PeriodFilter) => void;
-  langFilter: LangFilter;
-  setLangFilter: (value: LangFilter) => void;
-  countryFilter: CountryFilter;
-  setCountryFilter: (value: CountryFilter) => void;
-  languageFilter: LanguageFilter;
-  setLanguageFilter: (value: LanguageFilter) => void;
-  sortKey: SortKey;
-  setSortKey: (value: SortKey) => void;
-  selectedCategory: ContentCategory | null;
-  setSelectedCategory: (value: ContentCategory | null) => void;
-  selectedSource: string;
-  setSelectedSource: (value: string) => void;
-  apiNewsLength: number;
-  categoryOptions: ContentCategory[];
-  categoryCounts: Record<string, number>;
-  sourceOptions: string[];
-  sourceLogoMap: Record<string, string | undefined>;
-  followedSources: string[];
-  filteredFollowedSources: string[];
-  uiLanguage: 'tr' | 'en' | 'de';
-  resetFilters: () => void;
-};
-
-const FilterPanel = ({
-  colors,
-  t,
-  activeFilterCount,
-  activePeriod,
-  setActivePeriod,
-  langFilter,
-  setLangFilter,
-  countryFilter,
-  setCountryFilter,
-  languageFilter,
-  setLanguageFilter,
-  sortKey,
-  setSortKey,
-  selectedCategory,
-  setSelectedCategory,
-  selectedSource,
-  setSelectedSource,
-  apiNewsLength,
-  categoryOptions,
-  categoryCounts,
-  sourceOptions,
-  sourceLogoMap,
-  followedSources,
-  filteredFollowedSources,
-  uiLanguage,
-  resetFilters,
-}: FilterPanelProps) => {
-  const [isFilterMenuOpen, setIsFilterMenuOpen] = useState(false);
-  const [activeFilterSection, setActiveFilterSection] = useState<FilterSectionKey | null>(null);
-
-  const toggleFilterMenu = () => {
-    setIsFilterMenuOpen((prev) => {
-      if (prev) {
-        setActiveFilterSection(null);
-      }
-      return !prev;
-    });
-  };
-
-  const toggleFilterSection = (section: FilterSectionKey) => {
-    if (!isFilterMenuOpen) {
-      setIsFilterMenuOpen(true);
-      setActiveFilterSection(section);
-      return;
-    }
-    setActiveFilterSection((prev) => (prev === section ? null : section));
-  };
-
-  return (
-    <View style={s(colors).filterPanel}>
-      <View style={s(colors).filterPanelHeader}>
-        <Text style={s(colors).filterPanelTitle}>{t.filters}</Text>
-        {activeFilterCount > 0 && (
-          <Pressable style={s(colors).resetBtn} onPress={resetFilters}>
-            <View style={s(colors).resetBadge}>
-              <Text style={s(colors).resetBadgeNum}>{activeFilterCount}</Text>
-            </View>
-            <Text style={s(colors).resetBtnText}>{t.clear}</Text>
-          </Pressable>
-        )}
-      </View>
-
-      <Pressable
-        style={[s(colors).filterMenuTrigger, isFilterMenuOpen && s(colors).filterMenuTriggerOpen]}
-        onPress={toggleFilterMenu}
-      >
-        <Text style={s(colors).filterMenuTriggerText}>{t.filters}</Text>
-        <Text style={s(colors).filterMenuChevron}>{isFilterMenuOpen ? '▾' : '▸'}</Text>
-      </Pressable>
-
-      {isFilterMenuOpen && (
-        <View style={s(colors).filterSectionsWrap}>
-          {([
-            { key: 'period', label: t.period },
-            { key: 'lang', label: t.lang },
-            { key: 'sorting', label: t.sorting },
-            { key: 'category', label: t.category },
-            { key: 'source', label: t.source },
-            { key: 'followed', label: t.followed },
-          ] as { key: FilterSectionKey; label: string }[]).map((section) => (
-            <View key={section.key} style={s(colors).filterSectionBlock}>
-              <Pressable
-                style={[
-                  s(colors).filterSectionBtn,
-                  activeFilterSection === section.key && s(colors).filterSectionBtnActive,
-                ]}
-                onPress={() => toggleFilterSection(section.key)}
-              >
-                <Text
-                  style={[
-                    s(colors).filterSectionBtnText,
-                    activeFilterSection === section.key && s(colors).filterSectionBtnTextActive,
-                  ]}
-                >
-                  {section.label}
-                </Text>
-                <Text style={s(colors).filterSectionChevron}>
-                  {activeFilterSection === section.key ? '▾' : '▸'}
-                </Text>
-              </Pressable>
-
-              {activeFilterSection === section.key && (
-                <View style={s(colors).filterSectionContent}>
-                  {section.key === 'period' && (
-                    <View style={s(colors).periodRow}>
-                      {(['daily', 'weekly'] as PeriodFilter[]).map((p) => (
-                        <Pressable
-                          key={p}
-                          style={[s(colors).periodBtn, activePeriod === p && s(colors).periodBtnActive]}
-                          onPress={() => setActivePeriod(p)}
-                        >
-                          <Text style={[s(colors).periodBtnText, activePeriod === p && s(colors).periodBtnTextActive]}>
-                            {p === 'daily' ? `📅 ${t.daily}` : `🗓 ${t.weekly}`}
-                          </Text>
-                        </Pressable>
-                      ))}
-                    </View>
-                  )}
-
-                  {section.key === 'lang' && (() => {
-                    const langOpts = [
-                      { key: 'all' as LangFilter, flag: '🌐', label: t.all },
-                      { key: 'tr' as LangFilter, flag: '🇹🇷', label: 'TR' },
-                      { key: 'en' as LangFilter, flag: '🇬🇧', label: 'EN' },
-                      { key: 'de' as LangFilter, flag: '🇩🇪', label: 'DE' },
-                    ];
-
-                    return (
-                      <View style={s(colors).segmentedCtrl}>
-                        {langOpts.map((opt, idx) => (
-                          <Pressable
-                            key={opt.key}
-                            style={[
-                              s(colors).segment,
-                              idx < langOpts.length - 1 && s(colors).segmentBorder,
-                              langFilter === opt.key && s(colors).segmentActive,
-                            ]}
-                            onPress={() => setLangFilter(opt.key)}
-                          >
-                            <Text style={s(colors).segmentFlag}>{opt.flag}</Text>
-                            <Text style={[s(colors).segmentText, langFilter === opt.key && s(colors).segmentTextActive]}>
-                              {opt.label}
-                            </Text>
-                          </Pressable>
-                        ))}
-                      </View>
-                    );
-                  })()}
-
-                  {section.key === 'sorting' && (
-                    <View style={s(colors).chipWrap}>
-                      {([
-                        { key: 'newest' as const, label: `🕐 ${t.newest}` },
-                        { key: 'popularity' as const, label: `🔥 ${t.popular}` },
-                        { key: 'relevance' as const, label: `⭐ ${t.related}` },
-                      ]).map((opt) => (
-                        <Pressable
-                          key={opt.key}
-                          style={[s(colors).filterChip, sortKey === opt.key && s(colors).filterChipActive]}
-                          onPress={() => setSortKey(opt.key)}
-                        >
-                          <Text style={[s(colors).filterChipText, sortKey === opt.key && s(colors).filterChipTextActive]}>
-                            {opt.label}
-                          </Text>
-                        </Pressable>
-                      ))}
-                    </View>
-                  )}
-
-                  {section.key === 'category' && (
-                    <View style={s(colors).chipWrap}>
-                      <Pressable
-                        style={[s(colors).filterChip, selectedCategory === null && s(colors).filterChipActive]}
-                        onPress={() => setSelectedCategory(null)}
-                      >
-                        <Text style={[s(colors).filterChipText, selectedCategory === null && s(colors).filterChipTextActive]}>
-                          {t.all} {apiNewsLength > 0 && <Text style={s(colors).filterChipCount}>({apiNewsLength})</Text>}
-                        </Text>
-                      </Pressable>
-                      {categoryOptions.map((cat) => (
-                        <Pressable
-                          key={cat}
-                          style={[s(colors).filterChip, selectedCategory === cat && s(colors).filterChipActive]}
-                          onPress={() => setSelectedCategory(cat)}
-                        >
-                          <Text style={[s(colors).filterChipText, selectedCategory === cat && s(colors).filterChipTextActive]}>
-                            {cat}{categoryCounts[cat] ? <Text style={s(colors).filterChipCount}> ({categoryCounts[cat]})</Text> : ''}
-                          </Text>
-                        </Pressable>
-                      ))}
-                    </View>
-                  )}
-
-                  {section.key === 'source' && (
-                    <View style={s(colors).chipWrap}>
-                      <Pressable
-                        style={[s(colors).filterChip, selectedSource === 'all' && s(colors).filterChipActive]}
-                        onPress={() => setSelectedSource('all')}
-                      >
-                        <Text style={[s(colors).filterChipText, selectedSource === 'all' && s(colors).filterChipTextActive]}>
-                          {t.all}
-                        </Text>
-                      </Pressable>
-                      {sourceOptions.map((src) => (
-                        <Pressable
-                          key={src}
-                          style={[s(colors).filterChip, selectedSource === src && s(colors).filterChipActive]}
-                          onPress={() => setSelectedSource(src)}
-                        >
-                          <Text style={[s(colors).filterChipText, selectedSource === src && s(colors).filterChipTextActive]}>
-                            {src}
-                          </Text>
-                        </Pressable>
-                      ))}
-                    </View>
-                  )}
-
-                  {section.key === 'followed' && (
-                    <View style={s(colors).followedSection}>
-                      <View style={s(colors).followedSectionHeader}>
-                        <Text style={s(colors).followedSectionCount}>
-                          {filteredFollowedSources.length}/{followedSources.length}
-                        </Text>
-                      </View>
-
-                      <Text style={s(colors).filterLabel}>{t.country}</Text>
-                      <View style={s(colors).chipWrap}>
-                        {(['all', 'Turkiye', 'Global'] as CountryFilter[]).map((opt) => (
-                          <Pressable
-                            key={opt}
-                            style={[s(colors).filterChip, countryFilter === opt && s(colors).filterChipActive]}
-                            onPress={() => setCountryFilter(opt)}
-                          >
-                            <Text style={[s(colors).filterChipText, countryFilter === opt && s(colors).filterChipTextActive]}>
-                              {opt === 'all' ? t.all : opt === 'Turkiye' ? (uiLanguage === 'en' ? 'Turkey' : uiLanguage === 'de' ? 'Turkei' : 'Turkiye') : 'Global'}
-                            </Text>
-                          </Pressable>
-                        ))}
-                      </View>
-
-                      <Text style={s(colors).filterLabel}>{t.language}</Text>
-                      <View style={s(colors).chipWrap}>
-                        {(['all', 'Turkce', 'Ingilizce'] as LanguageFilter[]).map((opt) => (
-                          <Pressable
-                            key={opt}
-                            style={[s(colors).filterChip, languageFilter === opt && s(colors).filterChipActive]}
-                            onPress={() => setLanguageFilter(opt)}
-                          >
-                            <Text style={[s(colors).filterChipText, languageFilter === opt && s(colors).filterChipTextActive]}>
-                              {opt === 'all' ? t.all : opt === 'Turkce' ? (uiLanguage === 'en' ? 'Turkish' : uiLanguage === 'de' ? 'Turkisch' : 'Turkce') : uiLanguage === 'de' ? 'Englisch' : 'English'}
-                            </Text>
-                          </Pressable>
-                        ))}
-                      </View>
-
-                      <View style={s(colors).sourceList}>
-                        {filteredFollowedSources.length ? filteredFollowedSources.map((src) => {
-                          const meta = getSourceMeta(src);
-                          const logoUrl = sourceLogoMap[src];
-
-                          return (
-                            <Pressable key={src} style={s(colors).sourceRow} onPress={() => openPublisherProfile(src)}>
-                              <View style={s(colors).sourceAvatar}>
-                                {logoUrl ? (
-                                  <Image source={{ uri: logoUrl }} style={s(colors).sourceAvatarImage} resizeMode="cover" />
-                                ) : (
-                                  <Text style={s(colors).sourceAvatarText}>{src.charAt(0).toUpperCase()}</Text>
-                                )}
-                              </View>
-                              <View style={{ flex: 1 }}>
-                                <Text style={s(colors).sourceNameLink}>{src}</Text>
-                                <Text style={s(colors).sourceMeta}>{meta.country} · {meta.language}</Text>
-                              </View>
-                            </Pressable>
-                          );
-                        }) : (
-                          <Text style={s(colors).emptyText}>{t.noSource}</Text>
-                        )}
-                      </View>
-                    </View>
-                  )}
-                </View>
-              )}
-            </View>
-          ))}
-        </View>
-      )}
-
-      <View style={s(colors).filterResultRow}>
-        <Text style={s(colors).filterResultText}>
-          {apiNewsLength} {t.showing}
-        </Text>
-      </View>
-    </View>
-  );
-};
-
-export default function PersonalizedNewsScreen() {
-  const router = useRouter();
+export default function HomeScreen() {
   const { colors, themeName } = useTheme();
-  const { language } = useLanguage();
-  const t = I18N[language];
-  const dateLocale = language === 'en' ? 'en-GB' : language === 'de' ? 'de-DE' : 'tr-TR';
-  const { preferredCategories, preferredNewspapers } = usePreferences();
-  const isWeb = Platform.OS === 'web';
-  const pageBackground = themeName === 'vincent' ? colors.surface : colors.background;
-  const { news: apiNews, loading: newsLoading } = usePersonalizedNews();
-  useNewsNotifications(); // Yeni haberler için notification
-  useEventNotifications(); // Yaklaşan etkinlikler için notification
+  const { width } = useWindowDimensions();
+  const router = useRouter();
+  const { articles, loading } = useApiNews();
+  const { preferredCategories } = usePreferences();
+  useNewsNotifications();
+  useEventNotifications();
 
-  const [activePeriod, setActivePeriod] = useState<PeriodFilter>('daily');
-  const [sortKey, setSortKey] = useState<SortKey>('newest');
-  const [selectedCategory, setSelectedCategory] = useState<ContentCategory | null>(null);
-  const [selectedSource, setSelectedSource] = useState<string>('all');
-  const [countryFilter, setCountryFilter] = useState<CountryFilter>('all');
-  const [languageFilter, setLanguageFilter] = useState<LanguageFilter>('all');
-  const [langFilter, setLangFilter] = useState<LangFilter>('tr');
-  const [liveNowTs, setLiveNowTs] = useState<number>(Date.now());
-  const [previewItem, setPreviewItem] = useState<{
-    id: string;
-    title: string;
-    summary: string;
-    content?: string;
-    sourceName: string;
-    imageUrl?: string;
-    publishedAt?: string;
-    url?: string;
-    category?: string;
-  } | null>(null);
+  const [widgets, setWidgets] = useState<WidgetConfig[]>(DEFAULT_WIDGETS);
+  const [isEditing, setIsEditing] = useState(false);
+  const [isPickerOpen, setIsPickerOpen] = useState(false);
+  const [activeTab, setActiveTab] = useState<DashTab>('foryou');
+  const [searchQuery, setSearchQuery] = useState('');
 
-  
+  const headerFade = useRef(new Animated.Value(0)).current;
+  const heroOpacity = useRef(new Animated.Value(0)).current;
+  const heroScale = useRef(new Animated.Value(0.94)).current;
+  const heroY = useRef(new Animated.Value(20)).current;
+  const listFade = useRef(new Animated.Value(0)).current;
 
-  // Ticker animasyonu
-  const tickerX = useRef(new Animated.Value(0)).current;
+  // Load persisted widget config
   useEffect(() => {
-    const anim = Animated.loop(
-      Animated.sequence([
-        Animated.timing(tickerX, { toValue: -4500, duration: 80000, useNativeDriver: true }),
-        Animated.timing(tickerX, { toValue: 0, duration: 0, useNativeDriver: true }),
-      ])
-    );
-    anim.start();
-    return () => anim.stop();
-  }, [tickerX]);
-
-  useEffect(() => {
-    setLangFilter(language);
-  }, [language]);
-  
-
-  useEffect(() => {
-    const intervalId = setInterval(() => {
-      setLiveNowTs(Date.now());
-    }, 30000);
-
-    return () => clearInterval(intervalId);
+    AsyncStorage.getItem(WIDGET_STORAGE_KEY).then((raw) => {
+      if (raw) {
+        try { setWidgets(JSON.parse(raw)); } catch {}
+      }
+    });
   }, []);
 
-  const defaultCategories: ContentCategory[] = ['Siyaset', 'Teknoloji', 'Spor', 'Magazin'];
-  const interestCategories = preferredCategories.length ? preferredCategories : defaultCategories;
+  // Entrance animations
+  useEffect(() => {
+    Animated.stagger(80, [
+      Animated.timing(headerFade, { toValue: 1, duration: 400, useNativeDriver: true }),
+      Animated.spring(heroScale, { toValue: 1, tension: 60, friction: 10, useNativeDriver: true }),
+      Animated.timing(listFade, { toValue: 1, duration: 500, useNativeDriver: true }),
+    ]).start();
+  }, []);
 
-  // Haberlerden gelen TÜM kategorileri göster (sadece tercihler değil)
-  const categoryOptions = useMemo(
-    () => Array.from(new Set(apiNews.map((a) => a.category))).sort((a, b) => a.localeCompare(b, 'tr')),
-    [apiNews]
-  );
+  const saveWidgets = useCallback(async (w: WidgetConfig[]) => {
+    setWidgets(w);
+    await AsyncStorage.setItem(WIDGET_STORAGE_KEY, JSON.stringify(w));
+  }, []);
 
-  const sourceOptions = useMemo(
-    () => Array.from(new Set(apiNews.map((item) => item.source))).sort((a, b) => a.localeCompare(b, 'tr')),
-    [apiNews]
-  );
+  const handleRemoveWidget = useCallback((id: string) => {
+    saveWidgets(widgets.filter((w) => w.id !== id));
+  }, [widgets, saveWidgets]);
 
-  const sourceLogoMap = useMemo(() => {
-    const map: Record<string, string | undefined> = {};
-
-    for (const item of apiNews) {
-      if (map[item.source]) continue;
-      map[item.source] = buildSourceLogoUrl(item.source, item.sourceUrl);
-    }
-
-    return map;
-  }, [apiNews]);
-
-  const publisherDirectory = useMemo(() => buildPublisherDataset(apiNews).publishers, [apiNews]);
-
-  const publisherIdLookup = useMemo(() => {
-    const lookup = new Map<string, string>();
-
-    for (const publisher of publisherDirectory) {
-      lookup.set(normalizeFilterValue(publisher.name), publisher.id);
-      lookup.set(normalizeFilterValue(publisher.id), publisher.id);
-    }
-
-    return lookup;
-  }, [publisherDirectory]);
-
-  const followedSources = useMemo(() => {
-    if (preferredNewspapers.length) {
-      return Array.from(new Set(preferredNewspapers.map((item) => item.toString())));
-    }
-    return sourceOptions;
-  }, [preferredNewspapers, sourceOptions]);
-
-  const filteredFollowedSources = useMemo(() => {
-    return followedSources.filter((source) => {
-      const meta = getSourceMeta(source);
-      const countryMatches = countryFilter === 'all' || meta.country === countryFilter;
-      const languageMatches = languageFilter === 'all' || meta.language === languageFilter;
-      return countryMatches && languageMatches;
-    });
-  }, [countryFilter, followedSources, languageFilter]);
-
-  // Günün konusu: en fazla haber üretilen kategori + o kategorinin en yeni haberi
-  const gununKonusu = useMemo(() => {
-    const today = apiNews.filter((a) => a.period === 'daily' || a.period === 'both');
-    const counts: Record<string, number> = {};
-    today.forEach((a) => { counts[a.category] = (counts[a.category] ?? 0) + 1; });
-    const topCat = Object.entries(counts).sort((a, b) => b[1] - a[1])[0];
-    if (!topCat) return null;
-    const topArticle = today.find((a) => a.category === topCat[0]);
-    return { category: topCat[0] as ContentCategory, count: topCat[1], article: topArticle ?? null };
-  }, [apiNews]);
-
-  // Son dakika ticker için en yeni 15 haber
-  const tickerItems = useMemo(
-    () => apiNews.slice(0, 15).map((a) => a.title),
-    [apiNews]
-  );
-
-  // Kategori bazlı haber sayıları (filtre etiketleri için)
-  const categoryCounts = useMemo(() => {
-    const counts: Record<string, number> = {};
-    apiNews.forEach((a) => { counts[a.category] = (counts[a.category] ?? 0) + 1; });
-    return counts;
-  }, [apiNews]);
-
-  const sortedNews = useMemo(() => {
-    const langFiltered = langFilter === 'all'
-      ? apiNews
-      : apiNews.filter((a) => a.language === langFilter);
-    const periodFiltered = langFiltered.filter((item) => item.period === 'both' || item.period === activePeriod);
-
-    const categoryFiltered = selectedCategory
-      ? periodFiltered.filter(
-          (item) => normalizeFilterValue(item.category) === normalizeFilterValue(selectedCategory)
-        )
-      : periodFiltered;
-
-    const sourceFiltered =
-      selectedSource === 'all'
-        ? categoryFiltered
-        : categoryFiltered.filter(
-            (item) => normalizeFilterValue(item.source) === normalizeFilterValue(selectedSource)
-          );
-
-    const withPreferenceBoost = sourceFiltered.map((item) => ({
-      ...item,
-      boostedRelevance: item.relevance + (interestCategories.includes(item.category) ? 8 : 0),
+  const handleResizeWidget = useCallback((id: string) => {
+    const sizes: WidgetConfig['size'][] = ['sm', 'md', 'lg'];
+    saveWidgets(widgets.map((w) => {
+      if (w.id !== id) return w;
+      const next = (sizes.indexOf(w.size) + 1) % sizes.length;
+      return { ...w, size: sizes[next] };
     }));
+  }, [widgets, saveWidgets]);
 
-    return [...withPreferenceBoost].sort((a, b) => {
-      if (sortKey === 'newest') {
-        return new Date(b.publicationDate).getTime() - new Date(a.publicationDate).getTime();
-      }
-      if (sortKey === 'popularity') {
-        return b.popularity - a.popularity;
-      }
-      return b.boostedRelevance - a.boostedRelevance;
-    });
-  }, [activePeriod, apiNews, interestCategories, langFilter, selectedCategory, selectedSource, sortKey]);
-
-  const trendingTopics = useMemo(() => {
-    const stopWords = new Set([
-      've', 'ile', 'icin', 'için', 'son', 'daha', 'yeni', 'haber', 'haberleri', 'news', 'the', 'and', 'of', 'to', 'in', 'on', 'a', 'an', 'u', 'ü',
-      'bir', 'bu', 'şu', 'su', 'da', 'de', 'ki', 'mi', 'mı', 'mu', 'mü', 'ilk', 'son', 'sonra', 'önce', 'once', 'son', 'dakika', 'gün', 'gun',
-    ]);
-
-    const toHashtag = (article: PersonalizedNewsItem) => {
-      const raw = `${article.category} ${article.title}`
-        .replace(/[^\p{L}\p{N}\s-]/gu, ' ')
-        .split(/\s+/)
-        .map((part) => part.trim())
-        .filter(Boolean)
-        .filter((part) => !stopWords.has(normalizeFilterValue(part)));
-
-      const picked = raw.slice(0, 2).join('');
-      const fallback = normalizeFilterValue(article.category).replace(/\s+/g, '');
-      const hashtag = (picked || fallback || 'trend')
-        .replace(/\s+/g, '')
-        .replace(/-+/g, '');
-
-      return `#${hashtag.charAt(0).toUpperCase()}${hashtag.slice(1)}`;
+  const handleAddWidget = useCallback((type: WidgetConfig['type'], title: string) => {
+    const newW: WidgetConfig = {
+      id: Date.now().toString(),
+      type,
+      title,
+      size: 'sm',
     };
+    saveWidgets([...widgets, newW]);
+  }, [widgets, saveWidgets]);
 
-    const score = (article: PersonalizedNewsItem) => (
-      (article.popularity ?? 0) * 1.4 + (article.likes ?? 0) / 24 + (article.comments ?? 0) / 3
-    );
+  // Featured articles
+  const featured = articles[0];
+  const highlights = articles.slice(1, 3);
 
-    return [...apiNews]
-      .sort((a, b) => score(b) - score(a))
-      .slice(0, 5)
-      .map((article, index) => ({
-        id: article.id,
-        rank: index + 1,
-        tag: toHashtag(article),
-        title: article.title,
-        source: article.source,
-        article,
-      }));
-  }, [apiNews]);
+  const today = new Date().toLocaleDateString('tr-TR', { day: 'numeric', month: 'long', year: 'numeric' });
+  const isWeb = Platform.OS === 'web';
+  const isWide = isWeb && width >= 1180;
+  const isTablet = isWeb && width >= 820;
 
-  
+  const TABS: { key: DashTab; label: string }[] = [
+    { key: 'foryou',   label: 'Sizin İçin' },
+    { key: 'popular',  label: 'Popüler' },
+    { key: 'analysis', label: 'Analiz' },
+  ];
 
-  const prioritizedNews = useMemo(() => {
-    const withImage = sortedNews.filter((item) => !!item.imageUrl);
-    const withoutImage = sortedNews.filter((item) => !item.imageUrl);
-    return [...withImage, ...withoutImage];
-  }, [sortedNews]);
+  const bgColor = colors.background;
 
-  const featured = prioritizedNews[0];
-  const secondaries = prioritizedNews.slice(1, 5);
-  const importantUpdates = useMemo(() => {
-    const now = Date.now();
-    const seen = new Set<string>();
-
-    return prioritizedNews
-      .map((item) => {
-        const normalizedText = normalizeFilterValue(`${item.title} ${item.summary}`);
-        const keywordHits = HIGH_IMPACT_KEYWORDS.reduce(
-          (count, keyword) => (normalizedText.includes(keyword) ? count + 1 : count),
-          0
-        );
-
-        const normalizedCategory = normalizeFilterValue(item.category);
-        const categoryBoost = /(siyaset|politic|dunya|world|ekonomi|business|guvenlik|security)/.test(normalizedCategory)
-          ? 8
-          : 0;
-
-        const ageHours = Math.max(0, (now - new Date(item.publicationDate).getTime()) / (1000 * 60 * 60));
-        const recencyScore = Math.max(0, 36 - ageHours);
-        const engagementBoost = Math.min(10, Math.round(item.popularity / 20) + Math.round(item.relevance / 25));
-        const score = keywordHits * 10 + categoryBoost + recencyScore + engagementBoost;
-
-        return { item, score, ageHours };
-      })
-      .filter(({ item, score, ageHours }) => {
-        if (ageHours > 72) return false;
-        if (item.id === featured?.id) return false;
-        if (secondaries.some((news) => news.id === item.id)) return false;
-        const dedupeKey = normalizeFilterValue(item.title);
-        if (seen.has(dedupeKey)) return false;
-        seen.add(dedupeKey);
-        return score >= 24;
-      })
-      .sort((a, b) => b.score - a.score)
-      .slice(0, 4)
-      .map(({ item }) => item);
-  }, [featured?.id, prioritizedNews, secondaries]);
-
-  const liveUpdates = useMemo(
-    () =>
-      importantUpdates.map((item) => ({
-        id: item.id,
-        publishedAt: item.publicationDate,
-        text: toLiveUpdateText(item.title, item.summary, language),
-      })),
-    [importantUpdates, language]
-  );
-
-  const importantUpdateIds = useMemo(() => new Set(importantUpdates.map((item) => item.id)), [importantUpdates]);
-
-  const secondaryGridNews = importantUpdates.length > 0 ? secondaries.slice(0, 2) : secondaries;
-  const compactList = useMemo(
-    () => prioritizedNews.slice(5).filter((item) => !importantUpdateIds.has(item.id)),
-    [importantUpdateIds, prioritizedNews]
-  );
-  const newspaperBlocks = useMemo(() => {
-    const blocks: Array<{
-      id: string;
-      lead: PersonalizedNewsItem;
-      sideA: PersonalizedNewsItem[];
-      sideB: PersonalizedNewsItem[];
-      leadPosition: 'center' | 'left' | 'right';
-    }> = [];
-
-    for (let i = 0; i < compactList.length; i += 5) {
-      const chunk = compactList.slice(i, i + 5);
-      if (!chunk.length) break;
-
-      const lead = chunk[0];
-      if (!lead) break;
-
-      const positionCycle = blocks.length % 3;
-      const leadPosition =
-        positionCycle === 0 ? 'center' : positionCycle === 1 ? 'left' : 'right';
-
-      blocks.push({
-        id: `${lead.id}-${i}`,
-        lead,
-        sideA: chunk.slice(1, 3),
-        sideB: chunk.slice(3, 5),
-        leadPosition,
-      });
-    }
-
-    return blocks;
-  }, [compactList]);
-
-  const openPublisherProfile = (sourceName: string) => {
-    const normalized = normalizeFilterValue(sourceName);
-    const exactMatch = publisherIdLookup.get(normalized);
-
-    const fuzzyMatch = exactMatch ?? publisherDirectory.find((publisher) => {
-      const candidateName = normalizeFilterValue(publisher.name);
-      return candidateName.includes(normalized) || normalized.includes(candidateName);
-    })?.id;
-
-    const publisherId = fuzzyMatch ?? getPublisherIdFromSourceName(sourceName);
-    router.push(`/publisherprofile?id=${encodeURIComponent(publisherId)}` as any);
-  };
-
-  const openArticlePreview = (article: PersonalizedNewsItem) => {
-    setPreviewItem({
-      id: article.id,
-      title: article.title,
-      summary: article.summary,
-      content: article.content,
-      sourceName: article.source,
-      imageUrl: article.imageUrl,
-      publishedAt: formatDate(article.publicationDate, dateLocale),
-      url: article.url,
-      category: article.category,
-    });
-  };
-
-  // ── Filtre paneli (hem sağ kolonda hem mobil üstte kullanılır) ──────────
-  const activeFilterCount = [
-    selectedCategory !== null,
-    selectedSource !== 'all',
-    langFilter !== 'all',
-    activePeriod !== 'daily',
-    sortKey !== 'newest',
-    countryFilter !== 'all',
-    languageFilter !== 'all',
-  ].filter(Boolean).length;
-
-  const resetFilters = () => {
-    setSelectedCategory(null);
-    setSelectedSource('all');
-    setLangFilter(language);
-    setCountryFilter('all');
-    setLanguageFilter('all');
-    setActivePeriod('daily');
-    setSortKey('newest');
+  const getGridCellStyle = (size: WidgetConfig['size']) => {
+    if (!isWeb) return styles.gridCell;
+    if (size === 'lg') return [styles.gridCell, { width: isWide ? '50%' : '100%' }] as any;
+    if (size === 'md') return [styles.gridCell, { width: isWide ? '32%' : isTablet ? '48%' : '100%' }] as any;
+    return [styles.gridCell, { width: isWide ? '24%' : isTablet ? '48%' : '100%' }] as any;
   };
 
   return (
-    <ScrollView style={[s(colors).container, { backgroundColor: pageBackground }]} contentContainerStyle={s(colors).content}>
-
-      {/* ── Gazete başlığı ─────────────────────────────────────────── */}
-      <View style={s(colors).masthead}>
-        {/* Çift çizgi — üst */}
-        <View style={s(colors).mastheadLineThick} />
-        <View style={s(colors).mastheadLineThin} />
-
-        {/* Meta satır: baskı bilgisi + tarih */}
-        <View style={s(colors).mastheadMeta}>
-          <Text style={s(colors).mastheadMetaText}>{t.print}</Text>
-          <Text style={s(colors).mastheadMetaDot}>◆</Text>
-          <Text style={s(colors).mastheadMetaText}>
-            {new Date().toLocaleDateString(dateLocale, { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
+    <ScrollView
+      style={[styles.root, { backgroundColor: bgColor }]}
+      contentContainerStyle={[styles.content, isWeb && styles.webContent]}
+      showsVerticalScrollIndicator={false}
+    >
+      {/* ── Header ── */}
+      <Animated.View style={[styles.header, { opacity: headerFade }]}>
+        <View style={styles.headerLeft}>
+          <Text style={[styles.greeting, { color: colors.textPrimary }]}>
+            Günaydın, <Text style={{ color: colors.accent, fontStyle: 'italic' }}>Ahmet.</Text>
           </Text>
-          <Text style={s(colors).mastheadMetaDot}>◆</Text>
-          <Text style={s(colors).mastheadMetaText}>{apiNews.length} {t.showing.toUpperCase()}</Text>
+          <View style={styles.headerMeta}>
+            <View style={[styles.metaChip, { backgroundColor: colors.surface, borderColor: colors.borderSubtle }]}>
+              <Ionicons name="calendar-outline" size={12} color={colors.accent} />
+              <Text style={[styles.metaText, { color: colors.textMuted }]}>{today}</Text>
+            </View>
+            <View style={[styles.metaChip, { backgroundColor: colors.surface, borderColor: colors.borderSubtle }]}>
+              <Ionicons name="cloud-outline" size={12} color={colors.accent} />
+              <Text style={[styles.metaText, { color: colors.textMuted }]}>24° İstanbul</Text>
+            </View>
+            <View style={styles.liveChip}>
+              <View style={[styles.liveDot, { backgroundColor: '#10b981' }]} />
+              <Text style={[styles.liveText, { color: '#10b981' }]}>Canlı Akış Aktif</Text>
+            </View>
+          </View>
         </View>
 
-        {/* Ana başlık */}
-        <Text style={s(colors).mastheadTitle}>{t.newspaper}</Text>
-        <Text style={s(colors).mastheadSlogan}>{t.slogan}</Text>
-
-        {/* Çift çizgi — alt */}
-        <View style={s(colors).mastheadLineThin} />
-        <View style={s(colors).mastheadLineThick} />
-
-        {/* Günün Konusu şeridi */}
-        {gununKonusu && (
-          <View style={s(colors).gununKonusuStrip}>
-            <View style={s(colors).gununKonusuStripBadge}>
-              <Text style={s(colors).gununKonusuStripBadgeText}>{t.topic}</Text>
+        {isWeb && (
+          <View style={styles.headerRight}>
+            {/* Search */}
+            <View style={[styles.searchBox, { backgroundColor: colors.surface, borderColor: colors.borderSubtle }]}>
+              <Ionicons name="search-outline" size={16} color={colors.textMuted} />
+              <TextInput
+                style={[styles.searchInput, { color: colors.textPrimary }]}
+                placeholder="Özel haber ağınızda keşfe çıkın..."
+                placeholderTextColor={colors.textMuted}
+                value={searchQuery}
+                onChangeText={setSearchQuery}
+              />
             </View>
-            <View style={s(colors).gununKonusuStripBody}>
-              <Text style={s(colors).gununKonusuStripCat}>{gununKonusu.category.toUpperCase()} · {gununKonusu.count} haber</Text>
-              {gununKonusu.article && (
-                <Text style={s(colors).gununKonusuStripHeadline} numberOfLines={2}>
-                  {gununKonusu.article.title}
-                </Text>
-              )}
+
+            {/* Bell */}
+            <Pressable style={[styles.iconBtn, { backgroundColor: colors.surface, borderColor: colors.borderSubtle }]}>
+              <Ionicons name="notifications-outline" size={20} color={colors.textSecondary} />
+              <View style={[styles.notifDot, { borderColor: bgColor }]} />
+            </Pressable>
+
+            {/* Avatar */}
+            <View style={[styles.avatar, { backgroundColor: colors.accent + '20', borderColor: colors.accent + '40' }]}>
+              <Ionicons name="person" size={18} color={colors.accent} />
             </View>
           </View>
         )}
-      </View>
+      </Animated.View>
 
-      {/* ── Son Dakika Kayan Seridi ─────────────────────────────────── */}
-      {tickerItems.length > 0 && (
-        <View style={s(colors).ticker}>
-          {/* Sol: SON DAKİKA rozeti */}
-          <View style={s(colors).tickerBadge}>
-            <View style={s(colors).tickerLiveDot} />
-            <Text style={s(colors).tickerBadgeText}>{t.breaking}</Text>
-          </View>
-          {/* Dikey ayırıcı */}
-          <View style={s(colors).tickerDivider} />
-          {/* Kayan metin alanı */}
-          <View style={s(colors).tickerTrack}>
-            <Animated.View style={[s(colors).tickerInner, { transform: [{ translateX: tickerX }] }]}>
-              {[...tickerItems, ...tickerItems].map((title, i) => (
-                <View key={i} style={s(colors).tickerItemWrap}>
-                  <Text style={s(colors).tickerItem}>{title}</Text>
-                  <Text style={s(colors).tickerDot}>  ◆  </Text>
-                </View>
+      {/* ── Featured Section ── */}
+      {featured && (
+        <Animated.View
+          style={[
+            styles.featuredSection,
+            !isTablet && styles.featuredSectionStacked,
+            { opacity: heroScale, transform: [{ scale: heroScale }] },
+          ]}
+        >
+          {/* Hero */}
+          <Pressable
+            style={styles.hero}
+            onPress={() => router.push({ pathname: '/news/[id]', params: { id: featured.id } })}
+          >
+            <Image
+              source={{ uri: proxyImageUrl(featured.imageUrl ?? '') || 'https://images.unsplash.com/photo-1677442136019-21780ecad995?w=800' }}
+              style={StyleSheet.absoluteFill}
+              resizeMode="cover"
+            />
+            <View style={styles.heroOverlay} />
+            <View style={styles.heroContent}>
+              <View style={[styles.heroBadge, { backgroundColor: colors.accent }]}>
+                <Text style={styles.heroBadgeText}>MANŞET</Text>
+              </View>
+              <Text style={styles.heroTitle} numberOfLines={3}>{featured.title}</Text>
+              {featured.description ? (
+                <Text style={styles.heroDesc} numberOfLines={2}>{featured.description}</Text>
+              ) : null}
+            </View>
+          </Pressable>
+
+          {/* Highlights */}
+          {highlights.length > 0 && (
+            <View style={styles.highlights}>
+              <Text style={[styles.highlightsLabel, { color: colors.textMuted }]}>ÖNE ÇIKANLAR</Text>
+              {highlights.map((item, idx) => (
+                <Animated.View
+                  key={item.id}
+                  style={[
+                    styles.highlightCard,
+                    {
+                      backgroundColor: colors.surface,
+                      borderColor: colors.borderSubtle,
+                      opacity: listFade,
+                      transform: [{ translateX: listFade.interpolate({ inputRange: [0, 1], outputRange: [20, 0] }) }],
+                    },
+                  ]}
+                >
+                  <Pressable
+                    style={styles.highlightInner}
+                    onPress={() => router.push({ pathname: '/news/[id]', params: { id: item.id } })}
+                  >
+                    <Text style={[styles.highlightCat, { color: colors.accent }]}>
+                      {item.category?.toUpperCase() ?? 'GENEL'}
+                    </Text>
+                    <Text style={[styles.highlightTitle, { color: colors.textPrimary }]} numberOfLines={2}>
+                      {item.title}
+                    </Text>
+                    <View style={styles.highlightFooter}>
+                      <Text style={[styles.highlightTime, { color: colors.textMuted }]}>
+                        {timeAgo(item.publishedAt)}
+                      </Text>
+                      <View style={styles.detailsLink}>
+                        <Text style={[styles.detailsLinkText, { color: colors.textMuted }]}>Detaylar</Text>
+                        <Ionicons name="arrow-up" size={10} color={colors.textMuted} style={{ transform: [{ rotate: '45deg' }] }} />
+                      </View>
+                    </View>
+                  </Pressable>
+                </Animated.View>
               ))}
-            </Animated.View>
-          </View>
-        </View>
+            </View>
+          )}
+        </Animated.View>
       )}
 
-      {/* ── Mobilde filtreler üstte ─────────────────────────────────── */}
-      {!isWeb && (
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s(colors).mobileFilterBar}>
-          {(['daily', 'weekly'] as PeriodFilter[]).map((p) => (
+      {/* ── Dashboard Tools ── */}
+      <Animated.View style={[styles.tools, { opacity: listFade }]}>
+        {/* Tabs */}
+        <View style={[styles.tabBar, { backgroundColor: colors.surface, borderColor: colors.borderSubtle }]}>
+          {TABS.map((tab) => (
             <Pressable
-              key={p}
-              style={[s(colors).mobileChip, activePeriod === p && s(colors).mobileChipActive]}
-              onPress={() => setActivePeriod(p)}
+              key={tab.key}
+              style={[
+                styles.tabItem,
+                activeTab === tab.key && { backgroundColor: colors.accent },
+              ]}
+              onPress={() => setActiveTab(tab.key)}
             >
-              <Text style={[s(colors).mobileChipText, activePeriod === p && s(colors).mobileChipTextActive]}>
-                {p === 'daily' ? t.daily : t.weekly}
+              <Text
+                style={[
+                  styles.tabLabel,
+                  { color: activeTab === tab.key ? '#fff' : colors.textMuted },
+                ]}
+              >
+                {tab.label}
               </Text>
             </Pressable>
           ))}
-          <View style={s(colors).mobileChipDivider} />
+        </View>
+
+        {/* Edit / Add buttons */}
+        <View style={styles.toolsRight}>
           <Pressable
-            style={[s(colors).mobileChip, selectedCategory === null && s(colors).mobileChipActive]}
-            onPress={() => setSelectedCategory(null)}
+            onPress={() => setIsEditing((v) => !v)}
+            style={[
+              styles.editBtn,
+              {
+                backgroundColor: isEditing ? '#10b98115' : colors.surface,
+                borderColor: isEditing ? '#10b98140' : colors.borderSubtle,
+              },
+            ]}
           >
-            <Text style={[s(colors).mobileChipText, selectedCategory === null && s(colors).mobileChipTextActive]}>
-              {t.all}
+            <Ionicons
+              name={isEditing ? 'save-outline' : 'settings-outline'}
+              size={15}
+              color={isEditing ? '#10b981' : colors.textMuted}
+            />
+            <Text style={[styles.editLabel, { color: isEditing ? '#10b981' : colors.textMuted }]}>
+              {isEditing ? 'Kaydet' : 'Düzenle'}
             </Text>
           </Pressable>
-          {categoryOptions.map((cat) => (
+
+          {isEditing && (
             <Pressable
-              key={cat}
-              style={[s(colors).mobileChip, selectedCategory === cat && s(colors).mobileChipActive]}
-              onPress={() => setSelectedCategory(cat)}
+              onPress={() => setIsPickerOpen(true)}
+              style={[styles.addBtn, { backgroundColor: colors.accent }]}
             >
-              <Text style={[s(colors).mobileChipText, selectedCategory === cat && s(colors).mobileChipTextActive]}>
-                {cat}
-              </Text>
+              <Ionicons name="add" size={16} color="#fff" />
+              <Text style={styles.addLabel}>Ekle</Text>
             </Pressable>
-          ))}
-        </ScrollView>
-      )}
-
-      {/* ── Ana içerik satırı ──────────────────────────────────────── */}
-      <View style={[s(colors).boardRow, isWeb && s(colors).boardRowWeb]}>
-
-        {/* ── Orta kolon: haberler ──────────────────────────────────── */}
-        <View style={[s(colors).mainCol, isWeb && s(colors).mainColWeb]}>
-
-          {newsLoading && (
-            <View style={s(colors).loadingRow}>
-              <ActivityIndicator color={colors.accent} />
-              <Text style={s(colors).loadingText}>{t.loading}</Text>
-            </View>
           )}
-
-          {/* Manşet / Öne çıkan haber */}
-          {featured ? (
-            <View style={s(colors).featured}>
-              {featured.imageUrl ? (
-                <Image source={{ uri: featured.imageUrl }} style={s(colors).featuredImage} resizeMode="cover" />
-              ) : (
-                <View style={s(colors).featuredImagePlaceholder}>
-                  <Text style={s(colors).featuredImagePlaceholderText}>{featured.category}</Text>
-                </View>
-              )}
-              <View style={s(colors).featuredBody}>
-                <Text style={s(colors).featuredCategory}>{featured.category.toUpperCase()}</Text>
-                <Pressable onPress={() => openArticlePreview(featured)}>
-                  <Text style={s(colors).featuredHeadlineLink}>{featured.title}</Text>
-                </Pressable>
-                <Text style={s(colors).featuredLead}>{featured.summary}</Text>
-                <View style={s(colors).byline}>
-                  <Pressable onPress={() => openPublisherProfile(featured.source)}>
-                    <Text style={s(colors).bylineSourceLink}>{featured.source}</Text>
-                  </Pressable>
-                  <Text style={s(colors).bylineDot}>·</Text>
-                  <Text style={s(colors).bylineDate}>{formatDate(featured.publicationDate, dateLocale)}</Text>
-                  <Text style={s(colors).bylineDot}>·</Text>
-                  <Text style={s(colors).bylineMeta}>♥</Text>
-                  <Text style={s(colors).bylineMetaNumber}>{featured.likes}</Text>
-                  <Text style={s(colors).bylineMeta}>💬</Text>
-                  <Text style={s(colors).bylineMetaNumber}>{featured.comments}</Text>
-                </View>
-              </View>
-            </View>
-          ) : !newsLoading ? (
-            <View style={s(colors).emptyBox}>
-              <Text style={s(colors).emptyText}>{t.noNews}</Text>
-            </View>
-          ) : null}
-
-          {/* Kesme çizgisi */}
-          {(secondaryGridNews.length > 0 || importantUpdates.length > 0) && <View style={s(colors).rule} />}
-
-          {/* 2'li grid: ikincil haberler */}
-          {(secondaryGridNews.length > 0 || importantUpdates.length > 0) && (
-            <View style={s(colors).grid}>
-              {secondaryGridNews.map((item) => (
-                <View key={item.id} style={s(colors).gridCard}>
-                  {item.imageUrl ? (
-                    <Image source={{ uri: item.imageUrl }} style={s(colors).gridImage} resizeMode="cover" />
-                  ) : (
-                    <View style={s(colors).gridImagePlaceholder}>
-                      <Text style={s(colors).gridImagePlaceholderText}>{item.category.charAt(0)}</Text>
-                    </View>
-                  )}
-                  <View style={s(colors).gridBody}>
-                    <Text style={s(colors).gridCategory}>{item.category.toUpperCase()}</Text>
-                    <Pressable onPress={() => openArticlePreview(item)}>
-                      <Text style={s(colors).gridHeadlineLink} numberOfLines={3}>{item.title}</Text>
-                    </Pressable>
-                    <Text style={s(colors).gridSummary} numberOfLines={2}>{item.summary}</Text>
-                    <View style={s(colors).gridBylineRow}>
-                      <Pressable onPress={() => openPublisherProfile(item.source)}>
-                        <Text style={s(colors).gridBylineSource}>{item.source}</Text>
-                      </Pressable>
-                      <Text style={s(colors).gridBylineDot}>·</Text>
-                      <Text style={s(colors).gridBylineDate}>{formatDate(item.publicationDate, dateLocale)}</Text>
-                      <Text style={s(colors).gridBylineDot}>·</Text>
-                      <Text style={s(colors).gridBylineMeta}>♥</Text>
-                      <Text style={s(colors).gridBylineMetaNumber}>{item.likes}</Text>
-                      <Text style={s(colors).gridBylineMeta}>💬</Text>
-                      <Text style={s(colors).gridBylineMetaNumber}>{item.comments}</Text>
-                    </View>
-                  </View>
-                </View>
-              ))}
-
-              {importantUpdates.length > 0 && (
-                <View style={[s(colors).gridCard, s(colors).importantCard]}>
-                  <View style={s(colors).importantHeader}>
-                    <View style={s(colors).importantLiveBadge}>
-                      <View style={s(colors).importantLiveDot} />
-                      <Text style={s(colors).importantLiveText}>{t.liveNow}</Text>
-                    </View>
-                    <Text style={s(colors).importantTitle}>{t.importantUpdates}</Text>
-                  </View>
-
-                  <View style={s(colors).importantList}>
-                    {liveUpdates.map((item, idx) => (
-                      <View key={item.id} style={[s(colors).importantItem, idx > 0 && s(colors).importantItemRule]}>
-                        <View style={s(colors).importantLineRow}>
-                          <View style={s(colors).importantItemDot} />
-                          <Text style={s(colors).importantTime}>{formatRelativeTime(item.publishedAt, language, liveNowTs)}</Text>
-                          <Text style={s(colors).importantMetaDot}>:</Text>
-                          <Text style={s(colors).importantItemHeadline} numberOfLines={3}>
-                            {item.text}
-                          </Text>
-                        </View>
-                      </View>
-                    ))}
-                  </View>
-                </View>
-              )}
-            </View>
-          )}
-
-          {/* Kesme çizgisi */}
-          {compactList.length > 0 && <View style={s(colors).rule} />}
-
-          {/* Newspaper akışı: tüm haberler için döngüsel büyük kolon düzeni */}
-          {newspaperBlocks.map((block, blockIndex) => {
-            const leadOnLeft = block.leadPosition === 'left';
-            const leadOnCenter = block.leadPosition === 'center';
-            const leadOnRight = block.leadPosition === 'right';
-
-            return (
-              <View key={block.id} style={s(colors).newspaperSection}>
-                <View style={[s(colors).newspaperTopRow, !isWeb && s(colors).newspaperTopRowMobile]}>
-                  {/* Sol kolon */}
-                  {leadOnLeft ? (
-                    <View style={s(colors).newspaperCenterCol}>
-                      {block.lead.imageUrl ? (
-                        <Image source={{ uri: block.lead.imageUrl }} style={s(colors).newspaperLeadImage} resizeMode="cover" />
-                      ) : (
-                        <View style={s(colors).newspaperLeadImagePlaceholder}>
-                          <Text style={s(colors).newspaperLeadImagePlaceholderText}>{block.lead.category.toUpperCase()}</Text>
-                        </View>
-                      )}
-                      <View style={s(colors).newspaperLeadBody}>
-                        <Text style={s(colors).newspaperCategory}>{block.lead.category.toUpperCase()}</Text>
-                        <Pressable onPress={() => openArticlePreview(block.lead)}>
-                          <Text style={[s(colors).newspaperLeadHeadlineLink, !isWeb && s(colors).newspaperLeadHeadlineLinkMobile]} numberOfLines={3}>
-                            {block.lead.title}
-                          </Text>
-                        </Pressable>
-                        <Text style={s(colors).newspaperLeadSummary} numberOfLines={4}>{block.lead.summary}</Text>
-                        <View style={s(colors).newspaperBylineRow}>
-                          <Pressable onPress={() => openPublisherProfile(block.lead.source)}>
-                            <Text style={s(colors).newspaperBylineSource}>{block.lead.source}</Text>
-                          </Pressable>
-                          <Text style={s(colors).newspaperBylineDot}>·</Text>
-                          <Text style={s(colors).newspaperBylineDate}>{formatDate(block.lead.publicationDate, dateLocale)}</Text>
-                        </View>
-                      </View>
-                    </View>
-                  ) : (
-                    <View style={[s(colors).newspaperSideCol, !isWeb && s(colors).newspaperSideColMobile, isWeb && s(colors).newspaperSideColDivider]}>
-                      {block.sideA.map((item, i) => (
-                        <View key={item.id} style={s(colors).newspaperSideItem}>
-                          {item.imageUrl ? (
-                            <Image source={{ uri: item.imageUrl }} style={s(colors).newspaperSideImage} resizeMode="cover" />
-                          ) : (
-                            <View style={s(colors).newspaperSideImagePlaceholder}>
-                              <Text style={s(colors).newspaperSideImagePlaceholderText}>{item.category.toUpperCase()}</Text>
-                            </View>
-                          )}
-                          <Pressable onPress={() => openArticlePreview(item)}>
-                            <Text style={s(colors).newspaperSideHeadlineLink} numberOfLines={3}>{item.title}</Text>
-                          </Pressable>
-                          <Text style={s(colors).newspaperSideSummary} numberOfLines={2}>{item.summary}</Text>
-                          <View style={s(colors).newspaperBylineRow}>
-                            <Pressable onPress={() => openPublisherProfile(item.source)}>
-                              <Text style={s(colors).newspaperBylineSource}>{item.source}</Text>
-                            </Pressable>
-                            <Text style={s(colors).newspaperBylineDot}>·</Text>
-                            <Text style={s(colors).newspaperBylineDate}>{formatDate(item.publicationDate, dateLocale)}</Text>
-                          </View>
-                          {i < block.sideA.length - 1 && <View style={s(colors).newspaperItemRule} />}
-                        </View>
-                      ))}
-                    </View>
-                  )}
-
-                  {/* Orta kolon */}
-                  {leadOnCenter ? (
-                    <View style={s(colors).newspaperCenterCol}>
-                      {block.lead.imageUrl ? (
-                        <Image source={{ uri: block.lead.imageUrl }} style={s(colors).newspaperLeadImage} resizeMode="cover" />
-                      ) : (
-                        <View style={s(colors).newspaperLeadImagePlaceholder}>
-                          <Text style={s(colors).newspaperLeadImagePlaceholderText}>{block.lead.category.toUpperCase()}</Text>
-                        </View>
-                      )}
-                      <View style={s(colors).newspaperLeadBody}>
-                        <Text style={s(colors).newspaperCategory}>{block.lead.category.toUpperCase()}</Text>
-                        <Pressable onPress={() => openArticlePreview(block.lead)}>
-                          <Text style={[s(colors).newspaperLeadHeadlineLink, !isWeb && s(colors).newspaperLeadHeadlineLinkMobile]} numberOfLines={3}>
-                            {block.lead.title}
-                          </Text>
-                        </Pressable>
-                        <Text style={s(colors).newspaperLeadSummary} numberOfLines={4}>{block.lead.summary}</Text>
-                        <View style={s(colors).newspaperBylineRow}>
-                          <Pressable onPress={() => openPublisherProfile(block.lead.source)}>
-                            <Text style={s(colors).newspaperBylineSource}>{block.lead.source}</Text>
-                          </Pressable>
-                          <Text style={s(colors).newspaperBylineDot}>·</Text>
-                          <Text style={s(colors).newspaperBylineDate}>{formatDate(block.lead.publicationDate, dateLocale)}</Text>
-                        </View>
-                      </View>
-                    </View>
-                  ) : (
-                    <View style={[s(colors).newspaperSideCol, !isWeb && s(colors).newspaperSideColMobile, isWeb && s(colors).newspaperSideColDivider, isWeb && s(colors).newspaperSideColLeftDivider]}>
-                      {(leadOnLeft ? block.sideA : block.sideB).map((item, i) => (
-                        <View key={item.id} style={s(colors).newspaperSideItem}>
-                          {item.imageUrl ? (
-                            <Image source={{ uri: item.imageUrl }} style={s(colors).newspaperSideImage} resizeMode="cover" />
-                          ) : (
-                            <View style={s(colors).newspaperSideImagePlaceholder}>
-                              <Text style={s(colors).newspaperSideImagePlaceholderText}>{item.category.toUpperCase()}</Text>
-                            </View>
-                          )}
-                          <Pressable onPress={() => openArticlePreview(item)}>
-                            <Text style={s(colors).newspaperSideHeadlineLink} numberOfLines={3}>{item.title}</Text>
-                          </Pressable>
-                          <Text style={s(colors).newspaperSideSummary} numberOfLines={2}>{item.summary}</Text>
-                          <View style={s(colors).newspaperBylineRow}>
-                            <Pressable onPress={() => openPublisherProfile(item.source)}>
-                              <Text style={s(colors).newspaperBylineSource}>{item.source}</Text>
-                            </Pressable>
-                            <Text style={s(colors).newspaperBylineDot}>·</Text>
-                            <Text style={s(colors).newspaperBylineDate}>{formatDate(item.publicationDate, dateLocale)}</Text>
-                          </View>
-                          {i < (leadOnLeft ? block.sideA : block.sideB).length - 1 && <View style={s(colors).newspaperItemRule} />}
-                        </View>
-                      ))}
-                    </View>
-                  )}
-
-                  {/* Sağ kolon */}
-                  {leadOnRight ? (
-                    <View style={s(colors).newspaperCenterCol}>
-                      {block.lead.imageUrl ? (
-                        <Image source={{ uri: block.lead.imageUrl }} style={s(colors).newspaperLeadImage} resizeMode="cover" />
-                      ) : (
-                        <View style={s(colors).newspaperLeadImagePlaceholder}>
-                          <Text style={s(colors).newspaperLeadImagePlaceholderText}>{block.lead.category.toUpperCase()}</Text>
-                        </View>
-                      )}
-                      <View style={s(colors).newspaperLeadBody}>
-                        <Text style={s(colors).newspaperCategory}>{block.lead.category.toUpperCase()}</Text>
-                        <Pressable onPress={() => openArticlePreview(block.lead)}>
-                          <Text style={[s(colors).newspaperLeadHeadlineLink, !isWeb && s(colors).newspaperLeadHeadlineLinkMobile]} numberOfLines={3}>
-                            {block.lead.title}
-                          </Text>
-                        </Pressable>
-                        <Text style={s(colors).newspaperLeadSummary} numberOfLines={4}>{block.lead.summary}</Text>
-                        <View style={s(colors).newspaperBylineRow}>
-                          <Pressable onPress={() => openPublisherProfile(block.lead.source)}>
-                            <Text style={s(colors).newspaperBylineSource}>{block.lead.source}</Text>
-                          </Pressable>
-                          <Text style={s(colors).newspaperBylineDot}>·</Text>
-                          <Text style={s(colors).newspaperBylineDate}>{formatDate(block.lead.publicationDate, dateLocale)}</Text>
-                        </View>
-                      </View>
-                    </View>
-                  ) : (
-                    <View style={[s(colors).newspaperSideCol, !isWeb && s(colors).newspaperSideColMobile, isWeb && s(colors).newspaperSideColLeftDivider]}>
-                      {block.sideB.map((item, i) => (
-                        <View key={item.id} style={s(colors).newspaperSideItem}>
-                          {item.imageUrl ? (
-                            <Image source={{ uri: item.imageUrl }} style={s(colors).newspaperSideImage} resizeMode="cover" />
-                          ) : (
-                            <View style={s(colors).newspaperSideImagePlaceholder}>
-                              <Text style={s(colors).newspaperSideImagePlaceholderText}>{item.category.toUpperCase()}</Text>
-                            </View>
-                          )}
-                          <Pressable onPress={() => openArticlePreview(item)}>
-                            <Text style={s(colors).newspaperSideHeadlineLink} numberOfLines={3}>{item.title}</Text>
-                          </Pressable>
-                          <Text style={s(colors).newspaperSideSummary} numberOfLines={2}>{item.summary}</Text>
-                          <View style={s(colors).newspaperBylineRow}>
-                            <Pressable onPress={() => openPublisherProfile(item.source)}>
-                              <Text style={s(colors).newspaperBylineSource}>{item.source}</Text>
-                            </Pressable>
-                            <Text style={s(colors).newspaperBylineDot}>·</Text>
-                            <Text style={s(colors).newspaperBylineDate}>{formatDate(item.publicationDate, dateLocale)}</Text>
-                          </View>
-                          {i < block.sideB.length - 1 && <View style={s(colors).newspaperItemRule} />}
-                        </View>
-                      ))}
-                    </View>
-                  )}
-                </View>
-
-                {blockIndex < newspaperBlocks.length - 1 && <View style={s(colors).newspaperBlockRule} />}
-              </View>
-            );
-          })}
         </View>
+      </Animated.View>
 
-        {/* ── Sağ kolon (sadece web) ────────────────────────────────── */}
-        {isWeb && (
-          <View style={s(colors).rightCol}>
+      {/* ── Widget Grid ── */}
+      <Animated.View style={[styles.grid, { opacity: listFade }]}>
+        {widgets.map((widget) => (
+          <View
+            key={widget.id}
+            style={getGridCellStyle(widget.size)}
+          >
+            <WidgetCard
+              config={widget}
+              isEditing={isEditing}
+              onRemove={handleRemoveWidget}
+              onResize={handleResizeWidget}
+            >
+              {renderWidgetContent(widget.type)}
+            </WidgetCard>
+          </View>
+        ))}
 
-            {/* Filtreler */}
-            <FilterPanel
-              colors={colors}
-              t={t}
-              activeFilterCount={activeFilterCount}
-              activePeriod={activePeriod}
-              setActivePeriod={setActivePeriod}
-              langFilter={langFilter}
-              setLangFilter={setLangFilter}
-              countryFilter={countryFilter}
-              setCountryFilter={setCountryFilter}
-              languageFilter={languageFilter}
-              setLanguageFilter={setLanguageFilter}
-              sortKey={sortKey}
-              setSortKey={setSortKey}
-              selectedCategory={selectedCategory}
-              setSelectedCategory={setSelectedCategory}
-              selectedSource={selectedSource}
-              setSelectedSource={setSelectedSource}
-              apiNewsLength={sortedNews.length}
-              categoryOptions={categoryOptions}
-              categoryCounts={categoryCounts}
-              sourceOptions={sourceOptions}
-              sourceLogoMap={sourceLogoMap}
-              followedSources={followedSources}
-              filteredFollowedSources={filteredFollowedSources}
-              uiLanguage={language}
-              resetFilters={resetFilters}
-            />
-
-            {/* Piyasalar */}
-            <View style={s(colors).sidePanel}>
-              <View style={s(colors).sidePanelHeader}>
-                <Text style={s(colors).sidePanelTitle}>{t.markets}</Text>
-              </View>
-              {MARKET_WATCH.map((item) => (
-                <View key={item.id} style={s(colors).marketRow}>
-                  <View style={{ flex: 1 }}>
-                    <Text style={s(colors).marketLabel}>{item.label}</Text>
-                    <Text style={s(colors).marketKind}>{item.kind}</Text>
-                  </View>
-                  <View style={{ alignItems: 'flex-end' }}>
-                    <Text style={s(colors).marketValue}>{item.value}</Text>
-                    <Text style={[s(colors).marketChange, { color: item.isPositive ? colors.success : colors.error }]}>
-                      {item.change}
-                    </Text>
-                  </View>
-                </View>
-              ))}
-            </View>
-
-            {/* Trend Olanlar */}
-            
-
-            {/* Trend Olanlar */}
-            <View style={s(colors).sidePanel}>
-              <View style={s(colors).sidePanelHeader}>
-                <Text style={s(colors).sidePanelTitle}>Trend Olanlar</Text>
-                <Text style={s(colors).sidePanelCount}>Top {trendingTopics.length}</Text>
-              </View>
-              <Text style={s(colors).trendSubtitle}>En çok öne çıkan haberleri hashtag gibi takip et.</Text>
-
-              <View style={s(colors).trendList}>
-                {trendingTopics.map((item) => (
-                  <Pressable
-                    key={item.id}
-                    style={s(colors).trendRow}
-                    onPress={() => openArticlePreview(item.article)}
-                  >
-                    <Text style={s(colors).trendRank}>{item.rank}</Text>
-                    <View style={s(colors).trendBody}>
-                      <Text style={s(colors).trendTag}>{item.tag}</Text>
-                      <Text style={s(colors).trendHeadline} numberOfLines={2}>{item.title}</Text>
-                      <Text style={s(colors).trendMeta}>{item.source}</Text>
-                    </View>
-                  </Pressable>
-                ))}
-              </View>
-            </View>
-
+        {widgets.length === 0 && (
+          <View style={[styles.emptyGrid, { borderColor: colors.borderSubtle }]}>
+            <Ionicons name="grid-outline" size={40} color={colors.textMuted} />
+            <Text style={[styles.emptyTitle, { color: colors.textMuted }]}>Dashboard henüz boş.</Text>
+            <Pressable onPress={() => setIsPickerOpen(true)}>
+              <Text style={[styles.emptyAdd, { color: colors.accent }]}>+ Yeni widget ekleyerek başlayın</Text>
+            </Pressable>
           </View>
         )}
-      </View>
-      
+      </Animated.View>
 
-      <NewsQuickPreviewModal
-        visible={!!previewItem}
-        item={previewItem}
-        colors={colors}
-        onClose={() => setPreviewItem(null)}
-        onReadMorePress={(item) => {
-          setPreviewItem(null);
-          router.push({
-            pathname: '/news/[id]',
-            params: {
-              id: item.id,
-              title: item.title,
-              summary: item.summary,
-              content: item.content,
-              imageUrl: item.imageUrl,
-              source: item.sourceName,
-              publishedAt: item.publishedAt,
-              category: item.category,
-            },
-          });
-        }}
-        onPublisherPress={(sourceName) => {
-          setPreviewItem(null);
-          openPublisherProfile(sourceName);
-        }}
+      {/* Footer */}
+      <View style={[styles.footer, { borderTopColor: colors.borderSubtle }]}>
+        <View style={styles.footerLeft}>
+          <View style={styles.footerItem}>
+            <Ionicons name="sparkles" size={11} color={colors.accent} />
+            <Text style={[styles.footerText, { color: colors.textMuted }]}>AI Destekli Gazete</Text>
+          </View>
+          <Text style={[styles.footerText, { color: colors.textMuted }]}>Gizlilik</Text>
+          <Text style={[styles.footerText, { color: colors.textMuted }]}>Destek</Text>
+        </View>
+        <Text style={[styles.footerText, { color: colors.textMuted }]}>© 2026 GazeteAI Hub v2.0</Text>
+      </View>
+
+      <WidgetPicker
+        isOpen={isPickerOpen}
+        onClose={() => setIsPickerOpen(false)}
+        onAdd={handleAddWidget}
       />
     </ScrollView>
   );
 }
 
-const s = (colors: any) => StyleSheet.create({
-  // ── Sayfa ──────────────────────────────────────────────────────────────
-  container: { flex: 1, backgroundColor: colors.background },
-  content: { paddingHorizontal: Spacing.lg, paddingTop: Spacing.lg, paddingBottom: Spacing.xxl },
+function timeAgo(iso: string): string {
+  const diff = Date.now() - new Date(iso).getTime();
+  const m = Math.floor(diff / 60000);
+  if (m < 1) return 'şimdi';
+  if (m < 60) return `${m} dk önce`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h} saat önce`;
+  return `${Math.floor(h / 24)} gün önce`;
+}
 
-  // ── Masthead (Gazete başlığı) ──────────────────────────────────────────
-  masthead: { alignItems: 'center', gap: 4, marginBottom: Spacing.md },
-  mastheadLineThick: { width: '100%', height: 3, backgroundColor: colors.accent },
-  mastheadLineThin: { width: '100%', height: 1, backgroundColor: colors.accent, opacity: 0.5 },
-  mastheadMeta: {
-    flexDirection: 'row', alignItems: 'center', gap: Spacing.sm,
-    width: '100%', justifyContent: 'center', paddingVertical: 3,
-  },
-  mastheadMetaText: {
-    fontSize: 9, color: colors.textMuted,
-    fontWeight: '600', letterSpacing: 1.5, textTransform: 'uppercase',
-  },
-  mastheadMetaDot: { fontSize: 6, color: colors.accent, opacity: 0.6 },
-  mastheadTitle: {
-    fontSize: 34,
-    fontWeight: '900',
-    color: colors.accent,
-    letterSpacing: 8,
-    textTransform: 'uppercase',
-    textAlign: 'center',
-  },
-  mastheadSlogan: {
-    fontSize: 10,
-    color: colors.textMuted,
-    fontStyle: 'italic',
-    letterSpacing: 0.5,
-    textAlign: 'center',
-    marginBottom: 2,
-  },
-  mastheadDate: { fontSize: Typography.fontSize.xs, color: colors.textMuted, fontStyle: 'italic' },
-  mastheadEdition: { fontSize: Typography.fontSize.xs, color: colors.textMuted, fontStyle: 'italic' },
+const styles = StyleSheet.create({
+  root: { flex: 1 },
+  content: { padding: 24, paddingBottom: 48, gap: 28 },
+  webContent: { maxWidth: 1640, width: '100%' as any, alignSelf: 'center' },
 
-  // ── Mobil filtre çubuğu ───────────────────────────────────────────────
-  mobileFilterBar: { flexDirection: 'row', gap: Spacing.xs, paddingBottom: Spacing.sm, paddingRight: Spacing.lg },
-  mobileChip: {
-    borderWidth: 1, borderColor: colors.border, borderRadius: Radius.full,
-    paddingHorizontal: Spacing.md, paddingVertical: 6, backgroundColor: colors.surface,
+  // Header
+  header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', gap: 16 },
+  headerLeft: { flex: 1, gap: 10 },
+  greeting: { fontSize: 36, fontWeight: '900', letterSpacing: -1, lineHeight: 40 },
+  headerMeta: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  metaChip: {
+    flexDirection: 'row', alignItems: 'center', gap: 5,
+    paddingHorizontal: 8, paddingVertical: 4,
+    borderRadius: 8, borderWidth: 1,
   },
-  mobileChipActive: { backgroundColor: colors.accent, borderColor: colors.accent },
-  mobileChipText: { fontSize: Typography.fontSize.sm, color: colors.textSecondary, fontWeight: Typography.fontWeight.medium },
-  mobileChipTextActive: { color: colors.white },
-  mobileChipDivider: { width: 1, backgroundColor: colors.border, marginHorizontal: 4 },
-
-  // ── Ana layout ────────────────────────────────────────────────────────
-  boardRow: { width: '100%' },
-  boardRowWeb: { flexDirection: 'row', alignItems: 'flex-start', gap: Spacing.lg },
-  mainCol: { width: '100%', gap: 0 },
-  mainColWeb: { flex: 1, minWidth: 0 },
-
-  // ── Loading ───────────────────────────────────────────────────────────
-  loadingRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm, paddingVertical: Spacing.lg },
-  loadingText: { color: colors.textMuted, fontSize: Typography.fontSize.sm },
-
-  // ── Manşet (Featured) ─────────────────────────────────────────────────
-  featured: {
-    borderWidth: 1, borderColor: colors.border,
-    borderRadius: Radius.lg, overflow: 'hidden',
-    backgroundColor: colors.surface, marginBottom: Spacing.md,
+  metaText: { fontSize: 10, fontWeight: '700', letterSpacing: 0.3 },
+  liveChip: { flexDirection: 'row', alignItems: 'center', gap: 5 },
+  liveDot: { width: 6, height: 6, borderRadius: 3 },
+  liveText: { fontSize: 10, fontWeight: '700', letterSpacing: 0.3 },
+  headerRight: { flexDirection: 'row', alignItems: 'center', gap: 10, flexShrink: 0 },
+  searchBox: {
+    flexDirection: 'row', alignItems: 'center', gap: 10,
+    paddingHorizontal: 16, paddingVertical: 12,
+    borderRadius: 24, borderWidth: 1, minWidth: 240,
   },
-  featuredImage: { width: '100%', height: 240 },
-  featuredImagePlaceholder: {
-    width: '100%', height: 180,
-    backgroundColor: colors.surfaceHigh,
+  searchInput: { flex: 1, fontSize: 13, fontWeight: '500' },
+  iconBtn: {
+    width: 46, height: 46, borderRadius: 14,
     alignItems: 'center', justifyContent: 'center',
+    borderWidth: 1, position: 'relative',
   },
-  featuredImagePlaceholderText: {
-    fontSize: Typography.fontSize.xl, color: colors.textMuted,
-    fontWeight: Typography.fontWeight.bold, letterSpacing: 2,
-    textTransform: 'uppercase',
+  notifDot: {
+    position: 'absolute', top: 10, right: 10,
+    width: 8, height: 8, borderRadius: 4,
+    backgroundColor: '#ef4444', borderWidth: 2,
   },
-  featuredBody: { padding: Spacing.lg, gap: Spacing.sm },
-  featuredCategory: {
-    fontSize: Typography.fontSize.xs, color: colors.accent,
-    fontWeight: '700', letterSpacing: 2,
-  },
-  featuredHeadline: {
-    fontSize: 24, fontWeight: '700',
-    color: colors.textPrimary, lineHeight: 32,
-  },
-  featuredHeadlineLink: {
-    fontSize: 24,
-    fontWeight: '700',
-    color: colors.textPrimary,
-    lineHeight: 32,
-    textDecorationLine: 'underline',
-    textDecorationColor: colors.accent,
-  },
-  featuredLead: {
-    fontSize: Typography.fontSize.base, color: colors.textSecondary,
-    lineHeight: 22,
-  },
-  byline: { flexDirection: 'row', alignItems: 'center', gap: Spacing.xs, marginTop: 4 },
-  bylineSource: { fontSize: Typography.fontSize.sm, color: colors.textMuted, fontWeight: Typography.fontWeight.bold },
-  bylineSourceLink: {
-    fontSize: Typography.fontSize.sm,
-    color: colors.accent,
-    fontWeight: Typography.fontWeight.bold,
-    textDecorationLine: 'underline',
-  },
-  bylineDot: { color: colors.textMuted, fontSize: Typography.fontSize.sm },
-  bylineDate: { fontSize: Typography.fontSize.sm, color: colors.textMuted },
-  bylineMeta: { fontSize: Typography.fontSize.md, color: colors.textMuted },
-  bylineMetaNumber: { fontSize: Typography.fontSize.sm, color: colors.textMuted },
-
-  // ── Kesme çizgileri ───────────────────────────────────────────────────
-  rule: { height: 2, backgroundColor: colors.accent, marginVertical: Spacing.md },
-  thinRule: { height: 1, backgroundColor: colors.borderSubtle, marginVertical: Spacing.sm },
-
-  // ── 2'li Grid ─────────────────────────────────────────────────────────
-  grid: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.md, marginBottom: Spacing.md },
-  gridCard: {
-    flex: 1, minWidth: 160,
-    borderWidth: 1, borderColor: colors.borderSubtle,
-    borderRadius: Radius.lg, overflow: 'hidden',
-    backgroundColor: colors.surface,
-  },
-  gridImage: { width: '100%', height: 120 },
-  gridImagePlaceholder: {
-    width: '100%', height: 90,
-    backgroundColor: colors.surfaceHigh,
-    alignItems: 'center', justifyContent: 'center',
-  },
-  gridImagePlaceholderText: {
-    fontSize: Typography.fontSize.xl, color: colors.accentLight,
-    fontWeight: '700',
-  },
-  gridBody: { padding: Spacing.md, gap: 4 },
-  gridCategory: {
-    fontSize: Typography.fontSize.xs, color: colors.accent,
-    fontWeight: '700', letterSpacing: 1.5,
-  },
-  gridHeadline: {
-    fontSize: Typography.fontSize.md, fontWeight: '700',
-    color: colors.textPrimary, lineHeight: 22,
-  },
-  gridHeadlineLink: {
-    fontSize: Typography.fontSize.md,
-    fontWeight: '700',
-    color: colors.textPrimary,
-    lineHeight: 22,
-    textDecorationLine: 'underline',
-    textDecorationColor: colors.accent,
-  },
-  gridSummary: { fontSize: Typography.fontSize.sm, color: colors.textSecondary, lineHeight: 18 },
-  gridBylineRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.xs, marginTop: 4 },
-  gridBylineSource: {
-    fontSize: Typography.fontSize.xs,
-    color: colors.accent,
-    fontWeight: Typography.fontWeight.bold,
-    textDecorationLine: 'underline',
-  },
-  gridBylineDot: { fontSize: Typography.fontSize.xs, color: colors.textMuted },
-  gridBylineDate: { fontSize: Typography.fontSize.xs, color: colors.textMuted },
-  gridBylineMeta: { fontSize: Typography.fontSize.md, color: colors.textMuted },
-  gridBylineMetaNumber: { fontSize: Typography.fontSize.sm, color: colors.textMuted },
-  importantCard: {
-    flexGrow: 1.4,
-    minWidth: 300,
-    borderColor: colors.error,
-    borderWidth: 1.5,
-    padding: Spacing.md,
-    justifyContent: 'flex-start',
-    gap: Spacing.sm,
-  },
-  importantHeader: {
-    gap: 6,
-    paddingBottom: Spacing.xs,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.borderSubtle,
-  },
-  importantLiveBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    alignSelf: 'flex-start',
-    gap: 6,
-    borderRadius: Radius.full,
-    backgroundColor: colors.error,
-    paddingHorizontal: Spacing.sm,
-    paddingVertical: 4,
-  },
-  importantLiveDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: colors.white,
-  },
-  importantLiveText: {
-    color: colors.white,
-    fontSize: 10,
-    fontWeight: '800',
-    letterSpacing: 0.6,
-    textTransform: 'uppercase',
-  },
-  importantTitle: {
-    color: colors.textPrimary,
-    fontSize: Typography.fontSize.sm,
-    fontWeight: '800',
-    letterSpacing: 0.8,
-  },
-  importantList: {
-    gap: Spacing.xs,
-  },
-  importantItem: {
-    paddingVertical: 6,
-  },
-  importantItemRule: {
-    borderTopWidth: 1,
-    borderTopColor: colors.borderSubtle,
-    paddingTop: Spacing.sm,
-  },
-  importantItemHeadline: {
-    color: colors.textPrimary,
-    fontSize: Typography.fontSize.sm,
-    lineHeight: 18,
-    fontWeight: '600',
-    flex: 1,
-  },
-  importantLineRow: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: Spacing.xs,
-  },
-  importantItemDot: {
-    width: 7,
-    height: 7,
-    borderRadius: 3.5,
-    marginTop: 5,
-    backgroundColor: colors.error,
-    flexShrink: 0,
-  },
-  importantMetaRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.xs,
-  },
-  importantSource: {
-    color: colors.accent,
-    fontSize: Typography.fontSize.xs,
-    fontWeight: Typography.fontWeight.bold,
-    textDecorationLine: 'underline',
-  },
-  importantMetaDot: {
-    color: colors.textMuted,
-    fontSize: Typography.fontSize.xs,
-  },
-  importantTime: {
-    color: colors.textMuted,
-    fontSize: Typography.fontSize.xs,
-    fontWeight: Typography.fontWeight.medium,
+  avatar: {
+    width: 46, height: 46, borderRadius: 14,
+    alignItems: 'center', justifyContent: 'center', borderWidth: 1,
   },
 
-  // ── Kompakt liste ─────────────────────────────────────────────────────
-  newspaperSection: {
-    borderWidth: 1,
-    borderColor: colors.borderSubtle,
-    borderRadius: Radius.lg,
-    backgroundColor: colors.surface,
-    overflow: 'hidden',
-    marginBottom: Spacing.md,
+  // Featured
+  featuredSection: { flexDirection: 'row', gap: 16, minHeight: 360 },
+  featuredSectionStacked: { flexDirection: 'column' },
+  hero: {
+    flex: 2, borderRadius: 28, overflow: 'hidden',
+    minHeight: 360, position: 'relative',
   },
-  newspaperTopRow: {
-    flexDirection: 'row',
+  heroOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0,0,0,0.35)',
   },
-  newspaperTopRowMobile: {
-    flexDirection: 'column',
+  heroContent: {
+    position: 'absolute', bottom: 0, left: 0, right: 0, padding: 28, gap: 12,
   },
-  newspaperSideCol: {
-    width: '26%',
-    padding: Spacing.sm,
-    gap: Spacing.sm,
+  heroBadge: {
+    alignSelf: 'flex-start', paddingHorizontal: 12, paddingVertical: 5,
+    borderRadius: 999,
   },
-  newspaperSideColMobile: {
-    width: '100%',
-  },
-  newspaperSideColDivider: {
-    borderRightWidth: 1,
-    borderRightColor: colors.borderSubtle,
-  },
-  newspaperSideColLeftDivider: {
-    borderLeftWidth: 1,
-    borderLeftColor: colors.borderSubtle,
-  },
-  newspaperSideItem: {
-    gap: 4,
-  },
-  newspaperSideImage: {
-    width: '100%',
-    height: 130,
-    borderRadius: Radius.sm,
-  },
-  newspaperSideImagePlaceholder: {
-    width: '100%',
-    height: 130,
-    borderRadius: Radius.sm,
-    backgroundColor: colors.surfaceHigh,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  newspaperSideImagePlaceholderText: {
-    color: colors.textMuted,
-    fontSize: Typography.fontSize.xs,
-    letterSpacing: 1,
-    fontWeight: Typography.fontWeight.bold,
-  },
-  newspaperSideHeadlineLink: {
-    fontSize: 20,
-    lineHeight: 26,
-    color: colors.textPrimary,
-    fontWeight: '700',
-    textDecorationLine: 'underline',
-    textDecorationColor: colors.accent,
-  },
-  newspaperSideSummary: {
-    fontSize: Typography.fontSize.sm,
-    color: colors.textSecondary,
-    lineHeight: 19,
-  },
-  newspaperCenterCol: {
-    flex: 1,
-  },
-  newspaperLeadImage: {
-    width: '100%',
-    height: 360,
-  },
-  newspaperLeadImagePlaceholder: {
-    width: '100%',
-    height: 360,
-    backgroundColor: colors.surfaceHigh,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  newspaperLeadImagePlaceholderText: {
-    color: colors.textMuted,
-    fontSize: Typography.fontSize.sm,
-    letterSpacing: 1.2,
-    fontWeight: Typography.fontWeight.bold,
-  },
-  newspaperLeadBody: {
-    padding: Spacing.md,
-    gap: 6,
-  },
-  newspaperLeadHeadlineLink: {
-    fontSize: 52,
-    lineHeight: 58,
-    color: colors.textPrimary,
-    fontWeight: '700',
-    textDecorationLine: 'underline',
-    textDecorationColor: colors.accent,
-  },
-  newspaperLeadHeadlineLinkMobile: {
-    fontSize: 34,
-    lineHeight: 40,
-  },
-  newspaperLeadSummary: {
-    fontSize: Typography.fontSize.base,
-    color: colors.textSecondary,
-    lineHeight: 23,
-  },
-  newspaperRightItem: {
-    gap: 6,
-  },
-  newspaperRightThumb: {
-    width: '100%',
-    height: 110,
-    borderRadius: Radius.sm,
-  },
-  newspaperRightThumbPlaceholder: {
-    width: '100%',
-    height: 110,
-    borderRadius: Radius.sm,
-    backgroundColor: colors.surfaceHigh,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  newspaperRightThumbPlaceholderText: {
-    color: colors.accent,
-    fontSize: Typography.fontSize.lg,
-    fontWeight: Typography.fontWeight.bold,
-  },
-  newspaperRightBody: {
-    gap: 4,
-  },
-  newspaperRightHeadlineLink: {
-    fontSize: 20,
-    lineHeight: 26,
-    color: colors.textPrimary,
-    fontWeight: '700',
-    textDecorationLine: 'underline',
-    textDecorationColor: colors.accent,
-  },
-  newspaperRightSummary: {
-    fontSize: Typography.fontSize.sm,
-    color: colors.textSecondary,
-    lineHeight: 18,
-  },
-  newspaperBottomGrid: {
-    borderTopWidth: 1,
-    borderTopColor: colors.borderSubtle,
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    padding: Spacing.sm,
-    gap: Spacing.sm,
-  },
-  newspaperBottomGridMobile: {
-    flexDirection: 'column',
-  },
-  newspaperBottomCard: {
-    width: '49%',
-    borderWidth: 1,
-    borderColor: colors.borderSubtle,
-    borderRadius: Radius.sm,
-    overflow: 'hidden',
-    backgroundColor: colors.surface,
-  },
-  newspaperBottomCardMobile: {
-    width: '100%',
-  },
-  newspaperBottomImage: {
-    width: '100%',
-    height: 140,
-  },
-  newspaperBottomImagePlaceholder: {
-    width: '100%',
-    height: 140,
-    backgroundColor: colors.surfaceHigh,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  newspaperBottomBody: {
-    padding: Spacing.sm,
-    gap: 4,
-  },
-  newspaperBottomImagePlaceholderText: {
-    color: colors.textMuted,
-    fontSize: Typography.fontSize.xs,
-    fontWeight: Typography.fontWeight.bold,
-  },
-  newspaperBottomHeadlineLink: {
-    fontSize: Typography.fontSize.md,
-    lineHeight: 22,
-    color: colors.textPrimary,
-    fontWeight: '700',
-    textDecorationLine: 'underline',
-    textDecorationColor: colors.accent,
-  },
-  newspaperBottomSummary: {
-    fontSize: Typography.fontSize.sm,
-    lineHeight: 18,
-    color: colors.textSecondary,
-  },
-  newspaperCategory: {
-    fontSize: Typography.fontSize.xs,
-    color: colors.accent,
-    fontWeight: '700',
-    letterSpacing: 1.5,
-  },
-  newspaperBylineRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.xs,
-    marginTop: 2,
-  },
-  newspaperBylineSource: {
-    fontSize: Typography.fontSize.xs,
-    color: colors.accent,
-    fontWeight: Typography.fontWeight.bold,
-    textDecorationLine: 'underline',
-  },
-  newspaperBylineDot: {
-    fontSize: Typography.fontSize.xs,
-    color: colors.textMuted,
-  },
-  newspaperBylineDate: {
-    fontSize: Typography.fontSize.xs,
-    color: colors.textMuted,
-  },
-  newspaperItemRule: {
-    height: 1,
-    backgroundColor: colors.borderSubtle,
-    marginVertical: Spacing.sm,
-  },
-  newspaperBlockRule: {
-    height: 2,
-    backgroundColor: colors.accent,
-    opacity: 0.3,
-  },
+  heroBadgeText: { fontSize: 10, fontWeight: '900', color: '#fff', letterSpacing: 2 },
+  heroTitle: { fontSize: 26, fontWeight: '900', color: '#fff', letterSpacing: -0.5, lineHeight: 32 },
+  heroDesc: { fontSize: 14, color: 'rgba(255,255,255,0.75)', lineHeight: 20 },
 
-  listCard: { flexDirection: 'row', gap: Spacing.md, paddingVertical: Spacing.sm },
-  listBody: { flex: 1, gap: 4 },
-  listCategory: {
-    fontSize: Typography.fontSize.xs, color: colors.accent,
-    fontWeight: '700', letterSpacing: 1.5,
-  },
-  listHeadline: {
-    fontSize: Typography.fontSize.md, fontWeight: '700',
-    color: colors.textPrimary, lineHeight: 21,
-  },
-  listHeadlineLink: {
-    fontSize: Typography.fontSize.md,
-    fontWeight: '700',
-    color: colors.textPrimary,
-    lineHeight: 21,
-    textDecorationLine: 'underline',
-    textDecorationColor: colors.accent,
-  },
-  listSummary: { fontSize: Typography.fontSize.sm, color: colors.textSecondary, lineHeight: 18 },
-  listBylineRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.xs, marginTop: 2 },
-  listBylineSource: {
-    fontSize: Typography.fontSize.xs,
-    color: colors.accent,
-    fontWeight: Typography.fontWeight.bold,
-    textDecorationLine: 'underline',
-  },
-  listBylineDot: { fontSize: Typography.fontSize.xs, color: colors.textMuted },
-  listBylineDate: { fontSize: Typography.fontSize.xs, color: colors.textMuted },
-  listBylineMeta: { fontSize: Typography.fontSize.md, color: colors.textMuted },
-  listBylineMetaNumber: { fontSize: Typography.fontSize.sm, color: colors.textMuted },
-  listThumb: {
-    width: 88, height: 72,
-    borderRadius: Radius.md, flexShrink: 0,
-  },
+  highlights: { flex: 1, gap: 8, minWidth: 220 },
+  highlightsLabel: { fontSize: 10, fontWeight: '900', letterSpacing: 2, paddingLeft: 4, marginBottom: 4 },
+  highlightCard: { flex: 1, borderRadius: 20, borderWidth: 1, overflow: 'hidden' },
+  highlightInner: { flex: 1, padding: 16, gap: 8, justifyContent: 'space-between' },
+  highlightCat: { fontSize: 9, fontWeight: '900', letterSpacing: 1.5 },
+  highlightTitle: { fontSize: 15, fontWeight: '700', lineHeight: 20 },
+  highlightFooter: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  highlightTime: { fontSize: 10, fontWeight: '600' },
+  detailsLink: { flexDirection: 'row', alignItems: 'center', gap: 3 },
+  detailsLinkText: { fontSize: 10, fontWeight: '700' },
 
-  // ── Sağ kolon ─────────────────────────────────────────────────────────
-  rightCol: { width: 290, gap: Spacing.md },
+  // Tools
+  tools: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 12 },
+  tabBar: {
+    flexDirection: 'row', gap: 2, padding: 4,
+    borderRadius: 14, borderWidth: 1,
+  },
+  tabItem: { paddingHorizontal: 16, paddingVertical: 8, borderRadius: 10 },
+  tabLabel: { fontSize: 11, fontWeight: '800', textTransform: 'uppercase', letterSpacing: 0.8 },
+  toolsRight: { flexDirection: 'row', gap: 8 },
+  editBtn: {
+    flexDirection: 'row', alignItems: 'center', gap: 6,
+    paddingHorizontal: 14, paddingVertical: 9,
+    borderRadius: 12, borderWidth: 1,
+  },
+  editLabel: { fontSize: 11, fontWeight: '700', letterSpacing: 0.5 },
+  addBtn: {
+    flexDirection: 'row', alignItems: 'center', gap: 5,
+    paddingHorizontal: 14, paddingVertical: 9, borderRadius: 12,
+  },
+  addLabel: { fontSize: 11, fontWeight: '700', color: '#fff', letterSpacing: 0.5 },
 
-  // ── Günün Özeti + modal ─────────────────────────────────────────────
-  
+  // Grid
+  grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 16 },
+  gridCell: { width: '100%' },
+  gridCellMd: { width: '48%' } as any,
+  gridCellLg: { width: '100%' },
+  emptyGrid: {
+    width: '100%', paddingVertical: 48,
+    borderRadius: 24, borderWidth: 2, borderStyle: 'dashed',
+    alignItems: 'center', gap: 10,
+  },
+  emptyTitle: { fontSize: 16, fontWeight: '700' },
+  emptyAdd: { fontSize: 13, fontWeight: '600' },
 
-  // ── Filtre paneli ─────────────────────────────────────────────────────
-  filterPanel: {
-    borderWidth: 1, borderColor: colors.border,
-    borderRadius: Radius.lg, padding: Spacing.md,
-    backgroundColor: colors.surface, gap: Spacing.sm,
-  },
-  filterPanelTitle: {
-    fontSize: Typography.fontSize.sm, fontWeight: '700',
-    color: colors.accent, textTransform: 'uppercase',
-    letterSpacing: 1.5, borderBottomWidth: 1,
-    borderBottomColor: colors.borderSubtle, paddingBottom: Spacing.xs,
-  },
-  filterLabel: {
-    fontSize: Typography.fontSize.xs, color: colors.textMuted,
-    fontWeight: '700', textTransform: 'uppercase', letterSpacing: 1,
-    marginTop: Spacing.xs,
-  },
-  filterMenuTrigger: {
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: Radius.md,
-    backgroundColor: colors.background,
-    paddingHorizontal: Spacing.sm,
-    paddingVertical: Spacing.sm,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  filterMenuTriggerOpen: {
-    borderColor: colors.accent,
-  },
-  filterMenuTriggerText: {
-    color: colors.textPrimary,
-    fontSize: Typography.fontSize.sm,
-    fontWeight: '700',
-    letterSpacing: 0.5,
-    textTransform: 'uppercase',
-  },
-  filterMenuChevron: {
-    color: colors.accent,
-    fontSize: Typography.fontSize.sm,
-    fontWeight: '700',
-  },
-  filterSectionsWrap: {
-    gap: Spacing.xs,
-  },
-  filterSectionBlock: {
-    gap: Spacing.xs,
-  },
-  filterSectionBtn: {
-    borderWidth: 1,
-    borderColor: colors.borderSubtle,
-    borderRadius: Radius.md,
-    paddingHorizontal: Spacing.sm,
-    paddingVertical: 8,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    backgroundColor: colors.background,
-  },
-  filterSectionBtnActive: {
-    borderColor: colors.accent,
-    backgroundColor: colors.surfaceHigh,
-  },
-  filterSectionBtnText: {
-    color: colors.textSecondary,
-    fontSize: Typography.fontSize.xs,
-    fontWeight: '700',
-    letterSpacing: 1,
-    textTransform: 'uppercase',
-  },
-  filterSectionBtnTextActive: {
-    color: colors.accent,
-  },
-  filterSectionChevron: {
-    color: colors.accent,
-    fontSize: Typography.fontSize.sm,
-    fontWeight: '700',
-  },
-  filterSectionContent: {
-    gap: Spacing.xs,
-  },
-  followedSection: {
-    gap: Spacing.xs,
-    paddingTop: Spacing.xs,
-  },
-  followedSectionHeader: {
-    flexDirection: 'row',
-    justifyContent: 'flex-end',
-  },
-  followedSectionCount: {
-    fontSize: Typography.fontSize.xs,
-    color: colors.textMuted,
-    fontWeight: '600',
-  },
-  periodRow: { flexDirection: 'row', gap: Spacing.xs },
-  periodBtn: {
-    flex: 1, borderWidth: 1, borderColor: colors.border,
-    borderRadius: Radius.md, paddingVertical: 8,
-    alignItems: 'center', backgroundColor: colors.background,
-  },
-  periodBtnActive: { backgroundColor: colors.accent, borderColor: colors.accent },
-  periodBtnText: { fontSize: Typography.fontSize.sm, color: colors.textSecondary, fontWeight: Typography.fontWeight.medium },
-  periodBtnTextActive: { color: colors.white },
-  chipWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.xs },
-  filterChip: {
-    borderWidth: 1, borderColor: colors.borderSubtle,
-    borderRadius: Radius.full, paddingHorizontal: Spacing.sm,
-    paddingVertical: 5, backgroundColor: colors.background,
-  },
-  filterChipActive: { backgroundColor: colors.accent, borderColor: colors.accent },
-  filterChipText: { fontSize: Typography.fontSize.xs, color: colors.textSecondary, fontWeight: Typography.fontWeight.medium },
-  filterChipTextActive: { color: colors.white },
-
-  // ── Yan panel (kaynaklar, piyasalar) ──────────────────────────────────
-  sidePanel: {
-    borderWidth: 1, borderColor: colors.border,
-    borderRadius: Radius.lg, padding: Spacing.md,
-    backgroundColor: colors.surface, gap: Spacing.sm,
-  },
-  sidePanelHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  sidePanelTitle: {
-    fontSize: Typography.fontSize.sm, fontWeight: '700',
-    color: colors.accent, textTransform: 'uppercase', letterSpacing: 1.5,
-  },
-  sidePanelCount: { fontSize: Typography.fontSize.xs, color: colors.textMuted },
-  sourceList: { gap: Spacing.xs },
-  sourceRow: {
-    flexDirection: 'row', alignItems: 'center', gap: Spacing.sm,
-    paddingVertical: 6, borderBottomWidth: 1, borderBottomColor: colors.borderSubtle,
-  },
-  sourceAvatar: {
-    width: 28, height: 28, borderRadius: 6,
-    backgroundColor: colors.accent, alignItems: 'center', justifyContent: 'center',
-    overflow: 'hidden',
-  },
-  sourceAvatarImage: { width: '100%', height: '100%' },
-  sourceAvatarText: { color: colors.white, fontWeight: '700', fontSize: Typography.fontSize.sm },
-  sourceName: { fontSize: Typography.fontSize.sm, fontWeight: '700', color: colors.textPrimary },
-  sourceNameLink: {
-    fontSize: Typography.fontSize.sm,
-    fontWeight: '700',
-    color: colors.accent,
-    textDecorationLine: 'underline',
-  },
-  sourceMeta: { fontSize: Typography.fontSize.xs, color: colors.textMuted },
-
-  // ── Piyasalar ─────────────────────────────────────────────────────────
-  marketRow: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    paddingVertical: 6, borderBottomWidth: 1, borderBottomColor: colors.borderSubtle,
-  },
-  marketLabel: { fontSize: Typography.fontSize.sm, fontWeight: '700', color: colors.textPrimary },
-  marketKind: { fontSize: Typography.fontSize.xs, color: colors.textMuted, textTransform: 'uppercase', letterSpacing: 0.5 },
-  marketValue: { fontSize: Typography.fontSize.sm, fontWeight: '700', color: colors.textPrimary },
-  marketChange: { fontSize: Typography.fontSize.xs, fontWeight: '700' },
-
-  // ── Trend Olanlar ────────────────────────────────────────────────────
-  trendSubtitle: {
-    fontSize: Typography.fontSize.xs,
-    color: colors.textMuted,
-    lineHeight: 16,
-    marginTop: -2,
-  },
-  trendList: {
-    gap: Spacing.xs,
-  },
-  trendRow: {
-    flexDirection: 'row',
-    gap: Spacing.sm,
-    paddingVertical: 8,
-    paddingHorizontal: Spacing.sm,
-    borderRadius: Radius.md,
-    backgroundColor: colors.background,
-    borderWidth: 1,
-    borderColor: colors.borderSubtle,
-  },
-  trendRank: {
-    width: 24,
-    textAlign: 'center',
-    fontSize: Typography.fontSize.sm,
-    fontWeight: '800',
-    color: colors.accent,
-    marginTop: 1,
-  },
-  trendBody: {
-    flex: 1,
-    gap: 3,
-  },
-  trendTag: {
-    fontSize: Typography.fontSize.xs,
-    color: colors.accent,
-    fontWeight: '800',
-    letterSpacing: 0.4,
-  },
-  trendHeadline: {
-    fontSize: Typography.fontSize.sm,
-    color: colors.textPrimary,
-    fontWeight: '700',
-    lineHeight: 18,
-  },
-  trendMeta: {
-    fontSize: Typography.fontSize.xs,
-    color: colors.textMuted,
-    fontWeight: '600',
-  },
-
-  // ── Boş durum ─────────────────────────────────────────────────────────
-  emptyBox: {
-    borderWidth: 1, borderColor: colors.borderSubtle,
-    borderRadius: Radius.lg, padding: Spacing.lg,
-    backgroundColor: colors.surface, minHeight: 120,
-    justifyContent: 'center', alignItems: 'center',
-  },
-  emptyText: { color: colors.textMuted, fontSize: Typography.fontSize.base, textAlign: 'center' },
-
-  // ── Günün Konusu Şeridi ────────────────────────────────────────────────
-  gununKonusuStrip: {
-    flexDirection: 'row',
-    alignItems: 'stretch',
-    width: '100%',
-    backgroundColor: colors.surfaceHigh,
-    borderRadius: Radius.sm,
-    overflow: 'hidden',
-    borderWidth: 1,
-    borderColor: colors.accent,
-    marginTop: 2,
-  },
-  gununKonusuStripBadge: {
-    backgroundColor: colors.accent,
-    paddingHorizontal: Spacing.sm,
-    paddingVertical: Spacing.xs,
-    justifyContent: 'center',
-    alignItems: 'center',
-    minWidth: 68,
-  },
-  gununKonusuStripBadgeText: {
-    color: colors.white,
-    fontWeight: '900',
-    fontSize: 9,
-    letterSpacing: 0.5,
-    textAlign: 'center',
-  },
-  gununKonusuStripBody: {
-    flex: 1,
-    paddingHorizontal: Spacing.md,
-    paddingVertical: 6,
-    justifyContent: 'center',
-    gap: 2,
-  },
-  gununKonusuStripCat: {
-    fontSize: 9,
-    color: colors.accent,
-    fontWeight: '700',
-    letterSpacing: 1,
-    textTransform: 'uppercase',
-  },
-  gununKonusuStripHeadline: {
-    fontSize: Typography.fontSize.sm,
-    color: colors.textPrimary,
-    fontWeight: '600',
-    lineHeight: 18,
-  },
-
-  // ── Son Dakika Ticker ─────────────────────────────────────────────────
-  ticker: {
-    flexDirection: 'row',
-    alignItems: 'stretch',
-    backgroundColor: '#1a1a2e',
-    borderRadius: Radius.sm,
-    overflow: 'hidden',
-    marginBottom: Spacing.sm,
-    height: 44,
-    borderWidth: 1,
-    borderColor: colors.error,
-  },
-  tickerBadge: {
-    backgroundColor: colors.error,
-    paddingHorizontal: Spacing.md,
-    justifyContent: 'center',
-    alignItems: 'center',
-    flexShrink: 0,
-    gap: 4,
-  },
-  tickerLiveDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: colors.white,
-    opacity: 0.9,
-  },
-  tickerBadgeText: {
-    color: colors.white,
-    fontWeight: '900',
-    fontSize: 9,
-    letterSpacing: 0.5,
-    textAlign: 'center',
-  },
-  tickerDivider: {
-    width: 1,
-    backgroundColor: colors.error,
-    opacity: 0.5,
-  },
-  tickerTrack: {
-    flex: 1,
-    overflow: 'hidden',
-    justifyContent: 'center',
-  },
-  tickerInner: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    width: 9000,
-  },
-  tickerItemWrap: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    flexShrink: 0,
-    paddingLeft: Spacing.md,
-  },
-  tickerItem: {
-    color: '#e8e8f0',
-    fontSize: Typography.fontSize.sm,
-    fontWeight: Typography.fontWeight.medium,
-    flexShrink: 0,
-  },
-  tickerDot: {
-    color: colors.error,
-    fontSize: Typography.fontSize.xs,
-    flexShrink: 0,
-  },
-
-  // ── Filtre paneli güncellemeleri ──────────────────────────────────────
-  filterPanelHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    borderBottomWidth: 1,
-    borderBottomColor: colors.borderSubtle,
-    paddingBottom: Spacing.xs,
-  },
-  resetBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-  },
-  resetBadge: {
-    width: 18,
-    height: 18,
-    borderRadius: 9,
-    backgroundColor: colors.error,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  resetBadgeNum: {
-    color: colors.white,
-    fontSize: 10,
-    fontWeight: '700',
-  },
-  resetBtnText: {
-    fontSize: Typography.fontSize.xs,
-    color: colors.error,
-    fontWeight: '700',
-  },
-  // ── Dil segmented control ─────────────────────────────────────────────
-  segmentedCtrl: {
-    flexDirection: 'row',
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: Radius.md,
-    overflow: 'hidden',
-    backgroundColor: colors.background,
-  },
-  segment: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 9,
-    gap: 2,
-  },
-  segmentBorder: {
-    borderRightWidth: 1,
-    borderRightColor: colors.borderSubtle,
-  },
-  segmentActive: {
-    backgroundColor: colors.accent,
-  },
-  segmentFlag: {
-    fontSize: 15,
-  },
-  segmentText: {
-    fontSize: 9,
-    fontWeight: '700',
-    color: colors.textSecondary,
-    letterSpacing: 0.5,
-  },
-  segmentTextActive: {
-    color: colors.white,
-  },
-
-  filterChipCount: {
-    fontSize: Typography.fontSize.xs,
-    opacity: 0.7,
-  },
-  filterResultRow: {
-    borderTopWidth: 1,
-    borderTopColor: colors.borderSubtle,
-    paddingTop: Spacing.xs,
-    marginTop: Spacing.xs,
-  },
-  filterResultText: {
-    fontSize: Typography.fontSize.xs,
-    color: colors.textMuted,
-    textAlign: 'center',
-    fontStyle: 'italic',
-  },
+  // Footer
+  footer: {
+    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
+    paddingTop: 20, borderTopWidth: 1, flexWrap: 'wrap', gap: 8,
+  },
+  footerLeft: { flexDirection: 'row', gap: 16, alignItems: 'center' },
+  footerItem: { flexDirection: 'row', alignItems: 'center', gap: 5 },
+  footerText: { fontSize: 10, fontWeight: '700', letterSpacing: 0.8, textTransform: 'uppercase' },
 });
