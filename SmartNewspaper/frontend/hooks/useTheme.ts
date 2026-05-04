@@ -7,7 +7,7 @@ const THEME_STORAGE_KEY = 'selected-theme';
 type ThemeListener = (name: ThemeName) => void;
 
 const listeners = new Set<ThemeListener>();
-let sharedThemeName: ThemeName = 'vincent';
+let sharedThemeName: ThemeName = 'midnight';
 let hasLoadedTheme = false;
 
 function broadcastTheme(name: ThemeName) {
@@ -25,7 +25,7 @@ export function useTheme() {
       if (saved && (saved in THEMES)) {
         broadcastTheme(saved as ThemeName);
       } else {
-        broadcastTheme('vincent');
+        broadcastTheme('midnight');
       }
     } finally {
       hasLoadedTheme = true;

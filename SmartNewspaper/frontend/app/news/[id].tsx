@@ -13,6 +13,7 @@ import {
   View,
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
+import { Ionicons } from '@expo/vector-icons';
 
 import { Radius, Spacing, Typography } from '@/constants/theme';
 import { useApiNews } from '@/hooks/useNews';
@@ -264,7 +265,7 @@ const relatedStyles = StyleSheet.create({
 export default function NewsDetailPage() {
   const router = useRouter();
   const { colors } = useTheme();
-  const { articles } = useApiNews();
+  const { articles, loading } = useApiNews();
   const { savedIds, toggleSaved } = useBookmarks();
   const isWeb = Platform.OS === 'web';
   const [fullContent, setFullContent] = useState<string | null>(null);
@@ -292,21 +293,30 @@ export default function NewsDetailPage() {
     category?: string;
   }>();
 
-  if (!params.id || !params.title) {
+  const articleFromCache = articles.find((item: { id: string }) => item.id === params.id);
+
+  if (params.id && !params.title && !articleFromCache && loading) {
     return (
       <View style={styles(colors).centerWrap}>
-        <Text style={styles(colors).errorTitle}>Haber acilamadi</Text>
-        <Text style={styles(colors).statusText}>Haber verisi bulunamadi.</Text>
+        <ActivityIndicator color={colors.accent} />
+        <Text style={styles(colors).statusText}>Haber yükleniyor...</Text>
       </View>
     );
   }
 
-  const articleFromCache = articles.find((item: { id: string }) => item.id === params.id);
+  if (!params.id || (!params.title && !articleFromCache)) {
+    return (
+      <View style={styles(colors).centerWrap}>
+        <Text style={styles(colors).errorTitle}>Haber açılamadı</Text>
+        <Text style={styles(colors).statusText}>Haber verisi bulunamadı.</Text>
+      </View>
+    );
+  }
 
   useEffect(() => {
     let active = true;
     setLoadingContent(true);
-    fetchArticleFullContent(params.id)
+    fetchArticleFullContent(params.id ?? '')
       .then((data) => {
         if (active) {
           setFullContent(data.content);
@@ -330,7 +340,7 @@ export default function NewsDetailPage() {
     };
   }, [params.id]);
 
-  const resolvedTitle = articleFromCache?.title ?? params.title;
+  const resolvedTitle = articleFromCache?.title ?? params.title ?? 'Haber detayı';
   const resolvedSummary = articleFromCache?.description ?? params.summary ?? '';
   const rawContent = fullContent ?? articleFromCache?.content ?? params.content ?? resolvedSummary;
   const body = stripHtml(rawContent);
@@ -542,54 +552,66 @@ export default function NewsDetailPage() {
 
   return (
     <ScrollView style={styles(colors).container} contentContainerStyle={styles(colors).content}>
-      <Text style={styles(colors).category}>{category.toUpperCase()}</Text>
-      <Text style={styles(colors).title}>{resolvedTitle}</Text>
-
-      <View style={styles(colors).metaWrap}>
-        <Text style={styles(colors).metaText}>{sourceName}</Text>
-        <Text style={styles(colors).metaDot}>•</Text>
-        <Text style={styles(colors).metaText}>{publishedLabel}</Text>
-      </View>
-
-      <Pressable style={styles(colors).publisherCard} onPress={openPublisherProfile}>
-        <View style={styles(colors).publisherLogo}>
-          {publisherLogoUrl ? (
-            <Image source={{ uri: publisherLogoUrl }} style={styles(colors).publisherLogoImage} resizeMode="cover" />
-          ) : (
-            <Text style={styles(colors).publisherLogoText}>{sourceName.slice(0, 2).toUpperCase()}</Text>
+      <View style={styles(colors).articleHero}>
+        {mainImage ? (
+          <Image source={{ uri: mainImage }} style={styles(colors).articleHeroImage} resizeMode="cover" />
+        ) : null}
+        <View style={styles(colors).articleHeroScrim} />
+        <View style={styles(colors).articleHeroContent}>
+          <View style={styles(colors).articleHeroTop}>
+            <Text style={styles(colors).articleBadge}>{category.toUpperCase()}</Text>
+            <Text style={styles(colors).articleMetaLight}>{sourceName} • {publishedLabel}</Text>
+          </View>
+          <Text style={styles(colors).articleTitle}>{resolvedTitle}</Text>
+          {!!resolvedSummary && (
+            <Text style={styles(colors).articleSummary} numberOfLines={3}>{resolvedSummary}</Text>
           )}
         </View>
-        <View style={{ flex: 1 }}>
-          <Text style={styles(colors).publisherLabel}>Publisher</Text>
-          <Text style={styles(colors).publisherName}>{sourceName}</Text>
+      </View>
+
+      <View style={styles(colors).detailToolbar}>
+        <Pressable style={styles(colors).publisherCard} onPress={openPublisherProfile}>
+          <View style={styles(colors).publisherLogo}>
+            {publisherLogoUrl ? (
+              <Image source={{ uri: publisherLogoUrl }} style={styles(colors).publisherLogoImage} resizeMode="cover" />
+            ) : (
+              <Text style={styles(colors).publisherLogoText}>{sourceName.slice(0, 2).toUpperCase()}</Text>
+            )}
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={styles(colors).publisherLabel}>Kaynak</Text>
+            <Text style={styles(colors).publisherName}>{sourceName}</Text>
+          </View>
+          <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
+        </Pressable>
+
+        <View style={styles(colors).actionBar}>
+          <Pressable
+            style={({ pressed }) => [
+              styles(colors).actionButton,
+              { backgroundColor: isSaved ? colors.accent + '1A' : colors.surfaceInput },
+              pressed && { opacity: 0.7 },
+            ]}
+            onPress={handleToggleSave}
+          >
+            <Ionicons name={isSaved ? 'bookmark' : 'bookmark-outline'} size={16} color={isSaved ? colors.accent : colors.textPrimary} />
+            <Text style={[styles(colors).actionButtonLabel, { color: isSaved ? colors.accent : colors.textPrimary }]}>
+              {isSaved ? 'Kaydedildi' : 'Kaydet'}
+            </Text>
+          </Pressable>
+
+          <Pressable
+            style={({ pressed }) => [
+              styles(colors).actionButton,
+              { backgroundColor: colors.surfaceInput },
+              pressed && { opacity: 0.7 },
+            ]}
+            onPress={handleShare}
+          >
+            <Ionicons name="share-social-outline" size={16} color={colors.textPrimary} />
+            <Text style={[styles(colors).actionButtonLabel, { color: colors.textPrimary }]}>Paylaş</Text>
+          </Pressable>
         </View>
-        <Text style={styles(colors).publisherCta}>Profili Gor</Text>
-      </Pressable>
-
-      <View style={styles(colors).actionBar}>
-        <Pressable
-          style={({ pressed }) => [
-            styles(colors).actionButton,
-            { backgroundColor: isSaved ? colors.accent + '1A' : colors.surfaceInput },
-            pressed && { opacity: 0.7 },
-          ]}
-          onPress={handleToggleSave}
-        >
-          <Text style={[styles(colors).actionButtonLabel, { color: isSaved ? colors.accent : colors.textPrimary }]}>
-            {isSaved ? 'Kaydedildi' : 'Kaydet'}
-          </Text>
-        </Pressable>
-
-        <Pressable
-          style={({ pressed }) => [
-            styles(colors).actionButton,
-            { backgroundColor: colors.surfaceInput },
-            pressed && { opacity: 0.7 },
-          ]}
-          onPress={handleShare}
-        >
-          <Text style={[styles(colors).actionButtonLabel, { color: colors.textPrimary }]}>Paylas</Text>
-        </Pressable>
       </View>
 
       <View style={[styles(colors).detailLayout, isWeb ? styles(colors).detailLayoutWeb : null]}>
@@ -598,7 +620,7 @@ export default function NewsDetailPage() {
             {loadingContent ? (
               <View style={styles(colors).loadingWrap}>
                 <ActivityIndicator color={colors.accent} />
-                <Text style={styles(colors).statusText}>Kaynak icerigi yukleniyor...</Text>
+                <Text style={styles(colors).statusText}>Kaynak içeriği yükleniyor...</Text>
               </View>
             ) : paragraphs.length ? (
               isWeb ? (
@@ -909,9 +931,12 @@ const styles = (colors: any) =>
       backgroundColor: colors.background,
     },
     content: {
-      padding: Spacing.lg,
-      gap: Spacing.md,
-      paddingBottom: Spacing.xxl,
+      width: '100%' as any,
+      maxWidth: 1180,
+      alignSelf: 'center',
+      padding: 24,
+      gap: 18,
+      paddingBottom: 56,
     },
     centerWrap: {
       flex: 1,
@@ -930,6 +955,74 @@ const styles = (colors: any) =>
       color: colors.textPrimary,
       fontSize: Typography.fontSize.lg,
       fontWeight: Typography.fontWeight.bold,
+    },
+    articleHero: {
+      minHeight: 420,
+      borderRadius: 32,
+      borderWidth: 1,
+      borderColor: colors.borderSubtle,
+      backgroundColor: colors.surface,
+      overflow: 'hidden',
+      position: 'relative',
+    },
+    articleHeroImage: {
+      ...StyleSheet.absoluteFillObject,
+      width: '100%',
+      height: '100%',
+    },
+    articleHeroScrim: {
+      ...StyleSheet.absoluteFillObject,
+      backgroundColor: 'rgba(0,0,0,0.52)',
+    },
+    articleHeroContent: {
+      flex: 1,
+      justifyContent: 'flex-end',
+      gap: 14,
+      padding: 30,
+    },
+    articleHeroTop: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      flexWrap: 'wrap',
+      gap: 10,
+    },
+    articleBadge: {
+      alignSelf: 'flex-start',
+      backgroundColor: colors.accent,
+      color: '#fff',
+      borderRadius: 999,
+      paddingHorizontal: 12,
+      paddingVertical: 6,
+      fontSize: 10,
+      fontWeight: '900',
+      letterSpacing: 1.6,
+      overflow: 'hidden',
+    },
+    articleMetaLight: {
+      color: 'rgba(255,255,255,0.72)',
+      fontSize: 12,
+      fontWeight: '800',
+    },
+    articleTitle: {
+      color: '#fff',
+      fontSize: 42,
+      lineHeight: 48,
+      fontWeight: '900',
+      letterSpacing: -0.8,
+      maxWidth: 980,
+    },
+    articleSummary: {
+      color: 'rgba(255,255,255,0.78)',
+      fontSize: 16,
+      lineHeight: 24,
+      fontWeight: '600',
+      maxWidth: 820,
+    },
+    detailToolbar: {
+      flexDirection: 'row',
+      alignItems: 'stretch',
+      gap: 12,
+      flexWrap: 'wrap',
     },
     heroImage: {
       width: '100%',
@@ -980,11 +1073,13 @@ const styles = (colors: any) =>
       borderWidth: 1,
       borderColor: colors.borderSubtle,
       backgroundColor: colors.surface,
-      borderRadius: Radius.lg,
-      padding: Spacing.md,
+      borderRadius: 20,
+      padding: 14,
       flexDirection: 'row',
       alignItems: 'center',
-      gap: Spacing.sm,
+      gap: 12,
+      flex: 1,
+      minWidth: 260,
     },
     publisherLogo: {
       width: 42,
@@ -1024,14 +1119,14 @@ const styles = (colors: any) =>
       borderWidth: 1,
       borderColor: colors.borderSubtle,
       backgroundColor: colors.surface,
-      borderRadius: Radius.lg,
-      padding: Spacing.lg,
-      gap: Spacing.md,
+      borderRadius: 28,
+      padding: 26,
+      gap: 18,
     },
     bodyText: {
       color: colors.textSecondary,
-      fontSize: Typography.fontSize.base,
-      lineHeight: 24,
+      fontSize: 16,
+      lineHeight: 27,
     },
     inlineRow: {
       flexDirection: 'row',
@@ -1252,19 +1347,18 @@ const styles = (colors: any) =>
     },
     actionBar: {
       flexDirection: 'row',
-      gap: Spacing.sm,
-      marginVertical: Spacing.md,
-      paddingHorizontal: Spacing.sm,
+      gap: 10,
+      flexWrap: 'wrap',
     },
     actionButton: {
-      flex: 1,
       flexDirection: 'row',
       alignItems: 'center',
       justifyContent: 'center',
-      gap: Spacing.xs,
-      paddingVertical: Spacing.sm,
-      paddingHorizontal: Spacing.md,
-      borderRadius: Radius.md,
+      gap: 7,
+      paddingVertical: 14,
+      paddingHorizontal: 18,
+      borderRadius: 18,
+      minWidth: 132,
     },
     actionButtonText: {
       fontSize: 18,

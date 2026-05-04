@@ -1,8 +1,9 @@
-﻿import { Tabs } from 'expo-router';
+import { Tabs } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { BottomTabBar, BottomTabBarProps } from '@react-navigation/bottom-tabs';
-import { Platform, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Animated, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useRef, useEffect } from 'react';
 
 import { useTheme } from '@/hooks/useTheme';
 import { useLanguage } from '@/hooks/useLanguage';
@@ -10,88 +11,202 @@ import AppHeader from '@/components/AppHeader';
 import { NewsNotificationToast } from '@/components/NewsNotificationToast';
 import { useNotification } from '@/contexts/NotificationContext';
 
+const NAV_ROUTES: { name: string; label: string; icon: string; iconFilled: string }[] = [
+  { name: 'index',    label: 'Ana Sayfa',   icon: 'grid-outline',     iconFilled: 'grid' },
+  { name: 'feed',     label: 'Akış',        icon: 'reader-outline',   iconFilled: 'reader' },
+  { name: 'search',   label: 'Arama',       icon: 'search-outline',   iconFilled: 'search' },
+  { name: 'discover', label: 'Etkinlikler', icon: 'calendar-outline', iconFilled: 'calendar' },
+  { name: 'ai',       label: 'AI Chat',     icon: 'sparkles-outline', iconFilled: 'sparkles' },
+  { name: 'archive',  label: 'Arşiv',       icon: 'archive-outline',  iconFilled: 'archive' },
+  { name: 'profile',  label: 'Profil',      icon: 'person-outline',   iconFilled: 'person' },
+];
+
+const HIDDEN_ROUTES = ['newspaper', 'publisherpage', 'publisherprofile', 'pdfpreview'];
+
 const LAYOUT_I18N = {
-  tr: {
-    dashboard: 'Dashboard',
-    todayTitle: 'Bugun',
-    insight: 'AI analiz sekmesine goz at.',
-    home: 'Ana Sayfa',
-    search: 'Arama',
-    events: 'Etkinlikler',
-    archive: 'Arsiv',
-    profile: 'Profil',
-  },
-  en: {
-    dashboard: 'Dashboard',
-    todayTitle: 'Today',
-    insight: 'Check the AI analysis tab.',
-    home: 'Home',
-    search: 'Search',
-    events: 'Events',
-    archive: 'Archive',
-    profile: 'Profile',
-  },
-  de: {
-    dashboard: 'Dashboard',
-    todayTitle: 'Heute',
-    insight: 'Schau im KI-Analyse-Tab vorbei.',
-    home: 'Startseite',
-    search: 'Suche',
-    events: 'Veranstaltungen',
-    archive: 'Archiv',
-    profile: 'Profil',
-  },
+  tr: { home: 'Ana Sayfa', feed: 'Akış', search: 'Arama', events: 'Etkinlikler', archive: 'Arşiv', profile: 'Profil' },
+  en: { home: 'Home', feed: 'Feed', search: 'Search', events: 'Events', archive: 'Archive', profile: 'Profile' },
+  de: { home: 'Startseite', feed: 'Feed', search: 'Suche', events: 'Veranstaltungen', archive: 'Archiv', profile: 'Profil' },
 } as const;
+
+function NavItem({
+  label,
+  icon,
+  iconFilled,
+  isActive,
+  onPress,
+  colors,
+}: {
+  label: string;
+  icon: string;
+  iconFilled: string;
+  isActive: boolean;
+  onPress: () => void;
+  colors: any;
+}) {
+  const bgAnim = useRef(new Animated.Value(isActive ? 1 : 0)).current;
+  const scaleAnim = useRef(new Animated.Value(isActive ? 1 : 0.95)).current;
+
+  useEffect(() => {
+    Animated.parallel([
+      Animated.timing(bgAnim, {
+        toValue: isActive ? 1 : 0,
+        duration: 220,
+        useNativeDriver: false,
+      }),
+      Animated.spring(scaleAnim, {
+        toValue: isActive ? 1 : 0.95,
+        tension: 80,
+        friction: 12,
+        useNativeDriver: true,
+      }),
+    ]).start();
+  }, [isActive]);
+
+  const bgColor = bgAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: ['rgba(0,0,0,0)', colors.accent + '18'],
+  });
+
+  return (
+    <Pressable
+      onPress={onPress}
+      style={styles.navItem}
+      accessibilityRole="button"
+    >
+      <Animated.View
+        style={[
+          styles.navItemInner,
+          { backgroundColor: bgColor, transform: [{ scale: scaleAnim }] },
+        ]}
+      >
+        {isActive && (
+          <View style={[styles.activeBar, { backgroundColor: colors.accent }]} />
+        )}
+        <Ionicons
+          name={(isActive ? iconFilled : icon) as any}
+          size={20}
+          color={isActive ? colors.accent : colors.textMuted}
+        />
+        <Text
+          style={[
+            styles.navLabel,
+            { color: isActive ? colors.accent : colors.textMuted },
+          ]}
+        >
+          {label}
+        </Text>
+      </Animated.View>
+    </Pressable>
+  );
+}
 
 function WebSidebarTabBar({
   tabProps,
   colors,
-  language,
   pageBackground,
 }: {
   tabProps: BottomTabBarProps;
   colors: any;
-  language: 'tr' | 'en' | 'de';
   pageBackground: string;
 }) {
-  const t = LAYOUT_I18N[language];
-  const locale = language === 'en' ? 'en-GB' : language === 'de' ? 'de-DE' : 'tr-TR';
-  const today = new Date().toLocaleDateString(locale, {
-    day: '2-digit',
+  const { state, navigation } = tabProps;
+  const fadeAnim = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    Animated.timing(fadeAnim, {
+      toValue: 1,
+      duration: 350,
+      useNativeDriver: true,
+    }).start();
+  }, []);
+
+  const today = new Date().toLocaleDateString('tr-TR', {
+    day: 'numeric',
     month: 'long',
+    year: 'numeric',
   });
 
+  const visibleRoutes = state.routes.filter((r) => !HIDDEN_ROUTES.includes(r.name));
+
   return (
-    <View
+    <Animated.View
       style={[
-        styles.webSidebarShell,
+        styles.sidebar,
         {
           backgroundColor: pageBackground,
           borderRightColor: colors.borderSubtle,
+          opacity: fadeAnim,
         },
       ]}
     >
-      <View style={[styles.webBrandCard, { backgroundColor: pageBackground, borderColor: colors.borderSubtle }]}>
-        <View style={[styles.webBrandBadge, { backgroundColor: colors.accent }]}>
-          <Text style={[styles.webBrandBadgeText, { color: colors.white }]}>SN</Text>
+      {/* Brand */}
+      <View style={[styles.brand, { borderBottomColor: colors.borderSubtle }]}>
+        <View style={[styles.brandIcon, { backgroundColor: colors.accent }]}>
+          <Ionicons name="newspaper" size={18} color="#fff" />
         </View>
-        <View style={styles.webBrandTextWrap}>
-          <Text style={[styles.webBrandTitle, { color: colors.textPrimary }]}>Smart Newspaper</Text>
-          <Text style={[styles.webBrandSub, { color: colors.textMuted }]}>{t.dashboard}</Text>
+        <View>
+          <Text style={[styles.brandTitle, { color: colors.textPrimary }]}>
+            GAZETE<Text style={{ color: colors.accent }}>.AI</Text>
+          </Text>
+          <Text style={[styles.brandSub, { color: colors.textMuted }]}>DASHBOARD</Text>
         </View>
       </View>
 
-      <BottomTabBar {...tabProps} />
+      {/* Nav */}
+      <View style={styles.nav}>
+        {visibleRoutes.map((route) => {
+          const routeIndex = state.routes.findIndex((r) => r.key === route.key);
+          const isActive = state.index === routeIndex;
+          const navRoute = NAV_ROUTES.find((n) => n.name === route.name);
+          if (!navRoute) return null;
 
-      <View style={[styles.webInsightCard, { backgroundColor: pageBackground, borderColor: colors.borderSubtle }]}>
-        <Text style={[styles.webInsightTitle, { color: colors.textPrimary }]}>{t.todayTitle}</Text>
-        <Text style={[styles.webInsightDate, { color: colors.textSecondary }]}>{today}</Text>
-        <View style={styles.webInsightRow}>
-          <Ionicons name="sparkles-outline" size={14} color={colors.accent} />
-          <Text style={[styles.webInsightText, { color: colors.textSecondary }]}>{t.insight}</Text>
-        </View>
+          return (
+            <NavItem
+              key={route.key}
+              label={navRoute.label}
+              icon={navRoute.icon}
+              iconFilled={navRoute.iconFilled}
+              isActive={isActive}
+              colors={colors}
+              onPress={() => navigation.navigate(route.name)}
+            />
+          );
+        })}
       </View>
-    </View>
+
+      {/* Bottom */}
+      <View style={styles.bottom}>
+        <View
+          style={[
+            styles.todayCard,
+            {
+              backgroundColor: colors.accent + '0A',
+              borderColor: colors.accent + '30',
+            },
+          ]}
+        >
+          <Text style={[styles.todayLabel, { color: colors.accent }]}>BUGÜN</Text>
+          <Text style={[styles.todayDate, { color: colors.textSecondary }]}>{today}</Text>
+          <View style={styles.todayRow}>
+            <Ionicons name="sparkles" size={11} color={colors.accent} />
+            <Text style={[styles.todayQuote, { color: colors.textSecondary }]}>
+              "AI analize hazır, yeni gelişmeleri keşfedin."
+            </Text>
+          </View>
+        </View>
+
+        <Pressable
+          style={({ pressed }) => [
+            styles.logoutBtn,
+            { backgroundColor: pressed ? '#ef444410' : 'transparent' },
+          ]}
+        >
+          <Ionicons name="log-out-outline" size={18} color="#ef4444" />
+          <Text style={styles.logoutText}>ÇIKIŞ YAP</Text>
+        </Pressable>
+      </View>
+    </Animated.View>
   );
 }
 
@@ -99,7 +214,6 @@ export default function TabLayout() {
   const { colors, themeName } = useTheme();
   const { language } = useLanguage();
   const { currentNotification, dismissNotification } = useNotification();
-  const t = LAYOUT_I18N[language];
   const insets = useSafeAreaInsets();
   const isWeb = Platform.OS === 'web';
   const pageBackground = themeName === 'vincent' ? colors.surface : colors.background;
@@ -108,231 +222,287 @@ export default function TabLayout() {
     <View style={{ flex: 1 }}>
       <Tabs
         tabBar={(props) =>
-          isWeb ? <WebSidebarTabBar tabProps={props} colors={colors} language={language} pageBackground={pageBackground} /> : <BottomTabBar {...props} />
-        }
-      screenOptions={{
-        tabBarPosition: isWeb ? 'left' : 'bottom',
-        tabBarActiveTintColor: isWeb ? colors.white : colors.accent,
-        tabBarInactiveTintColor: colors.textSecondary,
-        tabBarActiveBackgroundColor: isWeb ? colors.accent : colors.surface,
-        tabBarInactiveBackgroundColor: isWeb ? pageBackground : colors.surface,
-        tabBarShowLabel: true,
-        tabBarHideOnKeyboard: true,
-        sceneStyle: {
-          backgroundColor: pageBackground,
-        },
-        tabBarLabelStyle: {
-          fontSize: isWeb ? 13 : 12,
-          fontWeight: '600',
-          marginBottom: isWeb ? 0 : 1,
-          marginLeft: isWeb ? 8 : 0,
-        },
-        tabBarIconStyle: {
-          marginBottom: 0,
-          marginTop: 0,
-        },
-        tabBarItemStyle: {
-          borderRadius: 12,
-          marginHorizontal: isWeb ? 10 : 4,
-          marginVertical: isWeb ? 6 : 0,
-          minHeight: isWeb ? 48 : 0,
-          justifyContent: 'center',
-          alignItems: isWeb ? 'flex-start' : 'center',
-          paddingHorizontal: isWeb ? 12 : 0,
-        },
-        tabBarStyle: {
-          backgroundColor: isWeb ? 'transparent' : colors.surface,
-          borderColor: colors.borderSubtle,
-          borderTopWidth: isWeb ? 0 : 1,
-          borderRightWidth: 0,
-          height: isWeb ? undefined : 68 + insets.bottom,
-          width: isWeb ? '100%' : undefined,
-          paddingTop: isWeb ? 8 : 6,
-          paddingBottom: isWeb ? 8 : insets.bottom,
-          elevation: 0,
-          shadowOpacity: 0,
-        },
-        headerStyle: {
-          backgroundColor: isWeb ? pageBackground : colors.surface,
-          elevation: 0,
-          shadowOpacity: 0,
-          borderBottomWidth: 0,
-        },
-        headerTintColor: colors.textPrimary,
-        headerTitleAlign: 'center',
-        headerTitleStyle: { color: 'transparent' },
-        headerTitle: ({ children }) => <AppHeader title={children ?? ''} />,
-        headerShadowVisible: false,
-      }}
-    >
-      <Tabs.Screen
-        name="index"
-        options={{
-          title: t.home,
-          tabBarIcon: ({ color, size }) => (
-            <Ionicons name="home-outline" size={size} color={color} />
-          ),
-        }}
-      />
-      <Tabs.Screen
-        name="search"
-        options={{
-          title: t.search,
-          tabBarIcon: ({ color, size }) => (
-            <Ionicons name="search-outline" size={size} color={color} />
-          ),
-        }}
-      />
-      <Tabs.Screen
-        name="discover"
-        options={{
-          title: t.events,
-          tabBarIcon: ({ color, size }) => (
-            <Ionicons name="calendar-outline" size={size} color={color} />
-          ),
-        }}
-      />
-      <Tabs.Screen
-        name="ai"
-        options={{
-          title: 'AI Chat',
-          tabBarLabel: isWeb ? 'AI Chat' : '',
-          tabBarIcon: ({ color, focused }) => (
-            <Ionicons
-              name={focused ? 'sparkles' : 'sparkles-outline'}
-              size={isWeb ? 20 : 24}
-              color={color}
+          isWeb ? (
+            <WebSidebarTabBar
+              tabProps={props}
+              colors={colors}
+              pageBackground={pageBackground}
             />
-          ),
-          tabBarButton: isWeb
-            ? undefined
-            : (props) => {
-                const selected = props.accessibilityState?.selected;
-
-                return (
-                  <Pressable
-                    onPress={props.onPress}
-                    onLongPress={props.onLongPress}
-                    testID={props.testID}
-                    accessibilityLabel={props.accessibilityLabel}
-                    accessibilityState={props.accessibilityState}
-                    style={[
-                      props.style,
-                      styles.mobileCenterFab,
-                      {
-                        backgroundColor: selected ? colors.accent : colors.accentLight,
-                        borderColor: colors.surface,
-                      },
-                    ]}
-                  />
-                );
-              },
+          ) : (
+            <BottomTabBar {...props} />
+          )
+        }
+        screenOptions={{
+          tabBarPosition: isWeb ? 'left' : 'bottom',
+          tabBarActiveTintColor: colors.accent,
+          tabBarInactiveTintColor: colors.textSecondary,
+          tabBarActiveBackgroundColor: colors.surface,
+          tabBarInactiveBackgroundColor: colors.surface,
+          tabBarShowLabel: !isWeb,
+          tabBarHideOnKeyboard: true,
+          sceneStyle: { backgroundColor: pageBackground },
+          tabBarLabelStyle: {
+            fontSize: 10,
+            fontWeight: '600',
+            marginBottom: 2,
+          },
+          tabBarIconStyle: { marginBottom: 0, marginTop: 0 },
+          tabBarItemStyle: {
+            borderRadius: 10,
+            marginHorizontal: 4,
+            marginVertical: 2,
+            minHeight: 44,
+            justifyContent: 'center',
+            alignItems: 'center',
+          },
+          tabBarStyle: {
+            backgroundColor: colors.surface,
+            borderTopColor: colors.borderSubtle,
+            borderTopWidth: 1,
+            height: isWeb ? undefined : 64 + insets.bottom,
+            paddingBottom: isWeb ? 0 : insets.bottom,
+            elevation: 0,
+            shadowOpacity: 0,
+          },
+          headerShown: !isWeb,
+          headerStyle: {
+            backgroundColor: isWeb ? pageBackground : colors.surface,
+            elevation: 0,
+            shadowOpacity: 0,
+            borderBottomWidth: 0,
+          },
+          headerTintColor: colors.textPrimary,
+          headerTitleAlign: 'center',
+          headerTitleStyle: { color: 'transparent' },
+          headerTitle: ({ children }) => <AppHeader title={children ?? ''} />,
+          headerShadowVisible: false,
         }}
-      />
-      <Tabs.Screen
-        name="archive"
-        options={{
-          title: t.archive,
-          tabBarIcon: ({ color, size }) => (
-            <Ionicons name="archive-outline" size={size} color={color} />
-          ),
-        }}
-      />
-      <Tabs.Screen
-        name="profile"
-        options={{
-          title: t.profile,
-          tabBarIcon: ({ color, size }) => (
-            <Ionicons name="person-outline" size={size} color={color} />
-          ),
-        }}
-      />
-      <Tabs.Screen name="newspaper" options={{ href: null }} />
-      <Tabs.Screen name="publisherpage" options={{ href: null }} />
-      <Tabs.Screen name="publisherprofile" options={{ href: null }} />
-      <Tabs.Screen name="pdfpreview" options={{ href: null }} />
+      >
+        <Tabs.Screen
+          name="index"
+          options={{
+            title: LAYOUT_I18N[language].home,
+            tabBarIcon: ({ color, size }) => (
+              <Ionicons name="grid-outline" size={size} color={color} />
+            ),
+          }}
+        />
+        <Tabs.Screen
+          name="feed"
+          options={{
+            title: LAYOUT_I18N[language].feed,
+            tabBarIcon: ({ color, size }) => (
+              <Ionicons name="reader-outline" size={size} color={color} />
+            ),
+          }}
+        />
+        <Tabs.Screen
+          name="search"
+          options={{
+            title: LAYOUT_I18N[language].search,
+            tabBarIcon: ({ color, size }) => (
+              <Ionicons name="search-outline" size={size} color={color} />
+            ),
+          }}
+        />
+        <Tabs.Screen
+          name="discover"
+          options={{
+            title: LAYOUT_I18N[language].events,
+            tabBarIcon: ({ color, size }) => (
+              <Ionicons name="calendar-outline" size={size} color={color} />
+            ),
+          }}
+        />
+        <Tabs.Screen
+          name="ai"
+          options={{
+            title: 'AI Chat',
+            tabBarLabel: 'AI',
+            tabBarIcon: ({ color, focused }) => (
+              <Ionicons
+                name={focused ? 'sparkles' : 'sparkles-outline'}
+                size={isWeb ? 20 : 24}
+                color={color}
+              />
+            ),
+            tabBarButton: isWeb
+              ? undefined
+              : (props) => {
+                  const selected = props.accessibilityState?.selected;
+                  return (
+                    <Pressable
+                      onPress={props.onPress}
+                      onLongPress={props.onLongPress}
+                      testID={props.testID}
+                      accessibilityLabel={props.accessibilityLabel}
+                      accessibilityState={props.accessibilityState}
+                      style={[
+                        props.style as any,
+                        styles.mobileCenterFab,
+                        {
+                          backgroundColor: selected ? colors.accent : colors.accentLight,
+                          borderColor: colors.surface,
+                        },
+                      ]}
+                    >
+                      <Ionicons
+                        name={selected ? 'sparkles' : 'sparkles-outline'}
+                        size={24}
+                        color="#fff"
+                      />
+                    </Pressable>
+                  );
+                },
+          }}
+        />
+        <Tabs.Screen
+          name="archive"
+          options={{
+            title: LAYOUT_I18N[language].archive,
+            tabBarIcon: ({ color, size }) => (
+              <Ionicons name="archive-outline" size={size} color={color} />
+            ),
+          }}
+        />
+        <Tabs.Screen
+          name="profile"
+          options={{
+            title: LAYOUT_I18N[language].profile,
+            tabBarIcon: ({ color, size }) => (
+              <Ionicons name="person-outline" size={size} color={color} />
+            ),
+          }}
+        />
+        <Tabs.Screen name="newspaper" options={{ href: null }} />
+        <Tabs.Screen name="publisherpage" options={{ href: null }} />
+        <Tabs.Screen name="publisherprofile" options={{ href: null }} />
+        <Tabs.Screen name="pdfpreview" options={{ href: null }} />
       </Tabs>
+
       <NewsNotificationToast
-      notification={currentNotification}
-      onDismiss={dismissNotification}
-    />
+        notification={currentNotification}
+        onDismiss={dismissNotification}
+      />
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  webSidebarShell: {
-    width: 276,
-    height: '100%',
+  sidebar: {
+    width: 260,
+    height: '100%' as any,
     borderRightWidth: 1,
-    paddingHorizontal: 12,
-    paddingTop: 14,
-    paddingBottom: 14,
+    paddingVertical: 24,
+    paddingHorizontal: 16,
     justifyContent: 'space-between',
   },
-  webBrandCard: {
-    borderWidth: 1,
-    borderRadius: 14,
-    paddingHorizontal: 10,
-    paddingVertical: 10,
+  brand: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
-    marginBottom: 10,
+    gap: 12,
+    paddingBottom: 20,
+    marginBottom: 8,
+    borderBottomWidth: 1,
   },
-  webBrandBadge: {
-    width: 32,
-    height: 32,
-    borderRadius: 10,
+  brandIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  webBrandBadgeText: {
-    fontSize: 12,
+  brandTitle: {
+    fontSize: 17,
+    fontWeight: '900',
+    letterSpacing: 0.5,
+  },
+  brandSub: {
+    fontSize: 9,
     fontWeight: '800',
-    letterSpacing: 0.8,
-  },
-  webBrandTextWrap: {
-    flex: 1,
-  },
-  webBrandTitle: {
-    fontSize: 14,
-    fontWeight: '700',
-  },
-  webBrandSub: {
-    fontSize: 11,
+    letterSpacing: 2.5,
+    textTransform: 'uppercase',
     marginTop: 1,
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
-    fontWeight: '600',
   },
-  webInsightCard: {
-    borderWidth: 1,
-    borderRadius: 14,
-    paddingHorizontal: 11,
-    paddingVertical: 10,
-    gap: 6,
-    marginTop: 10,
-  },
-  webInsightTitle: {
-    fontSize: 12,
-    fontWeight: '700',
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
-  },
-  webInsightDate: {
-    fontSize: 13,
-    fontWeight: '600',
-  },
-  webInsightRow: {
-    flexDirection: 'row',
-    gap: 8,
-    alignItems: 'center',
-  },
-  webInsightText: {
-    fontSize: 12,
+  nav: {
     flex: 1,
-    lineHeight: 17,
+    gap: 2,
+    paddingTop: 8,
+  },
+  navItem: {
+    borderRadius: 16,
+    overflow: 'hidden',
+  },
+  navItemInner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 14,
+    paddingVertical: 13,
+    paddingHorizontal: 16,
+    borderRadius: 16,
+    position: 'relative',
+  },
+  activeBar: {
+    position: 'absolute',
+    left: 0,
+    top: '50%' as any,
+    marginTop: -14,
+    width: 4,
+    height: 28,
+    borderRadius: 999,
+  },
+  navLabel: {
+    fontSize: 11,
+    fontWeight: '800',
+    textTransform: 'uppercase',
+    letterSpacing: 1.2,
+  },
+  bottom: {
+    gap: 8,
+    paddingTop: 16,
+  },
+  todayCard: {
+    borderRadius: 18,
+    borderWidth: 1,
+    padding: 16,
+    gap: 6,
+  },
+  todayLabel: {
+    fontSize: 9,
+    fontWeight: '900',
+    letterSpacing: 2.5,
+    textTransform: 'uppercase',
+  },
+  todayDate: {
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  todayRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 6,
+    marginTop: 2,
+  },
+  todayQuote: {
+    fontSize: 10,
+    fontStyle: 'italic',
+    lineHeight: 15,
+    flex: 1,
+  },
+  logoutBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: 16,
+  },
+  logoutText: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: '#ef4444',
+    letterSpacing: 1.2,
+    textTransform: 'uppercase',
   },
   mobileCenterFab: {
     width: 58,
@@ -342,10 +512,10 @@ const styles = StyleSheet.create({
     borderWidth: 4,
     alignItems: 'center',
     justifyContent: 'center',
-    shadowColor: '#000000',
-    shadowOpacity: 0.15,
-    shadowRadius: 8,
+    shadowColor: '#000',
+    shadowOpacity: 0.18,
+    shadowRadius: 10,
     shadowOffset: { width: 0, height: 4 },
-    elevation: 5,
+    elevation: 6,
   },
 });

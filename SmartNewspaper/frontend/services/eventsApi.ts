@@ -9,7 +9,7 @@ const API_BASE =
 
 export type EventCategory = 'akademik' | 'sosyal' | 'son-tarih' | 'sinav' | 'genel' | 'konser' | 'tiyatro' | 'stand-up';
 
-export type TicketSource = 'biletix' | 'bubilet' | 'passo';
+export type TicketSource = 'ticketmaster' | 'biletix' | 'bubilet' | 'passo';
 
 export interface TicketOption {
   source: TicketSource;

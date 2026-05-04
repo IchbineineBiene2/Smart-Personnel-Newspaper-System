@@ -42,15 +42,7 @@ const INITIAL_MESSAGES: ChatMessage[] = [
 
 export default function AIChatScreen() {
   const { colors: themeColors, themeName } = useTheme();
-  const colors =
-    themeName === 'vincent'
-      ? {
-          ...themeColors,
-          background: themeColors.surface,
-          surfaceHigh: themeColors.surface,
-          surfaceInput: themeColors.surface,
-        }
-      : themeColors;
+  const colors = themeColors;
   const insets = useSafeAreaInsets();
   const [messages, setMessages] = useState<ChatMessage[]>(INITIAL_MESSAGES);
   const [input, setInput] = useState('');
@@ -83,13 +75,14 @@ export default function AIChatScreen() {
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
       keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 18}
     >
+      <View style={[styles.panel, { borderColor: colors.borderSubtle }]}>
       <View style={[styles.hero, { backgroundColor: colors.surface, borderColor: colors.borderSubtle }]}>
         <View style={[styles.heroBadge, { backgroundColor: colors.accent }]}>
           <Ionicons name="sparkles-outline" size={16} color={colors.white} />
         </View>
         <View style={styles.heroTextWrap}>
           <Text style={[styles.heroTitle, { color: colors.textPrimary }]}>AI News Assistant</Text>
-          <Text style={[styles.heroSubtitle, { color: colors.textSecondary }]}>Sor, ozetle, fikir al</Text>
+          <Text style={[styles.heroSubtitle, { color: colors.textSecondary }]}>Sor, özetle, fikir al</Text>
         </View>
       </View>
 
@@ -154,6 +147,7 @@ export default function AIChatScreen() {
           <Ionicons name="send" size={14} color={colors.white} />
         </Pressable>
       </View>
+      </View>
     </KeyboardAvoidingView>
   );
 }
@@ -161,14 +155,23 @@ export default function AIChatScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    paddingHorizontal: 14,
-    paddingTop: 14,
+    paddingHorizontal: 24,
+    paddingTop: 48,
     paddingBottom: 10,
+    alignItems: 'center',
+  },
+  panel: {
+    width: '100%',
+    maxWidth: 880,
+    flex: 1,
+    borderRadius: 28,
+    borderWidth: 1,
+    padding: 18,
   },
   hero: {
     borderWidth: 1,
-    borderRadius: 16,
-    padding: 12,
+    borderRadius: 22,
+    padding: 16,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 10,
@@ -195,7 +198,7 @@ const styles = StyleSheet.create({
   },
   messagesWrap: {
     flex: 1,
-    marginTop: 12,
+    marginTop: 16,
   },
   messagesContent: {
     gap: 10,

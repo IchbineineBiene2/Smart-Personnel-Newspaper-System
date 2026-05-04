@@ -56,15 +56,8 @@ type ScreenState = 'list' | 'detail' | 'search';
 
 export default function Archive() {
   const { colors: themeColors, themeName } = useTheme();
-  const colors =
-    themeName === 'vincent'
-      ? {
-          ...themeColors,
-          background: themeColors.surface,
-          surfaceHigh: themeColors.surface,
-          surfaceInput: themeColors.surface,
-        }
-      : themeColors;
+  const colors = themeColors;
+  const isWeb = Platform.OS === 'web';
   const { preferredCategories } = usePreferences();
   const [screen, setScreen] = useState<ScreenState>('list');
   const [selectedEdition, setSelectedEdition] = useState<ArchivedEdition | null>(null);
@@ -102,19 +95,19 @@ export default function Archive() {
   // FR28: Arama Ekrani
   if (screen === 'search') {
     return (
-      <ScrollView style={s(colors).container} contentContainerStyle={s(colors).content}>
+      <ScrollView style={s(colors).container} contentContainerStyle={[s(colors).content, isWeb && s(colors).webContent]}>
         <Pressable style={s(colors).backButton} onPress={goBack}>
           <Ionicons name="arrow-back" size={20} color={colors.accent} />
-          <Text style={s(colors).backText}>Arsive Don</Text>
+          <Text style={s(colors).backText}>Arşive Dön</Text>
         </Pressable>
 
-        <Text style={s(colors).sectionTitle}>Arsivde Ara</Text>
+        <Text style={s(colors).sectionTitle}>Arşivde Ara</Text>
 
         <View style={s(colors).searchBar}>
           <Ionicons name="search-outline" size={18} color={colors.textMuted} />
           <TextInput
             style={s(colors).searchInput}
-            placeholder="Baslik, kategori veya kaynak ara..."
+            placeholder="Başlık, kategori veya kaynak ara..."
             placeholderTextColor={colors.textMuted}
             value={searchQuery}
             onChangeText={setSearchQuery}
@@ -130,10 +123,10 @@ export default function Archive() {
         {searchQuery.trim().length < 2 ? (
           <Text style={s(colors).emptyText}>En az 2 karakter girin.</Text>
         ) : searchResults.length === 0 ? (
-          <Text style={s(colors).emptyText}>Sonuc bulunamadi.</Text>
+          <Text style={s(colors).emptyText}>Sonuç bulunamadı.</Text>
         ) : (
           <>
-            <Text style={s(colors).resultCount}>{searchResults.length} sonuc bulundu</Text>
+            <Text style={s(colors).resultCount}>{searchResults.length} sonuç bulundu</Text>
             {searchResults.map((article) => (
               <View key={article.id} style={s(colors).card}>
                 <View style={s(colors).cardHeader}>
@@ -156,10 +149,10 @@ export default function Archive() {
   // FR27: Edition Detay Ekrani
   if (screen === 'detail' && selectedEdition) {
     return (
-      <ScrollView style={s(colors).container} contentContainerStyle={s(colors).content}>
+      <ScrollView style={s(colors).container} contentContainerStyle={[s(colors).content, isWeb && s(colors).webContent]}>
         <Pressable style={s(colors).backButton} onPress={goBack}>
           <Ionicons name="arrow-back" size={20} color={colors.accent} />
-          <Text style={s(colors).backText}>Arsive Don</Text>
+          <Text style={s(colors).backText}>Arşive Dön</Text>
         </Pressable>
 
         <View style={s(colors).editionHeader}>
@@ -179,7 +172,7 @@ export default function Archive() {
           onPress={() => downloadEditionPdf(selectedEdition, editionArticles, preferredCategories)}
         >
           <Ionicons name="download-outline" size={20} color={colors.white} />
-          <Text style={s(colors).downloadText}>PDF Olarak Indir</Text>
+          <Text style={s(colors).downloadText}>PDF Olarak İndir</Text>
         </Pressable>
 
         <Text style={s(colors).sectionTitle}>
@@ -187,7 +180,7 @@ export default function Archive() {
         </Text>
 
         {editionArticles.length === 0 ? (
-          <Text style={s(colors).emptyText}>Bu edisyonda makale bulunamadi.</Text>
+          <Text style={s(colors).emptyText}>Bu edisyonda makale bulunamadı.</Text>
         ) : (
           editionArticles.map((article) => (
             <View key={article.id} style={s(colors).card}>
@@ -208,20 +201,20 @@ export default function Archive() {
 
   // FR26: Arsiv Listesi
   return (
-    <ScrollView style={s(colors).container} contentContainerStyle={s(colors).content}>
+    <ScrollView style={s(colors).container} contentContainerStyle={[s(colors).content, isWeb && s(colors).webContent]}>
       <View style={s(colors).topActions}>
         <Pressable
           style={s(colors).searchButton}
           onPress={() => setScreen('search')}
         >
           <Ionicons name="search-outline" size={18} color={colors.accent} />
-          <Text style={s(colors).searchButtonText}>Arsivde Ara</Text>
+          <Text style={s(colors).searchButtonText}>Arşivde Ara</Text>
         </Pressable>
       </View>
 
-      <Text style={s(colors).sectionTitle}>Gecmis Edisyonlar</Text>
+      <Text style={s(colors).sectionTitle}>Geçmiş Edisyonlar</Text>
       <Text style={s(colors).sectionSubtitle}>
-        Daha once olusturulmus kisisel gazeteleriniz
+        Daha önce oluşturulmuş kişisel gazeteleriniz
       </Text>
 
       {ARCHIVED_EDITIONS.map((edition) => (
@@ -266,9 +259,15 @@ const s = (colors: any) =>
       backgroundColor: colors.background,
     },
     content: {
-      padding: Spacing.lg,
+      padding: 24,
       paddingBottom: 100,
-      gap: Spacing.md,
+      gap: 18,
+    },
+    webContent: {
+      maxWidth: 980,
+      width: '100%' as any,
+      alignSelf: 'center',
+      paddingTop: 48,
     },
     topActions: {
       flexDirection: 'row',
@@ -282,21 +281,24 @@ const s = (colors: any) =>
       borderWidth: 1,
       borderColor: colors.border,
       borderRadius: Radius.full,
-      paddingVertical: Spacing.sm,
-      paddingHorizontal: Spacing.md,
+      paddingVertical: 10,
+      paddingHorizontal: 16,
     },
     searchButtonText: {
       color: colors.accent,
-      fontSize: Typography.fontSize.sm,
-      fontWeight: Typography.fontWeight.medium,
+      fontSize: 12,
+      fontWeight: '800',
+      letterSpacing: 1,
+      textTransform: 'uppercase',
     },
     sectionTitle: {
-      fontSize: Typography.fontSize.lg,
+      fontSize: 32,
       color: colors.textPrimary,
-      fontWeight: Typography.fontWeight.bold,
+      fontWeight: '900',
+      letterSpacing: -0.5,
     },
     sectionSubtitle: {
-      fontSize: Typography.fontSize.base,
+      fontSize: 14,
       color: colors.textMuted,
       marginTop: -Spacing.sm,
     },
@@ -304,9 +306,9 @@ const s = (colors: any) =>
       backgroundColor: colors.surface,
       borderWidth: 1,
       borderColor: colors.borderSubtle,
-      borderRadius: Radius.lg,
-      padding: Spacing.lg,
-      gap: Spacing.md,
+      borderRadius: 24,
+      padding: 22,
+      gap: 14,
     },
     editionCardTop: {
       flexDirection: 'row',
@@ -314,10 +316,10 @@ const s = (colors: any) =>
       gap: Spacing.md,
     },
     editionIcon: {
-      width: 44,
-      height: 44,
-      borderRadius: Radius.md,
-      backgroundColor: colors.surfaceHigh,
+      width: 54,
+      height: 54,
+      borderRadius: 18,
+      backgroundColor: colors.accent + '18',
       alignItems: 'center',
       justifyContent: 'center',
     },
@@ -326,7 +328,7 @@ const s = (colors: any) =>
       gap: 2,
     },
     editionCardTitle: {
-      fontSize: Typography.fontSize.md,
+      fontSize: 17,
       color: colors.textPrimary,
       fontWeight: Typography.fontWeight.bold,
     },
@@ -335,7 +337,7 @@ const s = (colors: any) =>
       color: colors.textMuted,
     },
     editionSummary: {
-      fontSize: Typography.fontSize.base,
+      fontSize: 13,
       color: colors.textSecondary,
       lineHeight: 20,
     },
@@ -350,7 +352,7 @@ const s = (colors: any) =>
       gap: Spacing.xs,
     },
     chipSmall: {
-      backgroundColor: colors.surfaceHigh,
+      backgroundColor: colors.accent + '14',
       borderRadius: Radius.full,
       paddingVertical: 2,
       paddingHorizontal: Spacing.sm,
@@ -361,7 +363,7 @@ const s = (colors: any) =>
       fontWeight: Typography.fontWeight.medium,
     },
     articleCount: {
-      fontSize: Typography.fontSize.sm,
+      fontSize: 12,
       color: colors.textMuted,
     },
     // Detail screen
@@ -380,7 +382,7 @@ const s = (colors: any) =>
       backgroundColor: colors.surface,
       borderWidth: 1,
       borderColor: colors.borderSubtle,
-      borderRadius: Radius.lg,
+      borderRadius: 24,
       padding: Spacing.lg,
       gap: Spacing.sm,
     },
@@ -399,7 +401,7 @@ const s = (colors: any) =>
       justifyContent: 'center',
       gap: Spacing.sm,
       backgroundColor: colors.accent,
-      borderRadius: Radius.md,
+      borderRadius: 14,
       paddingVertical: Spacing.md,
     },
     downloadText: {
@@ -411,7 +413,7 @@ const s = (colors: any) =>
       backgroundColor: colors.surface,
       borderWidth: 1,
       borderColor: colors.borderSubtle,
-      borderRadius: Radius.lg,
+      borderRadius: 22,
       padding: Spacing.lg,
       gap: Spacing.sm,
     },
