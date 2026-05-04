@@ -4,6 +4,7 @@ import cors from 'cors';
 import newsRouter from './api/news.routes';
 import proxyRouter from './api/proxy.routes';
 import eventsRouter from './api/events.routes';
+import concertsRouter from './api/concerts.routes';
 import { startScheduler } from './scheduler/newsScheduler';
 
 const app = express();
@@ -16,6 +17,7 @@ app.use(express.json());
 app.use('/api/news', newsRouter);
 app.use('/api/proxy', proxyRouter);
 app.use('/api/events', eventsRouter);
+app.use('/api/concerts', concertsRouter);
 
 app.get('/health', (_req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
