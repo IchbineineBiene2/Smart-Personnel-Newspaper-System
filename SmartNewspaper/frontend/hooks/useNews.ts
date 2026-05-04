@@ -115,6 +115,7 @@ export function usePersonalizedNews() {
       title: a.title,
       summary: a.description,
       source: a.source.name,
+      sourceUrl: a.source.url,
       publicationDate: a.publishedAt,
       category: mapToContentCategory(a.category, a.title, a.description),
       popularity: Math.max(10, 100 - Math.floor(age / (60 * 60 * 1000))),

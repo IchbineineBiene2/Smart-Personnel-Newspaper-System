@@ -39,7 +39,16 @@ type ActiveTab = 'recent' | 'saved' | 'trending';
 
 export default function SearchTab() {
   const router = useRouter();
-  const { colors } = useTheme();
+  const { colors: themeColors, themeName } = useTheme();
+  const colors =
+    themeName === 'vincent'
+      ? {
+          ...themeColors,
+          background: themeColors.surface,
+          surfaceHigh: themeColors.surface,
+          surfaceInput: themeColors.surface,
+        }
+      : themeColors;
   const inputRef = useRef<TextInput>(null);
   const [showFilters, setShowFilters] = useState(false);
   const [activeTab, setActiveTab] = useState<ActiveTab>('recent');

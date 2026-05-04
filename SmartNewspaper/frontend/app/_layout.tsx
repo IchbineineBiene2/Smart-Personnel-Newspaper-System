@@ -59,7 +59,8 @@ interface RootLayoutNavProps {
 }
 
 function RootLayoutNav({ initialRouteName }: RootLayoutNavProps) {
-  const { colors } = useTheme();
+  const { colors, themeName } = useTheme();
+  const pageBackground = themeName === 'vincent' ? colors.surface : colors.background;
 
   const customTheme = {
     dark: false,
@@ -86,10 +87,10 @@ function RootLayoutNav({ initialRouteName }: RootLayoutNavProps) {
           initialRouteName={initialRouteName}
           screenOptions={{
             contentStyle: {
-              backgroundColor: colors.background,
+              backgroundColor: pageBackground,
             },
             headerStyle: {
-              backgroundColor: colors.surface,
+              backgroundColor: pageBackground,
             },
             headerTintColor: colors.textPrimary,
             headerTitleAlign: 'center',
@@ -111,7 +112,7 @@ function RootLayoutNav({ initialRouteName }: RootLayoutNavProps) {
             title: 'Etkinlik Detayi',
             headerTintColor: colors.textPrimary,
             headerStyle: {
-              backgroundColor: colors.surface,
+              backgroundColor: pageBackground,
             },
             headerTitleAlign: 'center',
             headerTitleStyle: {
@@ -127,7 +128,7 @@ function RootLayoutNav({ initialRouteName }: RootLayoutNavProps) {
             title: 'Haber Detayi',
             headerTintColor: colors.textPrimary,
             headerStyle: {
-              backgroundColor: colors.surface,
+              backgroundColor: pageBackground,
             },
             headerTitleAlign: 'center',
             headerTitleStyle: {

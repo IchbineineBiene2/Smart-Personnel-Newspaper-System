@@ -55,7 +55,16 @@ async function downloadEditionPdf(
 type ScreenState = 'list' | 'detail' | 'search';
 
 export default function Archive() {
-  const { colors } = useTheme();
+  const { colors: themeColors, themeName } = useTheme();
+  const colors =
+    themeName === 'vincent'
+      ? {
+          ...themeColors,
+          background: themeColors.surface,
+          surfaceHigh: themeColors.surface,
+          surfaceInput: themeColors.surface,
+        }
+      : themeColors;
   const { preferredCategories } = usePreferences();
   const [screen, setScreen] = useState<ScreenState>('list');
   const [selectedEdition, setSelectedEdition] = useState<ArchivedEdition | null>(null);

@@ -1,7 +1,7 @@
 // @ts-nocheck
-import { ActivityIndicator, Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Image, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 
 import NewsQuickPreviewModal from '@/components/NewsQuickPreviewModal';
 import { Radius, Spacing, Typography } from '@/constants/theme';
@@ -55,7 +55,18 @@ function formatArticleDateTime(value?: string) {
 export default function PublisherProfilePage() {
   const router = useRouter();
   const { id } = useLocalSearchParams<{ id?: string }>();
-  const { colors } = useTheme();
+  const { colors, themeName } = useTheme();
+  const pageColors =
+    themeName === 'vincent'
+      ? {
+          ...colors,
+          background: colors.surface,
+          surface: colors.surface,
+          surfaceHigh: colors.surface,
+          surfaceInput: colors.surface,
+          white: colors.surface,
+        }
+      : colors;
   const { followedIds, toggleFollow } = useHiddenPublisherState();
   const { articles: apiArticles, loading } = useApiNews();
   const { publishers, articles } = useMemo(() => buildPublisherDataset(apiArticles), [apiArticles]);
@@ -77,6 +88,7 @@ export default function PublisherProfilePage() {
 
   const [activeTopic, setActiveTopic] = useState('Tum Konular');
   const [visibleCount, setVisibleCount] = useState(10);
+  const [isDirectoryHovered, setIsDirectoryHovered] = useState(false);
   const [previewItem, setPreviewItem] = useState<{
     id: string;
     title: string;
@@ -116,20 +128,72 @@ export default function PublisherProfilePage() {
   }, [activeTopic]);
 
   const otherPublishers = publishers.filter((item) => item.id !== selectedId).slice(0, 8);
+  const loopedOtherPublishers = useMemo(
+    () => (otherPublishers.length > 1 ? [...otherPublishers, ...otherPublishers] : otherPublishers),
+    [otherPublishers]
+  );
+  const canAutoScrollDirectory = otherPublishers.length > 1;
+  const directoryScrollRef = useRef<ScrollView | null>(null);
+  const directoryOffsetRef = useRef(0);
+  const directoryContentWidthRef = useRef(0);
+  const resumeAutoScrollAtRef = useRef(0);
+
+  const normalizeDirectoryOffset = (rawOffset: number) => {
+    const loopWidth = directoryContentWidthRef.current / 2;
+    if (loopWidth <= 0) return Math.max(0, rawOffset);
+    let normalized = rawOffset;
+    while (normalized >= loopWidth) normalized -= loopWidth;
+    while (normalized < 0) normalized += loopWidth;
+    return normalized;
+  };
+
+  const scrollDirectoryBy = (delta: number) => {
+    const nextOffset = normalizeDirectoryOffset(directoryOffsetRef.current + delta);
+    directoryOffsetRef.current = nextOffset;
+    directoryScrollRef.current?.scrollTo({ x: nextOffset, animated: true });
+    resumeAutoScrollAtRef.current = Date.now() + 2200;
+  };
+
+  useEffect(() => {
+    directoryOffsetRef.current = 0;
+    directoryScrollRef.current?.scrollTo({ x: 0, animated: false });
+  }, [selectedId]);
+
+  useEffect(() => {
+    if (!canAutoScrollDirectory) return;
+
+    const timerId = setInterval(() => {
+      if (isDirectoryHovered) return;
+      if (Date.now() < resumeAutoScrollAtRef.current) return;
+
+      const loopWidth = directoryContentWidthRef.current / 2;
+      if (loopWidth <= 0) return;
+
+      let nextOffset = directoryOffsetRef.current + 0.8;
+      if (nextOffset >= loopWidth) {
+        nextOffset -= loopWidth;
+      }
+
+      directoryOffsetRef.current = nextOffset;
+      directoryScrollRef.current?.scrollTo({ x: nextOffset, animated: false });
+    }, 24);
+
+    return () => clearInterval(timerId);
+  }, [canAutoScrollDirectory, isDirectoryHovered]);
 
   if (loading) {
     return (
-      <View style={styles(colors).emptyWrap}>
-        <ActivityIndicator color={colors.accent} />
-        <Text style={styles(colors).emptyText}>Yayinci verileri yukleniyor...</Text>
+      <View style={styles(pageColors).emptyWrap}>
+        <ActivityIndicator color={pageColors.accent} />
+        <Text style={styles(pageColors).emptyText}>Yayinci verileri yukleniyor...</Text>
       </View>
     );
   }
 
   if (!publisher) {
     return (
-      <View style={styles(colors).emptyWrap}>
-        <Text style={styles(colors).emptyTitle}>Publisher not found</Text>
+      <View style={styles(pageColors).emptyWrap}>
+        <Text style={styles(pageColors).emptyTitle}>Publisher not found</Text>
       </View>
     );
   }
@@ -151,92 +215,143 @@ export default function PublisherProfilePage() {
   };
 
   return (
-    <ScrollView style={styles(colors).container} contentContainerStyle={styles(colors).content}>
-      <View style={styles(colors).headerCard}>
-        <View style={styles(colors).logoBox}>
+    <ScrollView style={styles(pageColors).container} contentContainerStyle={styles(pageColors).content}>
+      <View style={styles(pageColors).headerCard}>
+        <View style={styles(pageColors).logoBox}>
           {publisher.logoUrl ? (
-            <Image source={{ uri: publisher.logoUrl }} style={styles(colors).logoImage} resizeMode="cover" />
+            <Image source={{ uri: publisher.logoUrl }} style={styles(pageColors).logoImage} resizeMode="cover" />
           ) : (
-            <Text style={styles(colors).logoText}>{publisher.logoText}</Text>
+            <Text style={styles(pageColors).logoText}>{publisher.logoText}</Text>
           )}
         </View>
 
-        <Text style={styles(colors).title}>{publisher.name}</Text>
-        {publisher.verified ? <Text style={styles(colors).badge}>VERIFIED SOURCE</Text> : null}
+        <Text style={styles(pageColors).title}>{publisher.name}</Text>
+        {publisher.verified ? <Text style={styles(pageColors).badge}>VERIFIED SOURCE</Text> : null}
 
-        <View style={styles(colors).statsRow}>
-          <View style={styles(colors).statItem}>
-            <Text style={styles(colors).statValue}>{publisher.followers}</Text>
-            <Text style={styles(colors).statLabel}>Followers</Text>
+        <View style={styles(pageColors).statsRow}>
+          <View style={styles(pageColors).statItem}>
+            <Text style={styles(pageColors).statValue}>{publisher.followers}</Text>
+            <Text style={styles(pageColors).statLabel}>Followers</Text>
           </View>
-          <View style={styles(colors).statItem}>
-            <Text style={styles(colors).statValue}>{publisher.articlesCount}</Text>
-            <Text style={styles(colors).statLabel}>Articles</Text>
+          <View style={styles(pageColors).statItem}>
+            <Text style={styles(pageColors).statValue}>{publisher.articlesCount}</Text>
+            <Text style={styles(pageColors).statLabel}>Articles</Text>
           </View>
-          <View style={styles(colors).statItem}>
-            <Text style={styles(colors).statValue}>{publisher.reporters}</Text>
-            <Text style={styles(colors).statLabel}>Reporters</Text>
+          <View style={styles(pageColors).statItem}>
+            <Text style={styles(pageColors).statValue}>{publisher.reporters}</Text>
+            <Text style={styles(pageColors).statLabel}>Reporters</Text>
           </View>
         </View>
 
-        <Text style={styles(colors).description}>{publisher.description}</Text>
+        <Text style={styles(pageColors).description}>{publisher.description}</Text>
 
-        <View style={styles(colors).actionsRow}>
+        <View style={styles(pageColors).actionsRow}>
           <Pressable
-            style={[styles(colors).primaryButtonFull, followed ? styles(colors).primaryButtonActive : null]}
+            style={[styles(pageColors).primaryButtonFull, followed ? styles(pageColors).primaryButtonActive : null]}
             onPress={() => toggleFollow(publisher.id)}
           >
-            <Text style={styles(colors).primaryButtonText}>{followed ? 'Following' : 'Follow Publisher'}</Text>
+            <Text style={styles(pageColors).primaryButtonText}>{followed ? 'Following' : 'Follow Publisher'}</Text>
           </Pressable>
         </View>
       </View>
 
-      <View style={styles(colors).directoryWrap}>
-        <Text style={styles(colors).directoryTitle}>Tum Kanallar</Text>
-        <Text style={styles(colors).directorySub}>Sistemdeki diger haber kaynaklarini kesfet.</Text>
+      <View style={styles(pageColors).directoryWrap}>
+        <Text style={styles(pageColors).directoryTitle}>Tum Kanallar</Text>
+        <Text style={styles(pageColors).directorySub}>Sistemdeki diger haber kaynaklarini kesfet.</Text>
 
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles(colors).directoryRow}>
-          {otherPublishers.map((item) => (
-            <Pressable
-              key={item.id}
-              style={styles(colors).directoryCard}
-              onPress={() => router.push(`/publisherprofile?id=${item.id}` as any)}
-            >
-              <View style={styles(colors).directoryLogoBox}>
-                {item.logoUrl ? (
-                  <Image source={{ uri: item.logoUrl }} style={styles(colors).directoryLogoImage} resizeMode="cover" />
-                ) : (
-                  <Text style={styles(colors).directoryLogoText}>{item.logoText}</Text>
-                )}
-              </View>
-              <View style={styles(colors).directoryBody}>
-                <Text style={styles(colors).directoryName} numberOfLines={1}>{item.name}</Text>
-                <Text style={styles(colors).directoryMeta}>{item.category}</Text>
-                <Text style={styles(colors).directoryFollow}>{item.followers} takipci</Text>
-              </View>
-              <View style={styles(colors).directoryActionPill}>
-                <Text style={styles(colors).directoryActionText}>Profili Gor</Text>
-              </View>
-            </Pressable>
-          ))}
-        </ScrollView>
+        <View
+          style={styles(pageColors).directoryScrollerWrap}
+          onMouseEnter={Platform.OS === 'web' ? () => setIsDirectoryHovered(true) : undefined}
+          onMouseLeave={Platform.OS === 'web' ? () => setIsDirectoryHovered(false) : undefined}
+        >
+          <ScrollView
+            ref={directoryScrollRef}
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            scrollEventThrottle={16}
+            onScroll={(event) => {
+              directoryOffsetRef.current = normalizeDirectoryOffset(event.nativeEvent.contentOffset.x);
+            }}
+            onScrollBeginDrag={() => {
+              resumeAutoScrollAtRef.current = Date.now() + 3000;
+            }}
+            onMomentumScrollBegin={() => {
+              resumeAutoScrollAtRef.current = Date.now() + 3000;
+            }}
+            onMomentumScrollEnd={() => {
+              directoryOffsetRef.current = normalizeDirectoryOffset(directoryOffsetRef.current);
+              resumeAutoScrollAtRef.current = Date.now() + 1200;
+            }}
+            onTouchStart={() => {
+              resumeAutoScrollAtRef.current = Date.now() + 3000;
+            }}
+            onTouchEnd={() => {
+              resumeAutoScrollAtRef.current = Date.now() + 1200;
+            }}
+            onContentSizeChange={(width) => {
+              directoryContentWidthRef.current = width;
+            }}
+            contentContainerStyle={styles(pageColors).directoryRow}
+          >
+            {loopedOtherPublishers.map((item, index) => (
+              <Pressable
+                key={`${item.id}-${index}`}
+                style={styles(pageColors).directoryCard}
+                onPress={() => router.push(`/publisherprofile?id=${item.id}` as any)}
+              >
+                <View style={styles(pageColors).directoryLogoBox}>
+                  {item.logoUrl ? (
+                    <Image source={{ uri: item.logoUrl }} style={styles(pageColors).directoryLogoImage} resizeMode="cover" />
+                  ) : (
+                    <Text style={styles(pageColors).directoryLogoText}>{item.logoText}</Text>
+                  )}
+                </View>
+                <View style={styles(pageColors).directoryBody}>
+                  <Text style={styles(pageColors).directoryName} numberOfLines={1}>{item.name}</Text>
+                  <Text style={styles(pageColors).directoryMeta}>{item.category}</Text>
+                  <Text style={styles(pageColors).directoryFollow}>{item.followers} takipci</Text>
+                </View>
+                <View style={styles(pageColors).directoryActionPill}>
+                  <Text style={styles(pageColors).directoryActionText}>Profili Gor</Text>
+                </View>
+              </Pressable>
+            ))}
+          </ScrollView>
+
+          {canAutoScrollDirectory ? (
+            <View pointerEvents="box-none" style={styles(pageColors).directoryControlsWrap}>
+              <Pressable
+                style={[styles(pageColors).directoryControlBtn, styles(pageColors).directoryControlLeft]}
+                onPress={() => scrollDirectoryBy(-220)}
+              >
+                <Text style={styles(pageColors).directoryControlText}>{'<'}</Text>
+              </Pressable>
+              <Pressable
+                style={[styles(pageColors).directoryControlBtn, styles(pageColors).directoryControlRight]}
+                onPress={() => scrollDirectoryBy(220)}
+              >
+                <Text style={styles(pageColors).directoryControlText}>{'>'}</Text>
+              </Pressable>
+            </View>
+          ) : null}
+        </View>
       </View>
 
-      <View style={styles(colors).sectionHeadRow}>
-        <Text style={styles(colors).sectionTitle}>Kanal Haberleri</Text>
-        <Text style={styles(colors).sectionCount}>{filteredArticles.length} haber</Text>
+      <View style={styles(pageColors).sectionHeadRow}>
+        <Text style={styles(pageColors).sectionTitle}>Kanal Haberleri</Text>
+        <Text style={styles(pageColors).sectionCount}>{filteredArticles.length} haber</Text>
       </View>
 
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles(colors).topicRow}>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles(pageColors).topicRow}>
         {topicFilters.map((topic) => {
           const active = activeTopic === topic;
           return (
             <Pressable
               key={topic}
-              style={[styles(colors).topicChip, active ? styles(colors).topicChipActive : null]}
+              style={[styles(pageColors).topicChip, active ? styles(pageColors).topicChipActive : null]}
               onPress={() => setActiveTopic(topic)}
             >
-              <Text style={[styles(colors).topicChipText, active ? styles(colors).topicChipTextActive : null]}>
+              <Text style={[styles(pageColors).topicChipText, active ? styles(pageColors).topicChipTextActive : null]}>
                 {topic}
               </Text>
             </Pressable>
@@ -245,37 +360,37 @@ export default function PublisherProfilePage() {
       </ScrollView>
 
       {visibleArticles.map((article) => (
-        <Pressable key={article.id} style={styles(colors).articleCard} onPress={() => openArticlePreview(article)}>
+        <Pressable key={article.id} style={styles(pageColors).articleCard} onPress={() => openArticlePreview(article)}>
           {article.imageUrl ? (
-            <Image source={{ uri: article.imageUrl }} style={styles(colors).articleImage} resizeMode="cover" />
+            <Image source={{ uri: article.imageUrl }} style={styles(pageColors).articleImage} resizeMode="cover" />
           ) : (
-            <View style={styles(colors).articleImagePlaceholder}>
-              <Text style={styles(colors).articleImagePlaceholderText}>{article.tag.toUpperCase()}</Text>
+            <View style={styles(pageColors).articleImagePlaceholder}>
+              <Text style={styles(pageColors).articleImagePlaceholderText}>{article.tag.toUpperCase()}</Text>
             </View>
           )}
-          <Text style={styles(colors).articleTag}>{article.tag.toUpperCase()}</Text>
-          <Text style={styles(colors).articleTitleLink}>{article.title}</Text>
-          <Text style={styles(colors).articleSummary}>{article.summary}</Text>
-          <View style={styles(colors).metaRow}>
-            <View style={styles(colors).metaLeft}>
-              <Text style={styles(colors).metaText}>{article.likes} likes</Text>
-              <Text style={styles(colors).metaText}>{article.comments} comments</Text>
+          <Text style={styles(pageColors).articleTag}>{article.tag.toUpperCase()}</Text>
+          <Text style={styles(pageColors).articleTitleLink}>{article.title}</Text>
+          <Text style={styles(pageColors).articleSummary}>{article.summary}</Text>
+          <View style={styles(pageColors).metaRow}>
+            <View style={styles(pageColors).metaLeft}>
+              <Text style={styles(pageColors).metaText}>{article.likes} likes</Text>
+              <Text style={styles(pageColors).metaText}>{article.comments} comments</Text>
             </View>
-            {article.publishedAt ? <Text style={styles(colors).metaDate}>{formatArticleDateTime(article.publishedAt)}</Text> : null}
+            {article.publishedAt ? <Text style={styles(pageColors).metaDate}>{formatArticleDateTime(article.publishedAt)}</Text> : null}
           </View>
         </Pressable>
       ))}
 
       {hasMore ? (
-        <Pressable style={styles(colors).moreButton} onPress={() => setVisibleCount((count) => count + 10)}>
-          <Text style={styles(colors).moreButtonText}>Diger Haberler</Text>
+        <Pressable style={styles(pageColors).moreButton} onPress={() => setVisibleCount((count) => count + 10)}>
+          <Text style={styles(pageColors).moreButtonText}>Diger Haberler</Text>
         </Pressable>
       ) : null}
 
       <NewsQuickPreviewModal
         visible={!!previewItem}
         item={previewItem}
-        colors={colors}
+        colors={pageColors}
         onClose={() => setPreviewItem(null)}
         onReadMorePress={(item) => {
           setPreviewItem(null);
@@ -491,6 +606,44 @@ const styles = (colors: any) =>
     directoryRow: {
       gap: Spacing.sm,
       paddingRight: Spacing.lg,
+    },
+    directoryScrollerWrap: {
+      position: 'relative',
+    },
+    directoryControlsWrap: {
+      position: 'absolute',
+      top: 0,
+      bottom: 0,
+      left: 0,
+      right: 0,
+      justifyContent: 'center',
+    },
+    directoryControlBtn: {
+      position: 'absolute',
+      width: 34,
+      height: 34,
+      borderRadius: Radius.full,
+      borderWidth: 1,
+      borderColor: colors.border,
+      backgroundColor: colors.surfaceHigh,
+      alignItems: 'center',
+      justifyContent: 'center',
+      shadowColor: colors.black,
+      shadowOpacity: 0.12,
+      shadowRadius: 6,
+      shadowOffset: { width: 0, height: 2 },
+      elevation: 2,
+    },
+    directoryControlLeft: {
+      left: 4,
+    },
+    directoryControlRight: {
+      right: 4,
+    },
+    directoryControlText: {
+      color: colors.textPrimary,
+      fontSize: 16,
+      fontWeight: Typography.fontWeight.bold,
     },
     directoryCard: {
       borderWidth: 1,

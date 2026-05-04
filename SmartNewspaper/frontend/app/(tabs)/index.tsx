@@ -11,7 +11,7 @@ import { Radius, Spacing, Typography } from '@/constants/theme';
 import { usePreferences } from '@/hooks/usePreferences';
 import { useTheme } from '@/hooks/useTheme';
 import { useLanguage } from '@/hooks/useLanguage';
-import { getPublisherIdFromSourceName } from '@/services/publisherProfiles';
+import { buildPublisherDataset, getPublisherIdFromSourceName } from '@/services/publisherProfiles';
 
 type PeriodFilter = 'daily' | 'weekly';
 type SortKey = 'newest' | 'popularity' | 'relevance';
@@ -19,6 +19,7 @@ type CountryFilter = 'all' | 'Turkiye' | 'Global';
 type LanguageFilter = 'all' | 'Turkce' | 'Ingilizce';
 type LangFilter = 'all' | 'tr' | 'en' | 'de';
 type MarketKind = 'Borsa' | 'Maden';
+type FilterSectionKey = 'period' | 'lang' | 'sorting' | 'category' | 'source' | 'followed';
 
 const I18N = {
   tr: {
@@ -37,7 +38,7 @@ const I18N = {
     source: 'KAYNAK',
     showing: 'haber gosteriliyor',
     print: 'KISESEL BASKI',
-    newspaper: 'KISESEL GAZETE',
+    newspaper: 'KİŞİSEL GAZETE',
     slogan: 'Haberleri sizin icin derliyoruz',
     topic: 'GUNUN\nKONUSU',
     breaking: 'SON\nDAKIKA',
@@ -48,6 +49,8 @@ const I18N = {
     language: 'Dil',
     noSource: 'Eslesen kaynak bulunamadi.',
     markets: 'Piyasalar',
+    importantUpdates: 'ONEMLI GUNCELLEMELER',
+    liveNow: 'CANLI',
   },
   en: {
     filters: 'FILTERS',
@@ -76,6 +79,8 @@ const I18N = {
     language: 'Language',
     noSource: 'No matching sources found.',
     markets: 'Markets',
+    importantUpdates: 'IMPORTANT UPDATES',
+    liveNow: 'LIVE',
   },
   de: {
     filters: 'FILTER',
@@ -104,6 +109,8 @@ const I18N = {
     language: 'Sprache',
     noSource: 'Keine passenden Quellen gefunden.',
     markets: 'Markte',
+    importantUpdates: 'WICHTIGE UPDATES',
+    liveNow: 'LIVE',
   },
 } as const;
 
@@ -122,6 +129,7 @@ type PersonalizedNewsItem = {
   summary: string;
   content?: string;
   source: string;
+  sourceUrl?: string;
   publicationDate: string;
   category: ContentCategory;
   popularity: number;
@@ -181,6 +189,20 @@ function formatDate(isoDate: string, locale: string) {
   return `${dateStr} ${timeStr}`;
 }
 
+function formatRelativeTime(isoDate: string, language: 'tr' | 'en' | 'de', nowTs: number = Date.now()) {
+  const diffMs = nowTs - new Date(isoDate).getTime();
+  const diffMinutes = Math.max(0, Math.floor(diffMs / (1000 * 60)));
+
+  if (diffMinutes < 1) return language === 'en' ? 'just now' : language === 'de' ? 'gerade eben' : 'simdi';
+  if (diffMinutes < 60) return language === 'en' ? `${diffMinutes}m ago` : language === 'de' ? `vor ${diffMinutes} Min.` : `${diffMinutes} dk once`;
+
+  const diffHours = Math.floor(diffMinutes / 60);
+  if (diffHours < 24) return language === 'en' ? `${diffHours}h ago` : language === 'de' ? `vor ${diffHours} Std.` : `${diffHours} sa once`;
+
+  const diffDays = Math.floor(diffHours / 24);
+  return language === 'en' ? `${diffDays}d ago` : language === 'de' ? `vor ${diffDays} Tg.` : `${diffDays} gun once`;
+}
+
 function normalizeFilterValue(value: string) {
   return value
     .toLocaleLowerCase('tr-TR')
@@ -189,14 +211,430 @@ function normalizeFilterValue(value: string) {
     .replace(/[\u0300-\u036f]/g, '');
 }
 
+function toLiveUpdateText(title: string, summary: string | undefined, language: 'tr' | 'en' | 'de') {
+  const seed = `${title ?? ''} ${summary ?? ''}`.trim();
+  const normalized = normalizeFilterValue(seed);
+  const cleanedTitle = (title ?? summary ?? '')
+    .replace(/\s+/g, ' ')
+    .replace(/\s+-\s+(reuters|ap|afp|bbc|dw|tagesschau|spiegel).*$/i, '')
+    .replace(/\s*\|\s*[^|]*$/g, '')
+    .trim();
+
+  const baseText = cleanedTitle.length >= 16 ? cleanedTitle : (summary ?? cleanedTitle).trim();
+  if (!baseText) {
+    return language === 'en' ? 'Update in progress' : language === 'de' ? 'Update laeuft' : 'Guncelleme suruyor';
+  }
+  return baseText;
+}
+
+const SOURCE_DOMAINS: Record<string, string> = {
+  hurriyet: 'https://www.hurriyet.com.tr',
+  'hürriyet': 'https://www.hurriyet.com.tr',
+  milliyet: 'https://www.milliyet.com.tr',
+  sabah: 'https://www.sabah.com.tr',
+  ntv: 'https://www.ntv.com.tr',
+  reuters: 'https://www.reuters.com',
+  spiegel: 'https://www.spiegel.de',
+  tagesschau: 'https://www.tagesschau.de',
+  'bbc türkçe': 'https://www.bbc.com/turkce',
+  'bbc news': 'https://www.bbc.com/news',
+  'bbc business': 'https://www.bbc.com/news/business',
+  'bbc technology': 'https://www.bbc.com/news/technology',
+  'dw deutsch': 'https://www.dw.com/de',
+  'dw news': 'https://www.dw.com/en',
+  'dw europe': 'https://www.dw.com/en',
+  'dw business': 'https://www.dw.com/en/business',
+};
+
+const HIGH_IMPACT_KEYWORDS = [
+  'son dakika',
+  'acil',
+  'savas',
+  'saldiri',
+  'catisma',
+  'vur',
+  'kriz',
+  'oldu',
+  'yarali',
+  'deprem',
+  'patlama',
+  'iran',
+  'israil',
+  'gaza',
+  'ukrayna',
+  'rusya',
+  'abd',
+  'nato',
+  'ambargo',
+  'attack',
+  'strike',
+  'missile',
+  'war',
+  'killed',
+  'urgent',
+  'breaking',
+  'earthquake',
+  'flood',
+  'wildfire',
+  'storm',
+  'tsunami',
+  'volcano',
+  'evacuation',
+  'alert',
+  'emergency',
+];
+
+function buildSourceLogoUrl(sourceName: string, sourceUrl?: string): string | undefined {
+  try {
+    if (sourceUrl) {
+      const origin = new URL(sourceUrl).origin;
+      return `https://www.google.com/s2/favicons?sz=128&domain_url=${encodeURIComponent(origin)}`;
+    }
+  } catch {
+    // Fall back to source-name mapping when URL cannot be parsed.
+  }
+
+  const mapped = SOURCE_DOMAINS[sourceName.toLocaleLowerCase('tr-TR').trim()];
+  if (!mapped) return undefined;
+  return `https://www.google.com/s2/favicons?sz=128&domain_url=${encodeURIComponent(mapped)}`;
+}
+
+type FilterPanelProps = {
+  colors: ReturnType<typeof useTheme>['colors'];
+  t: (typeof I18N)['tr'];
+  activeFilterCount: number;
+  activePeriod: PeriodFilter;
+  setActivePeriod: (value: PeriodFilter) => void;
+  langFilter: LangFilter;
+  setLangFilter: (value: LangFilter) => void;
+  countryFilter: CountryFilter;
+  setCountryFilter: (value: CountryFilter) => void;
+  languageFilter: LanguageFilter;
+  setLanguageFilter: (value: LanguageFilter) => void;
+  sortKey: SortKey;
+  setSortKey: (value: SortKey) => void;
+  selectedCategory: ContentCategory | null;
+  setSelectedCategory: (value: ContentCategory | null) => void;
+  selectedSource: string;
+  setSelectedSource: (value: string) => void;
+  apiNewsLength: number;
+  categoryOptions: ContentCategory[];
+  categoryCounts: Record<string, number>;
+  sourceOptions: string[];
+  sourceLogoMap: Record<string, string | undefined>;
+  followedSources: string[];
+  filteredFollowedSources: string[];
+  uiLanguage: 'tr' | 'en' | 'de';
+  resetFilters: () => void;
+};
+
+const FilterPanel = ({
+  colors,
+  t,
+  activeFilterCount,
+  activePeriod,
+  setActivePeriod,
+  langFilter,
+  setLangFilter,
+  countryFilter,
+  setCountryFilter,
+  languageFilter,
+  setLanguageFilter,
+  sortKey,
+  setSortKey,
+  selectedCategory,
+  setSelectedCategory,
+  selectedSource,
+  setSelectedSource,
+  apiNewsLength,
+  categoryOptions,
+  categoryCounts,
+  sourceOptions,
+  sourceLogoMap,
+  followedSources,
+  filteredFollowedSources,
+  uiLanguage,
+  resetFilters,
+}: FilterPanelProps) => {
+  const [isFilterMenuOpen, setIsFilterMenuOpen] = useState(false);
+  const [activeFilterSection, setActiveFilterSection] = useState<FilterSectionKey | null>(null);
+
+  const toggleFilterMenu = () => {
+    setIsFilterMenuOpen((prev) => {
+      if (prev) {
+        setActiveFilterSection(null);
+      }
+      return !prev;
+    });
+  };
+
+  const toggleFilterSection = (section: FilterSectionKey) => {
+    if (!isFilterMenuOpen) {
+      setIsFilterMenuOpen(true);
+      setActiveFilterSection(section);
+      return;
+    }
+    setActiveFilterSection((prev) => (prev === section ? null : section));
+  };
+
+  return (
+    <View style={s(colors).filterPanel}>
+      <View style={s(colors).filterPanelHeader}>
+        <Text style={s(colors).filterPanelTitle}>{t.filters}</Text>
+        {activeFilterCount > 0 && (
+          <Pressable style={s(colors).resetBtn} onPress={resetFilters}>
+            <View style={s(colors).resetBadge}>
+              <Text style={s(colors).resetBadgeNum}>{activeFilterCount}</Text>
+            </View>
+            <Text style={s(colors).resetBtnText}>{t.clear}</Text>
+          </Pressable>
+        )}
+      </View>
+
+      <Pressable
+        style={[s(colors).filterMenuTrigger, isFilterMenuOpen && s(colors).filterMenuTriggerOpen]}
+        onPress={toggleFilterMenu}
+      >
+        <Text style={s(colors).filterMenuTriggerText}>{t.filters}</Text>
+        <Text style={s(colors).filterMenuChevron}>{isFilterMenuOpen ? '▾' : '▸'}</Text>
+      </Pressable>
+
+      {isFilterMenuOpen && (
+        <View style={s(colors).filterSectionsWrap}>
+          {([
+            { key: 'period', label: t.period },
+            { key: 'lang', label: t.lang },
+            { key: 'sorting', label: t.sorting },
+            { key: 'category', label: t.category },
+            { key: 'source', label: t.source },
+            { key: 'followed', label: t.followed },
+          ] as { key: FilterSectionKey; label: string }[]).map((section) => (
+            <View key={section.key} style={s(colors).filterSectionBlock}>
+              <Pressable
+                style={[
+                  s(colors).filterSectionBtn,
+                  activeFilterSection === section.key && s(colors).filterSectionBtnActive,
+                ]}
+                onPress={() => toggleFilterSection(section.key)}
+              >
+                <Text
+                  style={[
+                    s(colors).filterSectionBtnText,
+                    activeFilterSection === section.key && s(colors).filterSectionBtnTextActive,
+                  ]}
+                >
+                  {section.label}
+                </Text>
+                <Text style={s(colors).filterSectionChevron}>
+                  {activeFilterSection === section.key ? '▾' : '▸'}
+                </Text>
+              </Pressable>
+
+              {activeFilterSection === section.key && (
+                <View style={s(colors).filterSectionContent}>
+                  {section.key === 'period' && (
+                    <View style={s(colors).periodRow}>
+                      {(['daily', 'weekly'] as PeriodFilter[]).map((p) => (
+                        <Pressable
+                          key={p}
+                          style={[s(colors).periodBtn, activePeriod === p && s(colors).periodBtnActive]}
+                          onPress={() => setActivePeriod(p)}
+                        >
+                          <Text style={[s(colors).periodBtnText, activePeriod === p && s(colors).periodBtnTextActive]}>
+                            {p === 'daily' ? `📅 ${t.daily}` : `🗓 ${t.weekly}`}
+                          </Text>
+                        </Pressable>
+                      ))}
+                    </View>
+                  )}
+
+                  {section.key === 'lang' && (() => {
+                    const langOpts = [
+                      { key: 'all' as LangFilter, flag: '🌐', label: t.all },
+                      { key: 'tr' as LangFilter, flag: '🇹🇷', label: 'TR' },
+                      { key: 'en' as LangFilter, flag: '🇬🇧', label: 'EN' },
+                      { key: 'de' as LangFilter, flag: '🇩🇪', label: 'DE' },
+                    ];
+
+                    return (
+                      <View style={s(colors).segmentedCtrl}>
+                        {langOpts.map((opt, idx) => (
+                          <Pressable
+                            key={opt.key}
+                            style={[
+                              s(colors).segment,
+                              idx < langOpts.length - 1 && s(colors).segmentBorder,
+                              langFilter === opt.key && s(colors).segmentActive,
+                            ]}
+                            onPress={() => setLangFilter(opt.key)}
+                          >
+                            <Text style={s(colors).segmentFlag}>{opt.flag}</Text>
+                            <Text style={[s(colors).segmentText, langFilter === opt.key && s(colors).segmentTextActive]}>
+                              {opt.label}
+                            </Text>
+                          </Pressable>
+                        ))}
+                      </View>
+                    );
+                  })()}
+
+                  {section.key === 'sorting' && (
+                    <View style={s(colors).chipWrap}>
+                      {([
+                        { key: 'newest' as const, label: `🕐 ${t.newest}` },
+                        { key: 'popularity' as const, label: `🔥 ${t.popular}` },
+                        { key: 'relevance' as const, label: `⭐ ${t.related}` },
+                      ]).map((opt) => (
+                        <Pressable
+                          key={opt.key}
+                          style={[s(colors).filterChip, sortKey === opt.key && s(colors).filterChipActive]}
+                          onPress={() => setSortKey(opt.key)}
+                        >
+                          <Text style={[s(colors).filterChipText, sortKey === opt.key && s(colors).filterChipTextActive]}>
+                            {opt.label}
+                          </Text>
+                        </Pressable>
+                      ))}
+                    </View>
+                  )}
+
+                  {section.key === 'category' && (
+                    <View style={s(colors).chipWrap}>
+                      <Pressable
+                        style={[s(colors).filterChip, selectedCategory === null && s(colors).filterChipActive]}
+                        onPress={() => setSelectedCategory(null)}
+                      >
+                        <Text style={[s(colors).filterChipText, selectedCategory === null && s(colors).filterChipTextActive]}>
+                          {t.all} {apiNewsLength > 0 && <Text style={s(colors).filterChipCount}>({apiNewsLength})</Text>}
+                        </Text>
+                      </Pressable>
+                      {categoryOptions.map((cat) => (
+                        <Pressable
+                          key={cat}
+                          style={[s(colors).filterChip, selectedCategory === cat && s(colors).filterChipActive]}
+                          onPress={() => setSelectedCategory(cat)}
+                        >
+                          <Text style={[s(colors).filterChipText, selectedCategory === cat && s(colors).filterChipTextActive]}>
+                            {cat}{categoryCounts[cat] ? <Text style={s(colors).filterChipCount}> ({categoryCounts[cat]})</Text> : ''}
+                          </Text>
+                        </Pressable>
+                      ))}
+                    </View>
+                  )}
+
+                  {section.key === 'source' && (
+                    <View style={s(colors).chipWrap}>
+                      <Pressable
+                        style={[s(colors).filterChip, selectedSource === 'all' && s(colors).filterChipActive]}
+                        onPress={() => setSelectedSource('all')}
+                      >
+                        <Text style={[s(colors).filterChipText, selectedSource === 'all' && s(colors).filterChipTextActive]}>
+                          {t.all}
+                        </Text>
+                      </Pressable>
+                      {sourceOptions.map((src) => (
+                        <Pressable
+                          key={src}
+                          style={[s(colors).filterChip, selectedSource === src && s(colors).filterChipActive]}
+                          onPress={() => setSelectedSource(src)}
+                        >
+                          <Text style={[s(colors).filterChipText, selectedSource === src && s(colors).filterChipTextActive]}>
+                            {src}
+                          </Text>
+                        </Pressable>
+                      ))}
+                    </View>
+                  )}
+
+                  {section.key === 'followed' && (
+                    <View style={s(colors).followedSection}>
+                      <View style={s(colors).followedSectionHeader}>
+                        <Text style={s(colors).followedSectionCount}>
+                          {filteredFollowedSources.length}/{followedSources.length}
+                        </Text>
+                      </View>
+
+                      <Text style={s(colors).filterLabel}>{t.country}</Text>
+                      <View style={s(colors).chipWrap}>
+                        {(['all', 'Turkiye', 'Global'] as CountryFilter[]).map((opt) => (
+                          <Pressable
+                            key={opt}
+                            style={[s(colors).filterChip, countryFilter === opt && s(colors).filterChipActive]}
+                            onPress={() => setCountryFilter(opt)}
+                          >
+                            <Text style={[s(colors).filterChipText, countryFilter === opt && s(colors).filterChipTextActive]}>
+                              {opt === 'all' ? t.all : opt === 'Turkiye' ? (uiLanguage === 'en' ? 'Turkey' : uiLanguage === 'de' ? 'Turkei' : 'Turkiye') : 'Global'}
+                            </Text>
+                          </Pressable>
+                        ))}
+                      </View>
+
+                      <Text style={s(colors).filterLabel}>{t.language}</Text>
+                      <View style={s(colors).chipWrap}>
+                        {(['all', 'Turkce', 'Ingilizce'] as LanguageFilter[]).map((opt) => (
+                          <Pressable
+                            key={opt}
+                            style={[s(colors).filterChip, languageFilter === opt && s(colors).filterChipActive]}
+                            onPress={() => setLanguageFilter(opt)}
+                          >
+                            <Text style={[s(colors).filterChipText, languageFilter === opt && s(colors).filterChipTextActive]}>
+                              {opt === 'all' ? t.all : opt === 'Turkce' ? (uiLanguage === 'en' ? 'Turkish' : uiLanguage === 'de' ? 'Turkisch' : 'Turkce') : uiLanguage === 'de' ? 'Englisch' : 'English'}
+                            </Text>
+                          </Pressable>
+                        ))}
+                      </View>
+
+                      <View style={s(colors).sourceList}>
+                        {filteredFollowedSources.length ? filteredFollowedSources.map((src) => {
+                          const meta = getSourceMeta(src);
+                          const logoUrl = sourceLogoMap[src];
+
+                          return (
+                            <Pressable key={src} style={s(colors).sourceRow} onPress={() => openPublisherProfile(src)}>
+                              <View style={s(colors).sourceAvatar}>
+                                {logoUrl ? (
+                                  <Image source={{ uri: logoUrl }} style={s(colors).sourceAvatarImage} resizeMode="cover" />
+                                ) : (
+                                  <Text style={s(colors).sourceAvatarText}>{src.charAt(0).toUpperCase()}</Text>
+                                )}
+                              </View>
+                              <View style={{ flex: 1 }}>
+                                <Text style={s(colors).sourceNameLink}>{src}</Text>
+                                <Text style={s(colors).sourceMeta}>{meta.country} · {meta.language}</Text>
+                              </View>
+                            </Pressable>
+                          );
+                        }) : (
+                          <Text style={s(colors).emptyText}>{t.noSource}</Text>
+                        )}
+                      </View>
+                    </View>
+                  )}
+                </View>
+              )}
+            </View>
+          ))}
+        </View>
+      )}
+
+      <View style={s(colors).filterResultRow}>
+        <Text style={s(colors).filterResultText}>
+          {apiNewsLength} {t.showing}
+        </Text>
+      </View>
+    </View>
+  );
+};
+
 export default function PersonalizedNewsScreen() {
   const router = useRouter();
-  const { colors } = useTheme();
+  const { colors, themeName } = useTheme();
   const { language } = useLanguage();
   const t = I18N[language];
   const dateLocale = language === 'en' ? 'en-GB' : language === 'de' ? 'de-DE' : 'tr-TR';
   const { preferredCategories, preferredNewspapers } = usePreferences();
   const isWeb = Platform.OS === 'web';
+  const pageBackground = themeName === 'vincent' ? colors.surface : colors.background;
   const { news: apiNews, loading: newsLoading } = usePersonalizedNews();
   useNewsNotifications(); // Yeni haberler için notification
   useEventNotifications(); // Yaklaşan etkinlikler için notification
@@ -208,6 +646,7 @@ export default function PersonalizedNewsScreen() {
   const [countryFilter, setCountryFilter] = useState<CountryFilter>('all');
   const [languageFilter, setLanguageFilter] = useState<LanguageFilter>('all');
   const [langFilter, setLangFilter] = useState<LangFilter>('tr');
+  const [liveNowTs, setLiveNowTs] = useState<number>(Date.now());
   const [previewItem, setPreviewItem] = useState<{
     id: string;
     title: string;
@@ -219,6 +658,8 @@ export default function PersonalizedNewsScreen() {
     url?: string;
     category?: string;
   } | null>(null);
+
+  
 
   // Ticker animasyonu
   const tickerX = useRef(new Animated.Value(0)).current;
@@ -236,6 +677,15 @@ export default function PersonalizedNewsScreen() {
   useEffect(() => {
     setLangFilter(language);
   }, [language]);
+  
+
+  useEffect(() => {
+    const intervalId = setInterval(() => {
+      setLiveNowTs(Date.now());
+    }, 30000);
+
+    return () => clearInterval(intervalId);
+  }, []);
 
   const defaultCategories: ContentCategory[] = ['Siyaset', 'Teknoloji', 'Spor', 'Magazin'];
   const interestCategories = preferredCategories.length ? preferredCategories : defaultCategories;
@@ -250,6 +700,30 @@ export default function PersonalizedNewsScreen() {
     () => Array.from(new Set(apiNews.map((item) => item.source))).sort((a, b) => a.localeCompare(b, 'tr')),
     [apiNews]
   );
+
+  const sourceLogoMap = useMemo(() => {
+    const map: Record<string, string | undefined> = {};
+
+    for (const item of apiNews) {
+      if (map[item.source]) continue;
+      map[item.source] = buildSourceLogoUrl(item.source, item.sourceUrl);
+    }
+
+    return map;
+  }, [apiNews]);
+
+  const publisherDirectory = useMemo(() => buildPublisherDataset(apiNews).publishers, [apiNews]);
+
+  const publisherIdLookup = useMemo(() => {
+    const lookup = new Map<string, string>();
+
+    for (const publisher of publisherDirectory) {
+      lookup.set(normalizeFilterValue(publisher.name), publisher.id);
+      lookup.set(normalizeFilterValue(publisher.id), publisher.id);
+    }
+
+    return lookup;
+  }, [publisherDirectory]);
 
   const followedSources = useMemo(() => {
     if (preferredNewspapers.length) {
@@ -326,6 +800,48 @@ export default function PersonalizedNewsScreen() {
     });
   }, [activePeriod, apiNews, interestCategories, langFilter, selectedCategory, selectedSource, sortKey]);
 
+  const trendingTopics = useMemo(() => {
+    const stopWords = new Set([
+      've', 'ile', 'icin', 'için', 'son', 'daha', 'yeni', 'haber', 'haberleri', 'news', 'the', 'and', 'of', 'to', 'in', 'on', 'a', 'an', 'u', 'ü',
+      'bir', 'bu', 'şu', 'su', 'da', 'de', 'ki', 'mi', 'mı', 'mu', 'mü', 'ilk', 'son', 'sonra', 'önce', 'once', 'son', 'dakika', 'gün', 'gun',
+    ]);
+
+    const toHashtag = (article: PersonalizedNewsItem) => {
+      const raw = `${article.category} ${article.title}`
+        .replace(/[^\p{L}\p{N}\s-]/gu, ' ')
+        .split(/\s+/)
+        .map((part) => part.trim())
+        .filter(Boolean)
+        .filter((part) => !stopWords.has(normalizeFilterValue(part)));
+
+      const picked = raw.slice(0, 2).join('');
+      const fallback = normalizeFilterValue(article.category).replace(/\s+/g, '');
+      const hashtag = (picked || fallback || 'trend')
+        .replace(/\s+/g, '')
+        .replace(/-+/g, '');
+
+      return `#${hashtag.charAt(0).toUpperCase()}${hashtag.slice(1)}`;
+    };
+
+    const score = (article: PersonalizedNewsItem) => (
+      (article.popularity ?? 0) * 1.4 + (article.likes ?? 0) / 24 + (article.comments ?? 0) / 3
+    );
+
+    return [...apiNews]
+      .sort((a, b) => score(b) - score(a))
+      .slice(0, 5)
+      .map((article, index) => ({
+        id: article.id,
+        rank: index + 1,
+        tag: toHashtag(article),
+        title: article.title,
+        source: article.source,
+        article,
+      }));
+  }, [apiNews]);
+
+  
+
   const prioritizedNews = useMemo(() => {
     const withImage = sortedNews.filter((item) => !!item.imageUrl);
     const withoutImage = sortedNews.filter((item) => !item.imageUrl);
@@ -334,10 +850,103 @@ export default function PersonalizedNewsScreen() {
 
   const featured = prioritizedNews[0];
   const secondaries = prioritizedNews.slice(1, 5);
-  const compactList = prioritizedNews.slice(5);
+  const importantUpdates = useMemo(() => {
+    const now = Date.now();
+    const seen = new Set<string>();
+
+    return prioritizedNews
+      .map((item) => {
+        const normalizedText = normalizeFilterValue(`${item.title} ${item.summary}`);
+        const keywordHits = HIGH_IMPACT_KEYWORDS.reduce(
+          (count, keyword) => (normalizedText.includes(keyword) ? count + 1 : count),
+          0
+        );
+
+        const normalizedCategory = normalizeFilterValue(item.category);
+        const categoryBoost = /(siyaset|politic|dunya|world|ekonomi|business|guvenlik|security)/.test(normalizedCategory)
+          ? 8
+          : 0;
+
+        const ageHours = Math.max(0, (now - new Date(item.publicationDate).getTime()) / (1000 * 60 * 60));
+        const recencyScore = Math.max(0, 36 - ageHours);
+        const engagementBoost = Math.min(10, Math.round(item.popularity / 20) + Math.round(item.relevance / 25));
+        const score = keywordHits * 10 + categoryBoost + recencyScore + engagementBoost;
+
+        return { item, score, ageHours };
+      })
+      .filter(({ item, score, ageHours }) => {
+        if (ageHours > 72) return false;
+        if (item.id === featured?.id) return false;
+        if (secondaries.some((news) => news.id === item.id)) return false;
+        const dedupeKey = normalizeFilterValue(item.title);
+        if (seen.has(dedupeKey)) return false;
+        seen.add(dedupeKey);
+        return score >= 24;
+      })
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 4)
+      .map(({ item }) => item);
+  }, [featured?.id, prioritizedNews, secondaries]);
+
+  const liveUpdates = useMemo(
+    () =>
+      importantUpdates.map((item) => ({
+        id: item.id,
+        publishedAt: item.publicationDate,
+        text: toLiveUpdateText(item.title, item.summary, language),
+      })),
+    [importantUpdates, language]
+  );
+
+  const importantUpdateIds = useMemo(() => new Set(importantUpdates.map((item) => item.id)), [importantUpdates]);
+
+  const secondaryGridNews = importantUpdates.length > 0 ? secondaries.slice(0, 2) : secondaries;
+  const compactList = useMemo(
+    () => prioritizedNews.slice(5).filter((item) => !importantUpdateIds.has(item.id)),
+    [importantUpdateIds, prioritizedNews]
+  );
+  const newspaperBlocks = useMemo(() => {
+    const blocks: Array<{
+      id: string;
+      lead: PersonalizedNewsItem;
+      sideA: PersonalizedNewsItem[];
+      sideB: PersonalizedNewsItem[];
+      leadPosition: 'center' | 'left' | 'right';
+    }> = [];
+
+    for (let i = 0; i < compactList.length; i += 5) {
+      const chunk = compactList.slice(i, i + 5);
+      if (!chunk.length) break;
+
+      const lead = chunk[0];
+      if (!lead) break;
+
+      const positionCycle = blocks.length % 3;
+      const leadPosition =
+        positionCycle === 0 ? 'center' : positionCycle === 1 ? 'left' : 'right';
+
+      blocks.push({
+        id: `${lead.id}-${i}`,
+        lead,
+        sideA: chunk.slice(1, 3),
+        sideB: chunk.slice(3, 5),
+        leadPosition,
+      });
+    }
+
+    return blocks;
+  }, [compactList]);
 
   const openPublisherProfile = (sourceName: string) => {
-    const publisherId = getPublisherIdFromSourceName(sourceName);
+    const normalized = normalizeFilterValue(sourceName);
+    const exactMatch = publisherIdLookup.get(normalized);
+
+    const fuzzyMatch = exactMatch ?? publisherDirectory.find((publisher) => {
+      const candidateName = normalizeFilterValue(publisher.name);
+      return candidateName.includes(normalized) || normalized.includes(candidateName);
+    })?.id;
+
+    const publisherId = fuzzyMatch ?? getPublisherIdFromSourceName(sourceName);
     router.push(`/publisherprofile?id=${encodeURIComponent(publisherId)}` as any);
   };
 
@@ -362,157 +971,22 @@ export default function PersonalizedNewsScreen() {
     langFilter !== 'all',
     activePeriod !== 'daily',
     sortKey !== 'newest',
+    countryFilter !== 'all',
+    languageFilter !== 'all',
   ].filter(Boolean).length;
 
   const resetFilters = () => {
     setSelectedCategory(null);
     setSelectedSource('all');
     setLangFilter(language);
+    setCountryFilter('all');
+    setLanguageFilter('all');
     setActivePeriod('daily');
     setSortKey('newest');
   };
 
-  const FilterPanel = () => (
-    <View style={s(colors).filterPanel}>
-      {/* Başlık + aktif filtre sayısı + temizle */}
-      <View style={s(colors).filterPanelHeader}>
-        <Text style={s(colors).filterPanelTitle}>{t.filters}</Text>
-        {activeFilterCount > 0 && (
-          <Pressable style={s(colors).resetBtn} onPress={resetFilters}>
-            <View style={s(colors).resetBadge}>
-              <Text style={s(colors).resetBadgeNum}>{activeFilterCount}</Text>
-            </View>
-            <Text style={s(colors).resetBtnText}>{t.clear}</Text>
-          </Pressable>
-        )}
-      </View>
-
-      {/* Dönem */}
-      <Text style={s(colors).filterLabel}>{t.period}</Text>
-      <View style={s(colors).periodRow}>
-        {(['daily', 'weekly'] as PeriodFilter[]).map((p) => (
-          <Pressable
-            key={p}
-            style={[s(colors).periodBtn, activePeriod === p && s(colors).periodBtnActive]}
-            onPress={() => setActivePeriod(p)}
-          >
-            <Text style={[s(colors).periodBtnText, activePeriod === p && s(colors).periodBtnTextActive]}>
-              {p === 'daily' ? `📅 ${t.daily}` : `🗓 ${t.weekly}`}
-            </Text>
-          </Pressable>
-        ))}
-      </View>
-
-      {/* Dil */}
-      <Text style={s(colors).filterLabel}>{t.lang}</Text>
-      {(() => {
-        const langOpts = [
-          { key: 'all' as LangFilter, flag: '🌐', label: t.all },
-          { key: 'tr' as LangFilter, flag: '🇹🇷', label: 'TR' },
-          { key: 'en' as LangFilter, flag: '🇬🇧', label: 'EN' },
-          { key: 'de' as LangFilter, flag: '🇩🇪', label: 'DE' },
-        ];
-        return (
-          <View style={s(colors).segmentedCtrl}>
-            {langOpts.map((opt, idx) => (
-              <Pressable
-                key={opt.key}
-                style={[
-                  s(colors).segment,
-                  idx < langOpts.length - 1 && s(colors).segmentBorder,
-                  langFilter === opt.key && s(colors).segmentActive,
-                ]}
-                onPress={() => setLangFilter(opt.key)}
-              >
-                <Text style={s(colors).segmentFlag}>{opt.flag}</Text>
-                <Text style={[s(colors).segmentText, langFilter === opt.key && s(colors).segmentTextActive]}>
-                  {opt.label}
-                </Text>
-              </Pressable>
-            ))}
-          </View>
-        );
-      })()}
-
-      {/* Sıralama */}
-      <Text style={s(colors).filterLabel}>{t.sorting}</Text>
-      <View style={s(colors).chipWrap}>
-        {([
-          { key: 'newest' as const, label: `🕐 ${t.newest}` },
-          { key: 'popularity' as const, label: `🔥 ${t.popular}` },
-          { key: 'relevance' as const, label: `⭐ ${t.related}` },
-        ]).map((opt) => (
-          <Pressable
-            key={opt.key}
-            style={[s(colors).filterChip, sortKey === opt.key && s(colors).filterChipActive]}
-            onPress={() => setSortKey(opt.key)}
-          >
-            <Text style={[s(colors).filterChipText, sortKey === opt.key && s(colors).filterChipTextActive]}>
-              {opt.label}
-            </Text>
-          </Pressable>
-        ))}
-      </View>
-
-      {/* Kategori — sayılarla */}
-      <Text style={s(colors).filterLabel}>{t.category}</Text>
-      <View style={s(colors).chipWrap}>
-        <Pressable
-          style={[s(colors).filterChip, selectedCategory === null && s(colors).filterChipActive]}
-          onPress={() => setSelectedCategory(null)}
-        >
-          <Text style={[s(colors).filterChipText, selectedCategory === null && s(colors).filterChipTextActive]}>
-            {t.all} {apiNews.length > 0 && <Text style={s(colors).filterChipCount}>({apiNews.length})</Text>}
-          </Text>
-        </Pressable>
-        {categoryOptions.map((cat) => (
-          <Pressable
-            key={cat}
-            style={[s(colors).filterChip, selectedCategory === cat && s(colors).filterChipActive]}
-            onPress={() => setSelectedCategory(cat)}
-          >
-            <Text style={[s(colors).filterChipText, selectedCategory === cat && s(colors).filterChipTextActive]}>
-              {cat}{categoryCounts[cat] ? <Text style={s(colors).filterChipCount}> ({categoryCounts[cat]})</Text> : ''}
-            </Text>
-          </Pressable>
-        ))}
-      </View>
-
-      {/* Kaynak */}
-      <Text style={s(colors).filterLabel}>{t.source}</Text>
-      <View style={s(colors).chipWrap}>
-        <Pressable
-          style={[s(colors).filterChip, selectedSource === 'all' && s(colors).filterChipActive]}
-          onPress={() => setSelectedSource('all')}
-        >
-          <Text style={[s(colors).filterChipText, selectedSource === 'all' && s(colors).filterChipTextActive]}>
-            {t.all}
-          </Text>
-        </Pressable>
-        {sourceOptions.map((src) => (
-          <Pressable
-            key={src}
-            style={[s(colors).filterChip, selectedSource === src && s(colors).filterChipActive]}
-            onPress={() => setSelectedSource(src)}
-          >
-            <Text style={[s(colors).filterChipText, selectedSource === src && s(colors).filterChipTextActive]}>
-              {src}
-            </Text>
-          </Pressable>
-        ))}
-      </View>
-
-      {/* Sonuç sayısı */}
-      <View style={s(colors).filterResultRow}>
-        <Text style={s(colors).filterResultText}>
-          {sortedNews.length} {t.showing}
-        </Text>
-      </View>
-    </View>
-  );
-
   return (
-    <ScrollView style={s(colors).container} contentContainerStyle={s(colors).content}>
+    <ScrollView style={[s(colors).container, { backgroundColor: pageBackground }]} contentContainerStyle={s(colors).content}>
 
       {/* ── Gazete başlığı ─────────────────────────────────────────── */}
       <View style={s(colors).masthead}>
@@ -668,12 +1142,12 @@ export default function PersonalizedNewsScreen() {
           ) : null}
 
           {/* Kesme çizgisi */}
-          {secondaries.length > 0 && <View style={s(colors).rule} />}
+          {(secondaryGridNews.length > 0 || importantUpdates.length > 0) && <View style={s(colors).rule} />}
 
           {/* 2'li grid: ikincil haberler */}
-          {secondaries.length > 0 && (
+          {(secondaryGridNews.length > 0 || importantUpdates.length > 0) && (
             <View style={s(colors).grid}>
-              {secondaries.map((item) => (
+              {secondaryGridNews.map((item) => (
                 <View key={item.id} style={s(colors).gridCard}>
                   {item.imageUrl ? (
                     <Image source={{ uri: item.imageUrl }} style={s(colors).gridImage} resizeMode="cover" />
@@ -703,42 +1177,218 @@ export default function PersonalizedNewsScreen() {
                   </View>
                 </View>
               ))}
+
+              {importantUpdates.length > 0 && (
+                <View style={[s(colors).gridCard, s(colors).importantCard]}>
+                  <View style={s(colors).importantHeader}>
+                    <View style={s(colors).importantLiveBadge}>
+                      <View style={s(colors).importantLiveDot} />
+                      <Text style={s(colors).importantLiveText}>{t.liveNow}</Text>
+                    </View>
+                    <Text style={s(colors).importantTitle}>{t.importantUpdates}</Text>
+                  </View>
+
+                  <View style={s(colors).importantList}>
+                    {liveUpdates.map((item, idx) => (
+                      <View key={item.id} style={[s(colors).importantItem, idx > 0 && s(colors).importantItemRule]}>
+                        <View style={s(colors).importantLineRow}>
+                          <View style={s(colors).importantItemDot} />
+                          <Text style={s(colors).importantTime}>{formatRelativeTime(item.publishedAt, language, liveNowTs)}</Text>
+                          <Text style={s(colors).importantMetaDot}>:</Text>
+                          <Text style={s(colors).importantItemHeadline} numberOfLines={3}>
+                            {item.text}
+                          </Text>
+                        </View>
+                      </View>
+                    ))}
+                  </View>
+                </View>
+              )}
             </View>
           )}
 
           {/* Kesme çizgisi */}
           {compactList.length > 0 && <View style={s(colors).rule} />}
 
-          {/* Kompakt liste: geri kalan haberler */}
-          {compactList.map((item, i) => (
-            <View key={item.id}>
-              <View style={s(colors).listCard}>
-                <View style={s(colors).listBody}>
-                  <Text style={s(colors).listCategory}>{item.category.toUpperCase()}</Text>
-                  <Pressable onPress={() => openArticlePreview(item)}>
-                    <Text style={s(colors).listHeadlineLink} numberOfLines={2}>{item.title}</Text>
-                  </Pressable>
-                  <Text style={s(colors).listSummary} numberOfLines={2}>{item.summary}</Text>
-                  <View style={s(colors).listBylineRow}>
-                    <Pressable onPress={() => openPublisherProfile(item.source)}>
-                      <Text style={s(colors).listBylineSource}>{item.source}</Text>
-                    </Pressable>
-                    <Text style={s(colors).listBylineDot}>·</Text>
-                    <Text style={s(colors).listBylineDate}>{formatDate(item.publicationDate, dateLocale)}</Text>
-                    <Text style={s(colors).listBylineDot}>·</Text>
-                    <Text style={s(colors).listBylineMeta}>♥</Text>
-                    <Text style={s(colors).listBylineMetaNumber}>{item.likes}</Text>
-                    <Text style={s(colors).listBylineMeta}>💬</Text>
-                    <Text style={s(colors).listBylineMetaNumber}>{item.comments}</Text>
-                  </View>
+          {/* Newspaper akışı: tüm haberler için döngüsel büyük kolon düzeni */}
+          {newspaperBlocks.map((block, blockIndex) => {
+            const leadOnLeft = block.leadPosition === 'left';
+            const leadOnCenter = block.leadPosition === 'center';
+            const leadOnRight = block.leadPosition === 'right';
+
+            return (
+              <View key={block.id} style={s(colors).newspaperSection}>
+                <View style={[s(colors).newspaperTopRow, !isWeb && s(colors).newspaperTopRowMobile]}>
+                  {/* Sol kolon */}
+                  {leadOnLeft ? (
+                    <View style={s(colors).newspaperCenterCol}>
+                      {block.lead.imageUrl ? (
+                        <Image source={{ uri: block.lead.imageUrl }} style={s(colors).newspaperLeadImage} resizeMode="cover" />
+                      ) : (
+                        <View style={s(colors).newspaperLeadImagePlaceholder}>
+                          <Text style={s(colors).newspaperLeadImagePlaceholderText}>{block.lead.category.toUpperCase()}</Text>
+                        </View>
+                      )}
+                      <View style={s(colors).newspaperLeadBody}>
+                        <Text style={s(colors).newspaperCategory}>{block.lead.category.toUpperCase()}</Text>
+                        <Pressable onPress={() => openArticlePreview(block.lead)}>
+                          <Text style={[s(colors).newspaperLeadHeadlineLink, !isWeb && s(colors).newspaperLeadHeadlineLinkMobile]} numberOfLines={3}>
+                            {block.lead.title}
+                          </Text>
+                        </Pressable>
+                        <Text style={s(colors).newspaperLeadSummary} numberOfLines={4}>{block.lead.summary}</Text>
+                        <View style={s(colors).newspaperBylineRow}>
+                          <Pressable onPress={() => openPublisherProfile(block.lead.source)}>
+                            <Text style={s(colors).newspaperBylineSource}>{block.lead.source}</Text>
+                          </Pressable>
+                          <Text style={s(colors).newspaperBylineDot}>·</Text>
+                          <Text style={s(colors).newspaperBylineDate}>{formatDate(block.lead.publicationDate, dateLocale)}</Text>
+                        </View>
+                      </View>
+                    </View>
+                  ) : (
+                    <View style={[s(colors).newspaperSideCol, !isWeb && s(colors).newspaperSideColMobile, isWeb && s(colors).newspaperSideColDivider]}>
+                      {block.sideA.map((item, i) => (
+                        <View key={item.id} style={s(colors).newspaperSideItem}>
+                          {item.imageUrl ? (
+                            <Image source={{ uri: item.imageUrl }} style={s(colors).newspaperSideImage} resizeMode="cover" />
+                          ) : (
+                            <View style={s(colors).newspaperSideImagePlaceholder}>
+                              <Text style={s(colors).newspaperSideImagePlaceholderText}>{item.category.toUpperCase()}</Text>
+                            </View>
+                          )}
+                          <Pressable onPress={() => openArticlePreview(item)}>
+                            <Text style={s(colors).newspaperSideHeadlineLink} numberOfLines={3}>{item.title}</Text>
+                          </Pressable>
+                          <Text style={s(colors).newspaperSideSummary} numberOfLines={2}>{item.summary}</Text>
+                          <View style={s(colors).newspaperBylineRow}>
+                            <Pressable onPress={() => openPublisherProfile(item.source)}>
+                              <Text style={s(colors).newspaperBylineSource}>{item.source}</Text>
+                            </Pressable>
+                            <Text style={s(colors).newspaperBylineDot}>·</Text>
+                            <Text style={s(colors).newspaperBylineDate}>{formatDate(item.publicationDate, dateLocale)}</Text>
+                          </View>
+                          {i < block.sideA.length - 1 && <View style={s(colors).newspaperItemRule} />}
+                        </View>
+                      ))}
+                    </View>
+                  )}
+
+                  {/* Orta kolon */}
+                  {leadOnCenter ? (
+                    <View style={s(colors).newspaperCenterCol}>
+                      {block.lead.imageUrl ? (
+                        <Image source={{ uri: block.lead.imageUrl }} style={s(colors).newspaperLeadImage} resizeMode="cover" />
+                      ) : (
+                        <View style={s(colors).newspaperLeadImagePlaceholder}>
+                          <Text style={s(colors).newspaperLeadImagePlaceholderText}>{block.lead.category.toUpperCase()}</Text>
+                        </View>
+                      )}
+                      <View style={s(colors).newspaperLeadBody}>
+                        <Text style={s(colors).newspaperCategory}>{block.lead.category.toUpperCase()}</Text>
+                        <Pressable onPress={() => openArticlePreview(block.lead)}>
+                          <Text style={[s(colors).newspaperLeadHeadlineLink, !isWeb && s(colors).newspaperLeadHeadlineLinkMobile]} numberOfLines={3}>
+                            {block.lead.title}
+                          </Text>
+                        </Pressable>
+                        <Text style={s(colors).newspaperLeadSummary} numberOfLines={4}>{block.lead.summary}</Text>
+                        <View style={s(colors).newspaperBylineRow}>
+                          <Pressable onPress={() => openPublisherProfile(block.lead.source)}>
+                            <Text style={s(colors).newspaperBylineSource}>{block.lead.source}</Text>
+                          </Pressable>
+                          <Text style={s(colors).newspaperBylineDot}>·</Text>
+                          <Text style={s(colors).newspaperBylineDate}>{formatDate(block.lead.publicationDate, dateLocale)}</Text>
+                        </View>
+                      </View>
+                    </View>
+                  ) : (
+                    <View style={[s(colors).newspaperSideCol, !isWeb && s(colors).newspaperSideColMobile, isWeb && s(colors).newspaperSideColDivider, isWeb && s(colors).newspaperSideColLeftDivider]}>
+                      {(leadOnLeft ? block.sideA : block.sideB).map((item, i) => (
+                        <View key={item.id} style={s(colors).newspaperSideItem}>
+                          {item.imageUrl ? (
+                            <Image source={{ uri: item.imageUrl }} style={s(colors).newspaperSideImage} resizeMode="cover" />
+                          ) : (
+                            <View style={s(colors).newspaperSideImagePlaceholder}>
+                              <Text style={s(colors).newspaperSideImagePlaceholderText}>{item.category.toUpperCase()}</Text>
+                            </View>
+                          )}
+                          <Pressable onPress={() => openArticlePreview(item)}>
+                            <Text style={s(colors).newspaperSideHeadlineLink} numberOfLines={3}>{item.title}</Text>
+                          </Pressable>
+                          <Text style={s(colors).newspaperSideSummary} numberOfLines={2}>{item.summary}</Text>
+                          <View style={s(colors).newspaperBylineRow}>
+                            <Pressable onPress={() => openPublisherProfile(item.source)}>
+                              <Text style={s(colors).newspaperBylineSource}>{item.source}</Text>
+                            </Pressable>
+                            <Text style={s(colors).newspaperBylineDot}>·</Text>
+                            <Text style={s(colors).newspaperBylineDate}>{formatDate(item.publicationDate, dateLocale)}</Text>
+                          </View>
+                          {i < (leadOnLeft ? block.sideA : block.sideB).length - 1 && <View style={s(colors).newspaperItemRule} />}
+                        </View>
+                      ))}
+                    </View>
+                  )}
+
+                  {/* Sağ kolon */}
+                  {leadOnRight ? (
+                    <View style={s(colors).newspaperCenterCol}>
+                      {block.lead.imageUrl ? (
+                        <Image source={{ uri: block.lead.imageUrl }} style={s(colors).newspaperLeadImage} resizeMode="cover" />
+                      ) : (
+                        <View style={s(colors).newspaperLeadImagePlaceholder}>
+                          <Text style={s(colors).newspaperLeadImagePlaceholderText}>{block.lead.category.toUpperCase()}</Text>
+                        </View>
+                      )}
+                      <View style={s(colors).newspaperLeadBody}>
+                        <Text style={s(colors).newspaperCategory}>{block.lead.category.toUpperCase()}</Text>
+                        <Pressable onPress={() => openArticlePreview(block.lead)}>
+                          <Text style={[s(colors).newspaperLeadHeadlineLink, !isWeb && s(colors).newspaperLeadHeadlineLinkMobile]} numberOfLines={3}>
+                            {block.lead.title}
+                          </Text>
+                        </Pressable>
+                        <Text style={s(colors).newspaperLeadSummary} numberOfLines={4}>{block.lead.summary}</Text>
+                        <View style={s(colors).newspaperBylineRow}>
+                          <Pressable onPress={() => openPublisherProfile(block.lead.source)}>
+                            <Text style={s(colors).newspaperBylineSource}>{block.lead.source}</Text>
+                          </Pressable>
+                          <Text style={s(colors).newspaperBylineDot}>·</Text>
+                          <Text style={s(colors).newspaperBylineDate}>{formatDate(block.lead.publicationDate, dateLocale)}</Text>
+                        </View>
+                      </View>
+                    </View>
+                  ) : (
+                    <View style={[s(colors).newspaperSideCol, !isWeb && s(colors).newspaperSideColMobile, isWeb && s(colors).newspaperSideColLeftDivider]}>
+                      {block.sideB.map((item, i) => (
+                        <View key={item.id} style={s(colors).newspaperSideItem}>
+                          {item.imageUrl ? (
+                            <Image source={{ uri: item.imageUrl }} style={s(colors).newspaperSideImage} resizeMode="cover" />
+                          ) : (
+                            <View style={s(colors).newspaperSideImagePlaceholder}>
+                              <Text style={s(colors).newspaperSideImagePlaceholderText}>{item.category.toUpperCase()}</Text>
+                            </View>
+                          )}
+                          <Pressable onPress={() => openArticlePreview(item)}>
+                            <Text style={s(colors).newspaperSideHeadlineLink} numberOfLines={3}>{item.title}</Text>
+                          </Pressable>
+                          <Text style={s(colors).newspaperSideSummary} numberOfLines={2}>{item.summary}</Text>
+                          <View style={s(colors).newspaperBylineRow}>
+                            <Pressable onPress={() => openPublisherProfile(item.source)}>
+                              <Text style={s(colors).newspaperBylineSource}>{item.source}</Text>
+                            </Pressable>
+                            <Text style={s(colors).newspaperBylineDot}>·</Text>
+                            <Text style={s(colors).newspaperBylineDate}>{formatDate(item.publicationDate, dateLocale)}</Text>
+                          </View>
+                          {i < block.sideB.length - 1 && <View style={s(colors).newspaperItemRule} />}
+                        </View>
+                      ))}
+                    </View>
+                  )}
                 </View>
-                {item.imageUrl && (
-                  <Image source={{ uri: item.imageUrl }} style={s(colors).listThumb} resizeMode="cover" />
-                )}
+
+                {blockIndex < newspaperBlocks.length - 1 && <View style={s(colors).newspaperBlockRule} />}
               </View>
-              {i < compactList.length - 1 && <View style={s(colors).thinRule} />}
-            </View>
-          ))}
+            );
+          })}
         </View>
 
         {/* ── Sağ kolon (sadece web) ────────────────────────────────── */}
@@ -746,66 +1396,34 @@ export default function PersonalizedNewsScreen() {
           <View style={s(colors).rightCol}>
 
             {/* Filtreler */}
-            <FilterPanel />
-
-            {/* Takip edilen kaynaklar */}
-            <View style={s(colors).sidePanel}>
-              <View style={s(colors).sidePanelHeader}>
-                <Text style={s(colors).sidePanelTitle}>{t.followed}</Text>
-                <Text style={s(colors).sidePanelCount}>
-                  {filteredFollowedSources.length}/{followedSources.length}
-                </Text>
-              </View>
-
-              <Text style={s(colors).filterLabel}>{t.country}</Text>
-              <View style={s(colors).chipWrap}>
-                {(['all', 'Turkiye', 'Global'] as CountryFilter[]).map((opt) => (
-                  <Pressable
-                    key={opt}
-                    style={[s(colors).filterChip, countryFilter === opt && s(colors).filterChipActive]}
-                    onPress={() => setCountryFilter(opt)}
-                  >
-                    <Text style={[s(colors).filterChipText, countryFilter === opt && s(colors).filterChipTextActive]}>
-                      {opt === 'all' ? t.all : opt === 'Turkiye' ? (language === 'en' ? 'Turkey' : language === 'de' ? 'Turkei' : 'Turkiye') : 'Global'}
-                    </Text>
-                  </Pressable>
-                ))}
-              </View>
-
-              <Text style={s(colors).filterLabel}>{t.language}</Text>
-              <View style={s(colors).chipWrap}>
-                {(['all', 'Turkce', 'Ingilizce'] as LanguageFilter[]).map((opt) => (
-                  <Pressable
-                    key={opt}
-                    style={[s(colors).filterChip, languageFilter === opt && s(colors).filterChipActive]}
-                    onPress={() => setLanguageFilter(opt)}
-                  >
-                    <Text style={[s(colors).filterChipText, languageFilter === opt && s(colors).filterChipTextActive]}>
-                      {opt === 'all' ? t.all : opt === 'Turkce' ? (language === 'en' ? 'Turkish' : language === 'de' ? 'Turkisch' : 'Turkce') : language === 'de' ? 'Englisch' : 'English'}
-                    </Text>
-                  </Pressable>
-                ))}
-              </View>
-
-              <View style={s(colors).sourceList}>
-                {filteredFollowedSources.length ? filteredFollowedSources.map((src) => {
-                  const meta = getSourceMeta(src);
-                  return (
-                    <Pressable key={src} style={s(colors).sourceRow} onPress={() => openPublisherProfile(src)}>
-                      <View style={s(colors).sourceAvatar}>
-                        <Text style={s(colors).sourceAvatarText}>{src.charAt(0)}</Text>
-                      </View>
-                      <View style={{ flex: 1 }}>
-                        <Text style={s(colors).sourceNameLink}>{src}</Text>
-                        <Text style={s(colors).sourceMeta}>{meta.country} · {meta.language}</Text>
-                      </View>
-                    </Pressable>
-                  );
-                }) : (
-                  <Text style={s(colors).emptyText}>{t.noSource}</Text>
-                )}
-              </View>
-            </View>
+            <FilterPanel
+              colors={colors}
+              t={t}
+              activeFilterCount={activeFilterCount}
+              activePeriod={activePeriod}
+              setActivePeriod={setActivePeriod}
+              langFilter={langFilter}
+              setLangFilter={setLangFilter}
+              countryFilter={countryFilter}
+              setCountryFilter={setCountryFilter}
+              languageFilter={languageFilter}
+              setLanguageFilter={setLanguageFilter}
+              sortKey={sortKey}
+              setSortKey={setSortKey}
+              selectedCategory={selectedCategory}
+              setSelectedCategory={setSelectedCategory}
+              selectedSource={selectedSource}
+              setSelectedSource={setSelectedSource}
+              apiNewsLength={sortedNews.length}
+              categoryOptions={categoryOptions}
+              categoryCounts={categoryCounts}
+              sourceOptions={sourceOptions}
+              sourceLogoMap={sourceLogoMap}
+              followedSources={followedSources}
+              filteredFollowedSources={filteredFollowedSources}
+              uiLanguage={language}
+              resetFilters={resetFilters}
+            />
 
             {/* Piyasalar */}
             <View style={s(colors).sidePanel}>
@@ -828,9 +1446,40 @@ export default function PersonalizedNewsScreen() {
               ))}
             </View>
 
+            {/* Trend Olanlar */}
+            
+
+            {/* Trend Olanlar */}
+            <View style={s(colors).sidePanel}>
+              <View style={s(colors).sidePanelHeader}>
+                <Text style={s(colors).sidePanelTitle}>Trend Olanlar</Text>
+                <Text style={s(colors).sidePanelCount}>Top {trendingTopics.length}</Text>
+              </View>
+              <Text style={s(colors).trendSubtitle}>En çok öne çıkan haberleri hashtag gibi takip et.</Text>
+
+              <View style={s(colors).trendList}>
+                {trendingTopics.map((item) => (
+                  <Pressable
+                    key={item.id}
+                    style={s(colors).trendRow}
+                    onPress={() => openArticlePreview(item.article)}
+                  >
+                    <Text style={s(colors).trendRank}>{item.rank}</Text>
+                    <View style={s(colors).trendBody}>
+                      <Text style={s(colors).trendTag}>{item.tag}</Text>
+                      <Text style={s(colors).trendHeadline} numberOfLines={2}>{item.title}</Text>
+                      <Text style={s(colors).trendMeta}>{item.source}</Text>
+                    </View>
+                  </Pressable>
+                ))}
+              </View>
+            </View>
+
           </View>
         )}
       </View>
+      
+
       <NewsQuickPreviewModal
         visible={!!previewItem}
         item={previewItem}
@@ -1021,8 +1670,338 @@ const s = (colors: any) => StyleSheet.create({
   gridBylineDate: { fontSize: Typography.fontSize.xs, color: colors.textMuted },
   gridBylineMeta: { fontSize: Typography.fontSize.md, color: colors.textMuted },
   gridBylineMetaNumber: { fontSize: Typography.fontSize.sm, color: colors.textMuted },
+  importantCard: {
+    flexGrow: 1.4,
+    minWidth: 300,
+    borderColor: colors.error,
+    borderWidth: 1.5,
+    padding: Spacing.md,
+    justifyContent: 'flex-start',
+    gap: Spacing.sm,
+  },
+  importantHeader: {
+    gap: 6,
+    paddingBottom: Spacing.xs,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.borderSubtle,
+  },
+  importantLiveBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    gap: 6,
+    borderRadius: Radius.full,
+    backgroundColor: colors.error,
+    paddingHorizontal: Spacing.sm,
+    paddingVertical: 4,
+  },
+  importantLiveDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: colors.white,
+  },
+  importantLiveText: {
+    color: colors.white,
+    fontSize: 10,
+    fontWeight: '800',
+    letterSpacing: 0.6,
+    textTransform: 'uppercase',
+  },
+  importantTitle: {
+    color: colors.textPrimary,
+    fontSize: Typography.fontSize.sm,
+    fontWeight: '800',
+    letterSpacing: 0.8,
+  },
+  importantList: {
+    gap: Spacing.xs,
+  },
+  importantItem: {
+    paddingVertical: 6,
+  },
+  importantItemRule: {
+    borderTopWidth: 1,
+    borderTopColor: colors.borderSubtle,
+    paddingTop: Spacing.sm,
+  },
+  importantItemHeadline: {
+    color: colors.textPrimary,
+    fontSize: Typography.fontSize.sm,
+    lineHeight: 18,
+    fontWeight: '600',
+    flex: 1,
+  },
+  importantLineRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: Spacing.xs,
+  },
+  importantItemDot: {
+    width: 7,
+    height: 7,
+    borderRadius: 3.5,
+    marginTop: 5,
+    backgroundColor: colors.error,
+    flexShrink: 0,
+  },
+  importantMetaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.xs,
+  },
+  importantSource: {
+    color: colors.accent,
+    fontSize: Typography.fontSize.xs,
+    fontWeight: Typography.fontWeight.bold,
+    textDecorationLine: 'underline',
+  },
+  importantMetaDot: {
+    color: colors.textMuted,
+    fontSize: Typography.fontSize.xs,
+  },
+  importantTime: {
+    color: colors.textMuted,
+    fontSize: Typography.fontSize.xs,
+    fontWeight: Typography.fontWeight.medium,
+  },
 
   // ── Kompakt liste ─────────────────────────────────────────────────────
+  newspaperSection: {
+    borderWidth: 1,
+    borderColor: colors.borderSubtle,
+    borderRadius: Radius.lg,
+    backgroundColor: colors.surface,
+    overflow: 'hidden',
+    marginBottom: Spacing.md,
+  },
+  newspaperTopRow: {
+    flexDirection: 'row',
+  },
+  newspaperTopRowMobile: {
+    flexDirection: 'column',
+  },
+  newspaperSideCol: {
+    width: '26%',
+    padding: Spacing.sm,
+    gap: Spacing.sm,
+  },
+  newspaperSideColMobile: {
+    width: '100%',
+  },
+  newspaperSideColDivider: {
+    borderRightWidth: 1,
+    borderRightColor: colors.borderSubtle,
+  },
+  newspaperSideColLeftDivider: {
+    borderLeftWidth: 1,
+    borderLeftColor: colors.borderSubtle,
+  },
+  newspaperSideItem: {
+    gap: 4,
+  },
+  newspaperSideImage: {
+    width: '100%',
+    height: 130,
+    borderRadius: Radius.sm,
+  },
+  newspaperSideImagePlaceholder: {
+    width: '100%',
+    height: 130,
+    borderRadius: Radius.sm,
+    backgroundColor: colors.surfaceHigh,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  newspaperSideImagePlaceholderText: {
+    color: colors.textMuted,
+    fontSize: Typography.fontSize.xs,
+    letterSpacing: 1,
+    fontWeight: Typography.fontWeight.bold,
+  },
+  newspaperSideHeadlineLink: {
+    fontSize: 20,
+    lineHeight: 26,
+    color: colors.textPrimary,
+    fontWeight: '700',
+    textDecorationLine: 'underline',
+    textDecorationColor: colors.accent,
+  },
+  newspaperSideSummary: {
+    fontSize: Typography.fontSize.sm,
+    color: colors.textSecondary,
+    lineHeight: 19,
+  },
+  newspaperCenterCol: {
+    flex: 1,
+  },
+  newspaperLeadImage: {
+    width: '100%',
+    height: 360,
+  },
+  newspaperLeadImagePlaceholder: {
+    width: '100%',
+    height: 360,
+    backgroundColor: colors.surfaceHigh,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  newspaperLeadImagePlaceholderText: {
+    color: colors.textMuted,
+    fontSize: Typography.fontSize.sm,
+    letterSpacing: 1.2,
+    fontWeight: Typography.fontWeight.bold,
+  },
+  newspaperLeadBody: {
+    padding: Spacing.md,
+    gap: 6,
+  },
+  newspaperLeadHeadlineLink: {
+    fontSize: 52,
+    lineHeight: 58,
+    color: colors.textPrimary,
+    fontWeight: '700',
+    textDecorationLine: 'underline',
+    textDecorationColor: colors.accent,
+  },
+  newspaperLeadHeadlineLinkMobile: {
+    fontSize: 34,
+    lineHeight: 40,
+  },
+  newspaperLeadSummary: {
+    fontSize: Typography.fontSize.base,
+    color: colors.textSecondary,
+    lineHeight: 23,
+  },
+  newspaperRightItem: {
+    gap: 6,
+  },
+  newspaperRightThumb: {
+    width: '100%',
+    height: 110,
+    borderRadius: Radius.sm,
+  },
+  newspaperRightThumbPlaceholder: {
+    width: '100%',
+    height: 110,
+    borderRadius: Radius.sm,
+    backgroundColor: colors.surfaceHigh,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  newspaperRightThumbPlaceholderText: {
+    color: colors.accent,
+    fontSize: Typography.fontSize.lg,
+    fontWeight: Typography.fontWeight.bold,
+  },
+  newspaperRightBody: {
+    gap: 4,
+  },
+  newspaperRightHeadlineLink: {
+    fontSize: 20,
+    lineHeight: 26,
+    color: colors.textPrimary,
+    fontWeight: '700',
+    textDecorationLine: 'underline',
+    textDecorationColor: colors.accent,
+  },
+  newspaperRightSummary: {
+    fontSize: Typography.fontSize.sm,
+    color: colors.textSecondary,
+    lineHeight: 18,
+  },
+  newspaperBottomGrid: {
+    borderTopWidth: 1,
+    borderTopColor: colors.borderSubtle,
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    padding: Spacing.sm,
+    gap: Spacing.sm,
+  },
+  newspaperBottomGridMobile: {
+    flexDirection: 'column',
+  },
+  newspaperBottomCard: {
+    width: '49%',
+    borderWidth: 1,
+    borderColor: colors.borderSubtle,
+    borderRadius: Radius.sm,
+    overflow: 'hidden',
+    backgroundColor: colors.surface,
+  },
+  newspaperBottomCardMobile: {
+    width: '100%',
+  },
+  newspaperBottomImage: {
+    width: '100%',
+    height: 140,
+  },
+  newspaperBottomImagePlaceholder: {
+    width: '100%',
+    height: 140,
+    backgroundColor: colors.surfaceHigh,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  newspaperBottomBody: {
+    padding: Spacing.sm,
+    gap: 4,
+  },
+  newspaperBottomImagePlaceholderText: {
+    color: colors.textMuted,
+    fontSize: Typography.fontSize.xs,
+    fontWeight: Typography.fontWeight.bold,
+  },
+  newspaperBottomHeadlineLink: {
+    fontSize: Typography.fontSize.md,
+    lineHeight: 22,
+    color: colors.textPrimary,
+    fontWeight: '700',
+    textDecorationLine: 'underline',
+    textDecorationColor: colors.accent,
+  },
+  newspaperBottomSummary: {
+    fontSize: Typography.fontSize.sm,
+    lineHeight: 18,
+    color: colors.textSecondary,
+  },
+  newspaperCategory: {
+    fontSize: Typography.fontSize.xs,
+    color: colors.accent,
+    fontWeight: '700',
+    letterSpacing: 1.5,
+  },
+  newspaperBylineRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.xs,
+    marginTop: 2,
+  },
+  newspaperBylineSource: {
+    fontSize: Typography.fontSize.xs,
+    color: colors.accent,
+    fontWeight: Typography.fontWeight.bold,
+    textDecorationLine: 'underline',
+  },
+  newspaperBylineDot: {
+    fontSize: Typography.fontSize.xs,
+    color: colors.textMuted,
+  },
+  newspaperBylineDate: {
+    fontSize: Typography.fontSize.xs,
+    color: colors.textMuted,
+  },
+  newspaperItemRule: {
+    height: 1,
+    backgroundColor: colors.borderSubtle,
+    marginVertical: Spacing.sm,
+  },
+  newspaperBlockRule: {
+    height: 2,
+    backgroundColor: colors.accent,
+    opacity: 0.3,
+  },
+
   listCard: { flexDirection: 'row', gap: Spacing.md, paddingVertical: Spacing.sm },
   listBody: { flex: 1, gap: 4 },
   listCategory: {
@@ -1061,6 +2040,9 @@ const s = (colors: any) => StyleSheet.create({
   // ── Sağ kolon ─────────────────────────────────────────────────────────
   rightCol: { width: 290, gap: Spacing.md },
 
+  // ── Günün Özeti + modal ─────────────────────────────────────────────
+  
+
   // ── Filtre paneli ─────────────────────────────────────────────────────
   filterPanel: {
     borderWidth: 1, borderColor: colors.border,
@@ -1077,6 +2059,84 @@ const s = (colors: any) => StyleSheet.create({
     fontSize: Typography.fontSize.xs, color: colors.textMuted,
     fontWeight: '700', textTransform: 'uppercase', letterSpacing: 1,
     marginTop: Spacing.xs,
+  },
+  filterMenuTrigger: {
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: Radius.md,
+    backgroundColor: colors.background,
+    paddingHorizontal: Spacing.sm,
+    paddingVertical: Spacing.sm,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  filterMenuTriggerOpen: {
+    borderColor: colors.accent,
+  },
+  filterMenuTriggerText: {
+    color: colors.textPrimary,
+    fontSize: Typography.fontSize.sm,
+    fontWeight: '700',
+    letterSpacing: 0.5,
+    textTransform: 'uppercase',
+  },
+  filterMenuChevron: {
+    color: colors.accent,
+    fontSize: Typography.fontSize.sm,
+    fontWeight: '700',
+  },
+  filterSectionsWrap: {
+    gap: Spacing.xs,
+  },
+  filterSectionBlock: {
+    gap: Spacing.xs,
+  },
+  filterSectionBtn: {
+    borderWidth: 1,
+    borderColor: colors.borderSubtle,
+    borderRadius: Radius.md,
+    paddingHorizontal: Spacing.sm,
+    paddingVertical: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: colors.background,
+  },
+  filterSectionBtnActive: {
+    borderColor: colors.accent,
+    backgroundColor: colors.surfaceHigh,
+  },
+  filterSectionBtnText: {
+    color: colors.textSecondary,
+    fontSize: Typography.fontSize.xs,
+    fontWeight: '700',
+    letterSpacing: 1,
+    textTransform: 'uppercase',
+  },
+  filterSectionBtnTextActive: {
+    color: colors.accent,
+  },
+  filterSectionChevron: {
+    color: colors.accent,
+    fontSize: Typography.fontSize.sm,
+    fontWeight: '700',
+  },
+  filterSectionContent: {
+    gap: Spacing.xs,
+  },
+  followedSection: {
+    gap: Spacing.xs,
+    paddingTop: Spacing.xs,
+  },
+  followedSectionHeader: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+  },
+  followedSectionCount: {
+    fontSize: Typography.fontSize.xs,
+    color: colors.textMuted,
+    fontWeight: '600',
   },
   periodRow: { flexDirection: 'row', gap: Spacing.xs },
   periodBtn: {
@@ -1117,7 +2177,9 @@ const s = (colors: any) => StyleSheet.create({
   sourceAvatar: {
     width: 28, height: 28, borderRadius: 6,
     backgroundColor: colors.accent, alignItems: 'center', justifyContent: 'center',
+    overflow: 'hidden',
   },
+  sourceAvatarImage: { width: '100%', height: '100%' },
   sourceAvatarText: { color: colors.white, fontWeight: '700', fontSize: Typography.fontSize.sm },
   sourceName: { fontSize: Typography.fontSize.sm, fontWeight: '700', color: colors.textPrimary },
   sourceNameLink: {
@@ -1137,6 +2199,56 @@ const s = (colors: any) => StyleSheet.create({
   marketKind: { fontSize: Typography.fontSize.xs, color: colors.textMuted, textTransform: 'uppercase', letterSpacing: 0.5 },
   marketValue: { fontSize: Typography.fontSize.sm, fontWeight: '700', color: colors.textPrimary },
   marketChange: { fontSize: Typography.fontSize.xs, fontWeight: '700' },
+
+  // ── Trend Olanlar ────────────────────────────────────────────────────
+  trendSubtitle: {
+    fontSize: Typography.fontSize.xs,
+    color: colors.textMuted,
+    lineHeight: 16,
+    marginTop: -2,
+  },
+  trendList: {
+    gap: Spacing.xs,
+  },
+  trendRow: {
+    flexDirection: 'row',
+    gap: Spacing.sm,
+    paddingVertical: 8,
+    paddingHorizontal: Spacing.sm,
+    borderRadius: Radius.md,
+    backgroundColor: colors.background,
+    borderWidth: 1,
+    borderColor: colors.borderSubtle,
+  },
+  trendRank: {
+    width: 24,
+    textAlign: 'center',
+    fontSize: Typography.fontSize.sm,
+    fontWeight: '800',
+    color: colors.accent,
+    marginTop: 1,
+  },
+  trendBody: {
+    flex: 1,
+    gap: 3,
+  },
+  trendTag: {
+    fontSize: Typography.fontSize.xs,
+    color: colors.accent,
+    fontWeight: '800',
+    letterSpacing: 0.4,
+  },
+  trendHeadline: {
+    fontSize: Typography.fontSize.sm,
+    color: colors.textPrimary,
+    fontWeight: '700',
+    lineHeight: 18,
+  },
+  trendMeta: {
+    fontSize: Typography.fontSize.xs,
+    color: colors.textMuted,
+    fontWeight: '600',
+  },
 
   // ── Boş durum ─────────────────────────────────────────────────────────
   emptyBox: {
