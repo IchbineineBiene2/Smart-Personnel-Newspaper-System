@@ -4,6 +4,7 @@ import { useFonts } from 'expo-font';
 import { Stack } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { useEffect, useState } from 'react';
+import { Platform, View } from 'react-native';
 
 import { useTheme } from '@/hooks/useTheme';
 import { isOnboardingComplete } from '@/services/auth';
@@ -125,17 +126,37 @@ function RootLayoutNav({ initialRouteName }: RootLayoutNavProps) {
         <Stack.Screen
           name="news/[id]"
           options={{
-            title: 'Haber Detayi',
+            title: 'Haber Detayı',
             headerTintColor: colors.textPrimary,
+            headerBackground: () => (
+              <View
+                style={{
+                  flex: 1,
+                  backgroundColor: colors.surface,
+                  borderBottomWidth: 1,
+                  borderBottomColor: colors.borderSubtle,
+                  shadowColor: '#000',
+                  shadowOffset: { width: 0, height: 4 },
+                  shadowOpacity: 0.4,
+                  shadowRadius: 12,
+                  elevation: 12,
+                  ...(Platform.OS === 'web' ? {
+                    boxShadow: '0 4px 24px rgba(0,0,0,0.5)',
+                  } as any : {}),
+                }}
+              />
+            ),
             headerStyle: {
-              backgroundColor: pageBackground,
+              backgroundColor: colors.surface,
             },
             headerTitleAlign: 'center',
             headerTitleStyle: {
               color: colors.textPrimary,
-              fontSize: 18,
+              fontSize: 17,
               fontWeight: '700',
+              letterSpacing: 0.3,
             },
+            headerShadowVisible: false,
           }}
         />
         <Stack.Screen name="modal" options={{ presentation: 'modal' }} />
