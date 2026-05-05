@@ -79,14 +79,26 @@ export default function DiscoverTab() {
     ? events
     : events.filter((e) => e.category === filterCat);
 
-  const filteredConcerts = filterCat === 'tumu' || ['konser','tiyatro','stand-up'].includes(filterCat)
-    ? concerts
-    : [];
+  const filteredConcerts =
+    filterCat === 'tumu'
+      ? concerts
+      : ['konser', 'tiyatro', 'stand-up'].includes(filterCat)
+      ? concerts.filter((c) => c.category === filterCat)
+      : [];
+
+  const sevenDaysFromNow = new Date();
+  sevenDaysFromNow.setDate(sevenDaysFromNow.getDate() + 7);
 
   const allItems = [
     ...filteredEvents.map((e) => ({ ...e, _type: 'event' as const })),
     ...filteredConcerts.map((c) => ({ ...c, _type: 'concert' as const })),
-  ].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+  ]
+    .filter((item) => {
+      if (viewFilter !== 'week') return true;
+      const itemDate = new Date(item.date);
+      return itemDate >= new Date() && itemDate <= sevenDaysFromNow;
+    })
+    .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
 
   return (
     <ScrollView
@@ -126,8 +138,33 @@ export default function DiscoverTab() {
       </Animated.View>
 
       {/* ── Category Filters ── */}
-      {!isWeb && (
-        <Animated.View style={{ opacity: headerFade }}>
+      <Animated.View style={{ opacity: headerFade }}>
+        {isWeb ? (
+          <View style={styles.filterRowWeb}>
+            {CATEGORY_FILTERS.map((f) => (
+              <Pressable
+                key={f.key}
+                style={[
+                  styles.filterChip,
+                  {
+                    backgroundColor: filterCat === f.key ? colors.accent : colors.surface,
+                    borderColor: filterCat === f.key ? colors.accent : colors.borderSubtle,
+                  },
+                ]}
+                onPress={() => setFilterCat(f.key)}
+              >
+                <Ionicons
+                  name={f.icon as any}
+                  size={13}
+                  color={filterCat === f.key ? '#fff' : colors.textMuted}
+                />
+                <Text style={[styles.filterChipText, { color: filterCat === f.key ? '#fff' : colors.textMuted }]}>
+                  {f.label}
+                </Text>
+              </Pressable>
+            ))}
+          </View>
+        ) : (
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filterRow}>
             {CATEGORY_FILTERS.map((f) => (
               <Pressable
@@ -152,8 +189,8 @@ export default function DiscoverTab() {
               </Pressable>
             ))}
           </ScrollView>
-        </Animated.View>
-      )}
+        )}
+      </Animated.View>
 
       {/* ── Event List ── */}
       <Animated.View style={[styles.list, { opacity: listFade }]}>
@@ -281,7 +318,7 @@ export default function DiscoverTab() {
 const styles = StyleSheet.create({
   root: { flex: 1 },
   content: { padding: 24, paddingBottom: 40, gap: 24 },
-  webContent: { maxWidth: 760, width: '100%' as any, alignSelf: 'center' },
+  webContent: { maxWidth: 1040, width: '100%' as any, alignSelf: 'center' },
 
   // Header
   header: {
@@ -296,6 +333,13 @@ const styles = StyleSheet.create({
 
   // Filters
   filterRow: { gap: 8, paddingVertical: 4 },
+  filterRowWeb: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingVertical: 4,
+    flexWrap: 'nowrap',
+  },
   filterChip: {
     flexDirection: 'row', alignItems: 'center', gap: 6,
     paddingHorizontal: 12, paddingVertical: 7,

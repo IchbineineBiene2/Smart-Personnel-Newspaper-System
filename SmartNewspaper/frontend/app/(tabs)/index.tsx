@@ -14,6 +14,7 @@ import {
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
+import { useFocusEffect } from '@react-navigation/native';
 
 import { useApiNews } from '@/hooks/useNews';
 import { usePersonalizedNews } from '@/hooks/useNews';
@@ -28,6 +29,7 @@ import { CurrencyWidget } from '@/components/widgets/CurrencyWidget';
 import { WeatherWidget } from '@/components/widgets/WeatherWidget';
 import { SportsWidget } from '@/components/widgets/SportsWidget';
 import { WidgetPicker } from '@/components/widgets/WidgetPicker';
+import { getUserProfile } from '@/services/auth';
 
 const WIDGET_STORAGE_KEY = 'dashboard-widgets-v2';
 
@@ -65,6 +67,7 @@ export default function HomeScreen() {
   const [isPickerOpen, setIsPickerOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<DashTab>('foryou');
   const [searchQuery, setSearchQuery] = useState('');
+  const [profileName, setProfileName] = useState('Kullanici');
 
   const headerFade = useRef(new Animated.Value(0)).current;
   const heroOpacity = useRef(new Animated.Value(0)).current;
@@ -80,6 +83,15 @@ export default function HomeScreen() {
       }
     });
   }, []);
+
+  useFocusEffect(
+    useCallback(() => {
+      getUserProfile().then((profile) => {
+        const name = profile?.name?.trim();
+        setProfileName(name || 'Kullanici');
+      });
+    }, [])
+  );
 
   // Entrance animations
   useEffect(() => {
@@ -152,7 +164,7 @@ export default function HomeScreen() {
       <Animated.View style={[styles.header, { opacity: headerFade }]}>
         <View style={styles.headerLeft}>
           <Text style={[styles.greeting, { color: colors.textPrimary }]}>
-            Günaydın, <Text style={{ color: colors.accent, fontStyle: 'italic' }}>Ahmet.</Text>
+            Günaydın, <Text style={{ color: colors.accent, fontStyle: 'italic' }}>{profileName}.</Text>
           </Text>
           <View style={styles.headerMeta}>
             <View style={[styles.metaChip, { backgroundColor: colors.surface, borderColor: colors.borderSubtle }]}>
