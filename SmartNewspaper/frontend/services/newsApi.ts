@@ -1371,6 +1371,46 @@ export async function fetchArticleFullContent(id: string): Promise<{ content: st
   return (await res.json()) as { content: string; images?: string[]; fromSource: boolean };
 }
 
+export async function fetchTrendingArticles(limit = 10): Promise<ApiArticle[]> {
+  try {
+    const res = await fetch(`${API_BASE}/api/news/trending?limit=${limit}`);
+    if (!res.ok) return [];
+    const data: { articles: ApiArticle[] } = await res.json();
+    return data.articles ?? [];
+  } catch {
+    return [];
+  }
+}
+
+export async function fetchBreakingArticles(limit = 8): Promise<ApiArticle[]> {
+  try {
+    const res = await fetch(`${API_BASE}/api/news/breaking?limit=${limit}`);
+    if (!res.ok) return [];
+    const data: { articles: ApiArticle[] } = await res.json();
+    return data.articles ?? [];
+  } catch {
+    return [];
+  }
+}
+
+export interface NewsSourceSummary {
+  source_name: string;
+  source_url: string | null;
+  article_count: number;
+  latest_at: string;
+}
+
+export async function fetchNewsSources(): Promise<NewsSourceSummary[]> {
+  try {
+    const res = await fetch(`${API_BASE}/api/news/sources`);
+    if (!res.ok) return [];
+    const data: { sources: NewsSourceSummary[] } = await res.json();
+    return data.sources ?? [];
+  } catch {
+    return [];
+  }
+}
+
 export async function fetchSimilarArticlesFromDb(id: string, threshold = 0.3): Promise<any[]> {
   const res = await fetch(`${API_BASE}/api/similarity/${encodeURIComponent(id)}?threshold=${threshold}`);
   if (!res.ok) return [];

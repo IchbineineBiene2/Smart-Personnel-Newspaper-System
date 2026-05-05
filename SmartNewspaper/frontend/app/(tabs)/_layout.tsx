@@ -14,6 +14,7 @@ import { useNotification } from '@/contexts/NotificationContext';
 const NAV_ROUTES: { name: string; label: string; icon: string; iconFilled: string }[] = [
   { name: 'index',    label: 'Ana Sayfa',   icon: 'grid-outline',     iconFilled: 'grid' },
   { name: 'feed',     label: 'Akış',        icon: 'reader-outline',   iconFilled: 'reader' },
+  { name: 'explore',  label: 'Keşfet',      icon: 'compass-outline',  iconFilled: 'compass' },
   { name: 'search',   label: 'Arama',       icon: 'search-outline',   iconFilled: 'search' },
   { name: 'discover', label: 'Etkinlikler', icon: 'calendar-outline', iconFilled: 'calendar' },
   { name: 'ai',       label: 'AI Chat',     icon: 'sparkles-outline', iconFilled: 'sparkles' },
@@ -24,9 +25,9 @@ const NAV_ROUTES: { name: string; label: string; icon: string; iconFilled: strin
 const HIDDEN_ROUTES = ['newspaper', 'publisherpage', 'publisherprofile', 'pdfpreview'];
 
 const LAYOUT_I18N = {
-  tr: { home: 'Ana Sayfa', feed: 'Akış', search: 'Arama', events: 'Etkinlikler', archive: 'Arşiv', profile: 'Profil' },
-  en: { home: 'Home', feed: 'Feed', search: 'Search', events: 'Events', archive: 'Archive', profile: 'Profile' },
-  de: { home: 'Startseite', feed: 'Feed', search: 'Suche', events: 'Veranstaltungen', archive: 'Archiv', profile: 'Profil' },
+  tr: { home: 'Ana Sayfa', feed: 'Akış', explore: 'Keşfet', search: 'Arama', events: 'Etkinlikler', archive: 'Arşiv', profile: 'Profil' },
+  en: { home: 'Home', feed: 'Feed', explore: 'Explore', search: 'Search', events: 'Events', archive: 'Archive', profile: 'Profile' },
+  de: { home: 'Startseite', feed: 'Feed', explore: 'Entdecken', search: 'Suche', events: 'Veranstaltungen', archive: 'Archiv', profile: 'Profil' },
 } as const;
 
 function NavItem({
@@ -293,6 +294,15 @@ export default function TabLayout() {
             title: LAYOUT_I18N[language].feed,
             tabBarIcon: ({ color, size }) => (
               <Ionicons name="reader-outline" size={size} color={color} />
+            ),
+          }}
+        />
+        <Tabs.Screen
+          name="explore"
+          options={{
+            title: LAYOUT_I18N[language].explore,
+            tabBarIcon: ({ color, size }) => (
+              <Ionicons name="compass-outline" size={size} color={color} />
             ),
           }}
         />
