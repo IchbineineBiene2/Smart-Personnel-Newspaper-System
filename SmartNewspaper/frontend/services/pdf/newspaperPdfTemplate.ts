@@ -154,20 +154,39 @@ function formatDisplayDate(input?: string): string {
   });
 }
 
-function renderArticle(article: NewspaperPreparedArticle): string {
+function renderPreviewCard(article: NewspaperPreparedArticle, isLead = false): string {
   const safeTitle = escapeHtml(article.title);
-  const safeSummary = escapeHtml(article.summary);
+  const safeSource = escapeHtml(article.source);
+  const safeSummary = escapeHtml(article.summary || '');
+
+  return `
+    <a class="${isLead ? 'lead-card' : 'preview-card'}" href="#article-${escapeHtml(article.id)}">
+      ${
+        article.imageUrl
+          ? `<img src="${escapeHtml(article.imageUrl)}" alt="${safeTitle}" class="${isLead ? 'lead-image' : 'preview-image'}" />`
+          : `<div class="${isLead ? 'lead-image' : 'preview-image'} image-placeholder"></div>`
+      }
+      <div class="${isLead ? 'lead-body' : 'preview-body'}">
+        <p class="category">${escapeHtml(article.categoryDisplayName)}</p>
+        <h2 class="${isLead ? 'lead-title' : 'preview-title'}">${safeTitle}</h2>
+        ${isLead && safeSummary ? `<p class="preview-summary">${safeSummary}</p>` : ''}
+        <p class="preview-meta">${safeSource}</p>
+        <p class="read-more">${isLead ? 'Haberi ac' : 'Detaya git'}</p>
+      </div>
+    </a>
+  `;
+}
+
+function renderDetailArticle(article: NewspaperPreparedArticle, index: number, total: number): string {
+  const safeTitle = escapeHtml(article.title);
   const safeContent = escapeHtml(article.content || article.summary);
   const safeSource = escapeHtml(article.source);
   const safeDate = escapeHtml(article.date);
 
-  // Format content into readable paragraphs
-  // Split by multiple newlines, then by sentences to create natural paragraph breaks
   const contentParagraphs = safeContent
     .split(/\n+/)
     .filter((line) => line.trim().length > 0)
     .map((paragraph) => {
-      // If paragraph is very long, try to break it into ~2-3 sentences per visual paragraph
       if (paragraph.length > 180) {
         const sentences = paragraph.match(/[^.!?]+[.!?]+/g) || [paragraph];
         const chunked: string[] = [];
@@ -190,15 +209,19 @@ function renderArticle(article: NewspaperPreparedArticle): string {
     .join('');
 
   return `
-    <article class="article-cell">
+    <article id="article-${escapeHtml(article.id)}" class="article-detail">
+      <header class="article-detail-header">
+        <p class="category">${escapeHtml(article.categoryDisplayName)}</p>
+        <h2 class="article-detail-title">${safeTitle}</h2>
+        <p class="article-meta">${safeSource} | ${safeDate}</p>
+      </header>
       ${
         article.imageUrl
-          ? `<img src="${escapeHtml(article.imageUrl)}" alt="${safeTitle}" class="article-image" />`
-          : '<div class="article-image-placeholder"></div>'
+          ? `<img src="${escapeHtml(article.imageUrl)}" alt="${safeTitle}" class="article-detail-image" />`
+          : ''
       }
-      <h3 class="article-title">${safeTitle}</h3>
-      ${contentParagraphs}
-      <p class="article-meta">${safeSource} | ${safeDate}</p>
+      <div class="article-columns">${contentParagraphs}</div>
+      <p class="detail-footer">Haber ${index + 1} / ${total}</p>
     </article>
   `;
 }
@@ -237,10 +260,13 @@ export function prepareNewspaperPdfData(input: NewspaperTemplateInput): Newspape
 export function renderNewspaperPdfHtml(input: NewspaperTemplateInput): string {
   const { newspaperName, displayDate, sections } = prepareNewspaperPdfData(input);
 
-  // Flatten all articles across all sections for 3-column grid
   const allArticles = sections.flatMap((section) => section.articles);
-
-  const articleHtml = allArticles.map(renderArticle).join('');
+  const leadArticle = allArticles[0];
+  const previewHtml = [
+    leadArticle ? renderPreviewCard(leadArticle, true) : '',
+    ...allArticles.slice(1, 10).map((article) => renderPreviewCard(article)),
+  ].join('');
+  const detailHtml = allArticles.map((article, index) => renderDetailArticle(article, index, allArticles.length)).join('');
 
   return `
 <!doctype html>
@@ -264,15 +290,20 @@ export function renderNewspaperPdfHtml(input: NewspaperTemplateInput): string {
         margin: 0;
         padding: 0;
         color: #111111;
-        background: #ffffff;
+        background: #fffdf8;
         font-family: 'Times New Roman', Georgia, serif;
+      }
+
+      a {
+        color: inherit;
+        text-decoration: none;
       }
 
       .masthead {
         text-align: center;
-        margin-bottom: 8mm;
+        margin-bottom: 5mm;
         padding-bottom: 3mm;
-        border-bottom: 2px solid #111111;
+        border-bottom: 3px solid #111111;
         page-break-after: avoid;
       }
 
@@ -292,74 +323,155 @@ export function renderNewspaperPdfHtml(input: NewspaperTemplateInput): string {
         font-weight: 600;
       }
 
-      /* 3-Column Grid Layout */
-      .articles-grid {
-        display: grid;
-        grid-template-columns: repeat(3, 1fr);
-        gap: 4mm;
-        grid-auto-rows: auto;
+      .cover-note {
+        margin: 0 0 4mm 0;
+        font-size: 9px;
+        color: #555;
+        text-align: center;
+        text-transform: uppercase;
+        letter-spacing: 1px;
       }
 
-      .article-cell {
-        display: flex;
-        flex-direction: column;
-        break-inside: avoid;
+      .lead-card {
+        display: block;
+        grid-column: 1 / -1;
+        border: 1px solid #111;
+        background: #fff;
+        margin-bottom: 5mm;
         page-break-inside: avoid;
       }
 
-      .article-image {
+      .lead-image {
         width: 100%;
-        height: 70mm;
+        height: 78mm;
         object-fit: cover;
         display: block;
-        margin-bottom: 2mm;
-        background: #f0f0f0;
+        background: #e5e5e5;
       }
 
-      .article-image-placeholder {
-        width: 100%;
-        height: 70mm;
-        background: #d0d0d0;
-        margin-bottom: 2mm;
+      .lead-body {
+        padding: 5mm;
+      }
+
+      .category {
+        margin: 0 0 1.5mm 0;
+        font-size: 8px;
+        color: #8a1f11;
+        font-weight: 900;
+        letter-spacing: 1.5px;
+        text-transform: uppercase;
+      }
+
+      .lead-title {
+        margin: 0;
+        font-size: 28px;
+        line-height: 1.05;
+        font-weight: 900;
+      }
+
+      .preview-summary {
+        margin: 2mm 0 0 0;
+        font-size: 10px;
+        line-height: 1.35;
+        color: #333;
+      }
+
+      .preview-grid {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 3.5mm;
+      }
+
+      .preview-card {
         display: block;
+        border: 1px solid #d0d0d0;
+        background: #fff;
+        min-height: 52mm;
+        page-break-inside: avoid;
       }
 
-      .article-title {
-        margin: 0 0 2mm 0;
-        font-size: 13px;
+      .preview-image {
+        width: 100%;
+        height: 25mm;
+        object-fit: cover;
+        display: block;
+        background: #e5e5e5;
+      }
+
+      .preview-body {
+        padding: 3mm;
+      }
+
+      .preview-title {
+        margin: 0;
+        font-size: 11px;
         font-weight: 900;
         line-height: 1.2;
-        color: #111111;
+      }
+
+      .preview-meta {
+        margin: 2mm 0 0 0;
+        font-size: 7px;
+        color: #666;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+      }
+
+      .read-more {
+        margin: 2mm 0 0 0;
+        font-size: 7px;
+        color: #8a1f11;
+        font-weight: 900;
+        text-transform: uppercase;
+        letter-spacing: 0.8px;
+      }
+
+      .article-detail {
+        page-break-before: always;
+      }
+
+      .article-detail-header {
+        border-bottom: 2px solid #111;
+        padding-bottom: 3mm;
+        margin-bottom: 4mm;
+      }
+
+      .article-detail-title {
+        margin: 0;
+        font-size: 30px;
+        line-height: 1.05;
+        font-weight: 900;
+      }
+
+      .article-detail-image {
+        width: 100%;
+        height: 82mm;
+        object-fit: cover;
+        display: block;
+        margin-bottom: 4mm;
+      }
+
+      .article-columns {
+        column-count: 2;
+        column-gap: 6mm;
       }
 
       .article-body {
-        margin: 0 0 1.5mm 0;
-        font-size: 9px;
-        line-height: 1.4;
-        font-weight: 400;
-        color: #222222;
+        margin: 0 0 2mm 0;
+        font-size: 10px;
+        line-height: 1.45;
+        color: #222;
         text-align: justify;
       }
 
-      .article-body:last-of-type {
-        margin-bottom: 2mm;
-      }
-
-      .article-summary {
-        margin: 0 0 1.5mm 0;
-        font-size: 9.5px;
-        line-height: 1.35;
-        font-weight: 500;
-        color: #222222;
-      }
-
-      .article-meta {
-        margin: 0;
+      .article-meta,
+      .detail-footer {
+        margin: 2mm 0 0 0;
         font-size: 7.5px;
         letter-spacing: 0.5px;
         text-transform: uppercase;
+        color: #666;
         font-weight: 600;
-        color: #666666;
       }
 
       .page-footer {
@@ -390,11 +502,15 @@ export function renderNewspaperPdfHtml(input: NewspaperTemplateInput): string {
   <body>
     <header class="masthead">
       <h1 class="paper-title">${escapeHtml(newspaperName)}</h1>
-      <p class="masthead-sub">Gunluk Baski | ${escapeHtml(displayDate)}</p>
+      <p class="masthead-sub">Gunluk Baski | ${escapeHtml(displayDate)} | ${allArticles.length} haber</p>
     </header>
 
-    <main class="articles-grid">
-      ${articleHtml}
+    <main>
+        <p class="cover-note">Onizleme kartlarina tiklayarak haber detayina gidebilirsiniz.</p>
+      <section class="preview-grid">
+        ${previewHtml}
+      </section>
+      ${detailHtml}
     </main>
 
     <footer class="page-footer">
