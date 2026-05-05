@@ -18,11 +18,13 @@ const NAV_ROUTES: { name: string; label: string; icon: string; iconFilled: strin
   { name: 'search',   label: 'Arama',       icon: 'search-outline',   iconFilled: 'search' },
   { name: 'discover', label: 'Etkinlikler', icon: 'calendar-outline', iconFilled: 'calendar' },
   { name: 'ai',       label: 'AI Chat',     icon: 'sparkles-outline', iconFilled: 'sparkles' },
+  { name: 'messages', label: 'Mesajlar',    icon: 'chatbubble-outline', iconFilled: 'chatbubble' },
+  { name: 'notifications', label: 'Bildirimler', icon: 'notifications-outline', iconFilled: 'notifications' },
   { name: 'archive',  label: 'Arşiv',       icon: 'archive-outline',  iconFilled: 'archive' },
   { name: 'profile',  label: 'Profil',      icon: 'person-outline',   iconFilled: 'person' },
 ];
 
-const HIDDEN_ROUTES = ['newspaper', 'publisherpage', 'publisherprofile', 'pdfpreview'];
+const HIDDEN_ROUTES = ['newspaper', 'publisherpage', 'publisherprofile', 'pdfpreview', 'messages/[userId]'];
 
 const LAYOUT_I18N = {
   tr: { home: 'Ana Sayfa', feed: 'Akış', explore: 'Keşfet', search: 'Arama', events: 'Etkinlikler', archive: 'Arşiv', profile: 'Profil' },
