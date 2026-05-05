@@ -13,6 +13,7 @@ import preferencesRouter from './api/preferences.routes';
 import messagesRouter from './api/messages.routes';
 import notificationsRouter from './api/notifications.routes';
 import contactsRouter from './api/contacts.routes';
+import articleInteractionsRouter from './api/articleInteractions.routes';
 import { startScheduler } from './scheduler/newsScheduler';
 import { runMigrations } from './db/migrate';
 
@@ -31,6 +32,7 @@ app.use('/api/messages', messagesRouter);
 app.use('/api/notifications', notificationsRouter);
 app.use('/api/contacts', contactsRouter);
 app.use('/api/news', newsRouter);
+app.use('/api/article-interactions', articleInteractionsRouter);
 app.use('/api/proxy', proxyRouter);
 app.use('/api/events', eventsRouter);
 app.use('/api/concerts', concertsRouter);

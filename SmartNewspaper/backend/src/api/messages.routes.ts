@@ -157,13 +157,6 @@ router.post('/send', async (req: Request, res: Response) => {
       [req.user.userId, recipient_id, content]
     );
 
-    // Create notification
-    await dbQuery(
-      `INSERT INTO notifications (user_id, type, title, content, related_user_id)
-       VALUES ($1, 'message', $2, $3, $4)`,
-      [recipient_id, `${req.user.username} mesaj gönderdi`, content.substring(0, 100), req.user.userId]
-    );
-
     res.status(201).json({ message: result.rows[0] });
   } catch (err) {
     const error = err as Error;

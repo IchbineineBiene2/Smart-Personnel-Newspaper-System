@@ -122,6 +122,7 @@ function WebSidebarTabBar({
   const { state, navigation } = tabProps;
   const router = useRouter();
   const [hasUnreadMessages, setHasUnreadMessages] = useState(false);
+  const [hasUnreadNotifications, setHasUnreadNotifications] = useState(false);
   const fadeAnim = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
@@ -163,6 +164,41 @@ function WebSidebarTabBar({
 
     loadUnreadMessages();
     const interval = setInterval(loadUnreadMessages, 5000);
+
+    return () => {
+      active = false;
+      clearInterval(interval);
+    };
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+
+    const loadUnreadNotifications = async () => {
+      try {
+        const token = await getToken();
+        if (!token) {
+          if (active) setHasUnreadNotifications(false);
+          return;
+        }
+
+        const response = await fetch('http://localhost:3000/api/notifications/unread/count', {
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        });
+
+        if (!response.ok) return;
+
+        const data = await response.json();
+        if (active) setHasUnreadNotifications((data.unread_count || 0) > 0);
+      } catch {
+        if (active) setHasUnreadNotifications(false);
+      }
+    };
+
+    loadUnreadNotifications();
+    const interval = setInterval(loadUnreadNotifications, 5000);
 
     return () => {
       active = false;
@@ -218,7 +254,10 @@ function WebSidebarTabBar({
               iconFilled={navRoute.iconFilled}
               isActive={isActive}
               colors={colors}
-              hasUnread={route.name === 'messages' && hasUnreadMessages}
+              hasUnread={
+                (route.name === 'messages' && hasUnreadMessages) ||
+                (route.name === 'notifications' && hasUnreadNotifications)
+              }
               onPress={() => navigation.navigate(route.name)}
             />
           );
@@ -417,6 +456,15 @@ export default function TabLayout() {
                     </Pressable>
                   );
                 },
+          }}
+        />
+        <Tabs.Screen
+          name="notifications"
+          options={{
+            title: 'Bildirimler',
+            tabBarIcon: ({ color, size }) => (
+              <Ionicons name="notifications-outline" size={size} color={color} />
+            ),
           }}
         />
         <Tabs.Screen

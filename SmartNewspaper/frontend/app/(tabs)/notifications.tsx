@@ -10,6 +10,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
+import { useRouter } from 'expo-router';
 import { useTheme } from '@/hooks/useTheme';
 
 interface Notification {
@@ -17,11 +18,13 @@ interface Notification {
   type: string;
   title: string;
   content: string;
+  related_article_id?: string | null;
   is_read: boolean;
   created_at: string;
 }
 
 export default function NotificationsScreen() {
+  const router = useRouter();
   const { colors } = useTheme();
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [loading, setLoading] = useState(false);
@@ -102,6 +105,19 @@ export default function NotificationsScreen() {
     }
   };
 
+  const openNotification = async (notification: Notification) => {
+    if (!notification.is_read) {
+      await markAsRead(notification.id);
+    }
+
+    if (notification.related_article_id) {
+      router.push({
+        pathname: '/news/[id]',
+        params: { id: notification.related_article_id },
+      });
+    }
+  };
+
   const deleteNotification = async (notificationId: number) => {
     try {
       const response = await fetch(
@@ -131,6 +147,7 @@ export default function NotificationsScreen() {
       case 'mention':
         return 'at';
       case 'comment':
+      case 'comment_reply':
         return 'chatbubbles';
       default:
         return 'notifications';
@@ -144,7 +161,7 @@ export default function NotificationsScreen() {
         !item.is_read && { backgroundColor: colors.accent + '08' },
         { borderBottomColor: colors.borderSubtle },
       ]}
-      onPress={() => markAsRead(item.id)}
+      onPress={() => openNotification(item)}
     >
       <View
         style={[

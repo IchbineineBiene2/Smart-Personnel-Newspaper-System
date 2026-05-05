@@ -23,6 +23,13 @@ import { useBookmarks } from '@/hooks/useBookmarks';
 import { useTheme } from '@/hooks/useTheme';
 import { fetchArticleFullContent, fetchSimilarArticlesFromDb, mapToContentCategory, proxyImageUrl } from '@/services/newsApi';
 import { getPublisherIdFromSourceName } from '@/services/publisherProfiles';
+import {
+  addArticleComment,
+  ArticleComment,
+  fetchArticleComments,
+  fetchArticleInteractionSummary,
+  toggleArticleLike,
+} from '@/services/articleInteractions';
 
 function stripHtml(value: string): string {
   const cleaned = value
@@ -306,6 +313,15 @@ export default function NewsDetailPage() {
   const [loadingRecipients, setLoadingRecipients] = useState(false);
   const [sendingArticleTo, setSendingArticleTo] = useState<number | null>(null);
   const [sendFeedback, setSendFeedback] = useState<string | null>(null);
+  const [likesCount, setLikesCount] = useState(0);
+  const [commentsCount, setCommentsCount] = useState(0);
+  const [likedByMe, setLikedByMe] = useState(false);
+  const [interactionLoading, setInteractionLoading] = useState(false);
+  const [comments, setComments] = useState<ArticleComment[]>([]);
+  const [commentText, setCommentText] = useState('');
+  const [replyingTo, setReplyingTo] = useState<ArticleComment | null>(null);
+  const [commentSubmitting, setCommentSubmitting] = useState(false);
+  const [commentError, setCommentError] = useState<string | null>(null);
   const leftCarouselRef = useRef<ScrollView | null>(null);
   const rightCarouselRef = useRef<ScrollView | null>(null);
   const params = useLocalSearchParams<{
@@ -334,6 +350,30 @@ export default function NewsDetailPage() {
 
     loadToken();
   }, []);
+
+  const loadInteractions = async () => {
+    if (!params.id) return;
+
+    try {
+      setInteractionLoading(true);
+      const [summary, loadedComments] = await Promise.all([
+        fetchArticleInteractionSummary(params.id),
+        fetchArticleComments(params.id),
+      ]);
+      setLikesCount(summary.likes_count);
+      setCommentsCount(summary.comments_count);
+      setLikedByMe(summary.liked_by_me);
+      setComments(loadedComments);
+    } catch (error) {
+      console.error('Error loading article interactions:', error);
+    } finally {
+      setInteractionLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadInteractions();
+  }, [params.id]);
 
   const articleFromCache = articles.find((item: { id: string }) => item.id === params.id);
 
@@ -666,6 +706,60 @@ export default function NewsDetailPage() {
     }
   };
 
+  const handleToggleLike = async () => {
+    if (!params.id || interactionLoading) return;
+
+    const previousLiked = likedByMe;
+    const previousCount = likesCount;
+    setLikedByMe(!previousLiked);
+    setLikesCount(Math.max(0, previousCount + (previousLiked ? -1 : 1)));
+
+    try {
+      const result = await toggleArticleLike(params.id);
+      setLikedByMe(result.liked);
+      setLikesCount(result.likes_count);
+    } catch (error) {
+      console.error('Error toggling like:', error);
+      setLikedByMe(previousLiked);
+      setLikesCount(previousCount);
+    }
+  };
+
+  const handleSubmitComment = async () => {
+    if (!params.id || !commentText.trim()) return;
+
+    try {
+      setCommentSubmitting(true);
+      setCommentError(null);
+      const created = await addArticleComment(params.id, commentText, replyingTo?.id);
+      setComments((current) => [...current, created]);
+      setCommentsCount((current) => current + 1);
+      setCommentText('');
+      setReplyingTo(null);
+    } catch (error) {
+      console.error('Error submitting comment:', error);
+      setCommentError('Yorum eklenemedi. Giris yaptiginizdan emin olun.');
+    } finally {
+      setCommentSubmitting(false);
+    }
+  };
+
+  const topLevelComments = useMemo(
+    () => comments.filter((comment) => !comment.parent_id),
+    [comments]
+  );
+
+  const repliesByParent = useMemo(() => {
+    const grouped = new Map<number, ArticleComment[]>();
+    comments.forEach((comment) => {
+      if (!comment.parent_id) return;
+      const existing = grouped.get(comment.parent_id) || [];
+      existing.push(comment);
+      grouped.set(comment.parent_id, existing);
+    });
+    return grouped;
+  }, [comments]);
+
   const onLeftMomentumEnd = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
     const width = leftSlotWidth || event.nativeEvent.layoutMeasurement.width;
     if (!width) return;
@@ -758,6 +852,33 @@ export default function NewsDetailPage() {
             <Ionicons name={isSaved ? 'bookmark' : 'bookmark-outline'} size={16} color={isSaved ? colors.accent : colors.textPrimary} />
             <Text style={[styles(colors).actionButtonLabel, { color: isSaved ? colors.accent : colors.textPrimary }]}>
               {isSaved ? 'Kaydedildi' : 'Kaydet'}
+            </Text>
+          </Pressable>
+
+          <Pressable
+            style={({ pressed }) => [
+              styles(colors).actionButton,
+              { backgroundColor: likedByMe ? colors.accent + '1A' : colors.surfaceInput },
+              pressed && { opacity: 0.7 },
+            ]}
+            onPress={handleToggleLike}
+          >
+            <Ionicons name={likedByMe ? 'heart' : 'heart-outline'} size={16} color={likedByMe ? colors.accent : colors.textPrimary} />
+            <Text style={[styles(colors).actionButtonLabel, { color: likedByMe ? colors.accent : colors.textPrimary }]}>
+              Beğen {likesCount > 0 ? likesCount : ''}
+            </Text>
+          </Pressable>
+
+          <Pressable
+            style={({ pressed }) => [
+              styles(colors).actionButton,
+              { backgroundColor: colors.surfaceInput },
+              pressed && { opacity: 0.7 },
+            ]}
+          >
+            <Ionicons name="chatbubble-outline" size={16} color={colors.textPrimary} />
+            <Text style={[styles(colors).actionButtonLabel, { color: colors.textPrimary }]}>
+              Yorum {commentsCount > 0 ? commentsCount : ''}
             </Text>
           </Pressable>
 
@@ -1150,6 +1271,114 @@ export default function NewsDetailPage() {
           {/* Secondary images inline display removed intentionally as they cause irrelevant images from article footers */}
         </View>
         )}
+
+        <View style={styles(colors).commentsSection}>
+          <View style={styles(colors).commentsHeader}>
+            <View>
+              <Text style={styles(colors).commentsTitle}>Yorumlar</Text>
+              <Text style={styles(colors).commentsSubtitle}>
+                {commentsCount > 0 ? `${commentsCount} yorum` : 'İlk yorumu sen yaz'}
+              </Text>
+            </View>
+            <View style={[styles(colors).likeSummary, { backgroundColor: colors.accent + '12' }]}>
+              <Ionicons name="heart" size={15} color={colors.accent} />
+              <Text style={[styles(colors).likeSummaryText, { color: colors.accent }]}>
+                {likesCount}
+              </Text>
+            </View>
+          </View>
+
+          {replyingTo ? (
+            <View style={[styles(colors).replyingBox, { borderColor: colors.borderSubtle }]}>
+              <Text style={styles(colors).replyingText}>
+                {replyingTo.username} kullanıcısına yanıt veriyorsun
+              </Text>
+              <Pressable onPress={() => setReplyingTo(null)}>
+                <Ionicons name="close" size={17} color={colors.textMuted} />
+              </Pressable>
+            </View>
+          ) : null}
+
+          <View style={styles(colors).commentComposer}>
+            <TextInput
+              style={styles(colors).commentInput}
+              placeholder={replyingTo ? 'Yanıt yaz...' : 'Yorum yaz...'}
+              placeholderTextColor={colors.textMuted}
+              value={commentText}
+              onChangeText={setCommentText}
+              multiline
+            />
+            <Pressable
+              style={[
+                styles(colors).commentSubmitButton,
+                {
+                  backgroundColor: colors.accent,
+                  opacity: commentSubmitting || !commentText.trim() ? 0.55 : 1,
+                },
+              ]}
+              onPress={handleSubmitComment}
+              disabled={commentSubmitting || !commentText.trim()}
+            >
+              {commentSubmitting ? (
+                <ActivityIndicator size="small" color="#fff" />
+              ) : (
+                <Ionicons name="send" size={16} color="#fff" />
+              )}
+            </Pressable>
+          </View>
+
+          {commentError ? (
+            <Text style={styles(colors).commentError}>{commentError}</Text>
+          ) : null}
+
+          <View style={styles(colors).commentList}>
+            {topLevelComments.map((comment) => (
+              <View key={comment.id} style={[styles(colors).commentItem, { borderColor: colors.borderSubtle }]}>
+                <View style={styles(colors).commentAvatar}>
+                  <Text style={styles(colors).commentAvatarText}>
+                    {comment.username[0]?.toUpperCase() || '?'}
+                  </Text>
+                </View>
+                <View style={styles(colors).commentBody}>
+                  <View style={styles(colors).commentMetaRow}>
+                    <Text style={styles(colors).commentAuthor}>{comment.username}</Text>
+                    <Text style={styles(colors).commentTime}>
+                      {new Date(comment.created_at).toLocaleDateString('tr-TR')}
+                    </Text>
+                  </View>
+                  <Text style={styles(colors).commentContent}>{comment.content}</Text>
+                  <Pressable style={styles(colors).replyButton} onPress={() => setReplyingTo(comment)}>
+                    <Ionicons name="return-down-forward-outline" size={14} color={colors.accent} />
+                    <Text style={styles(colors).replyButtonText}>Yanıtla</Text>
+                  </Pressable>
+
+                  {(repliesByParent.get(comment.id) || []).map((reply) => (
+                    <View key={reply.id} style={styles(colors).replyItem}>
+                      <View style={styles(colors).replyAvatar}>
+                        <Text style={styles(colors).replyAvatarText}>
+                          {reply.username[0]?.toUpperCase() || '?'}
+                        </Text>
+                      </View>
+                      <View style={styles(colors).replyBody}>
+                        <View style={styles(colors).commentMetaRow}>
+                          <Text style={styles(colors).commentAuthor}>{reply.username}</Text>
+                          <Text style={styles(colors).commentTime}>
+                            {new Date(reply.created_at).toLocaleDateString('tr-TR')}
+                          </Text>
+                        </View>
+                        <Text style={styles(colors).commentContent}>{reply.content}</Text>
+                      </View>
+                    </View>
+                  ))}
+                </View>
+              </View>
+            ))}
+
+            {!interactionLoading && topLevelComments.length === 0 ? (
+              <Text style={styles(colors).noCommentsText}>Henüz yorum yok.</Text>
+            ) : null}
+          </View>
+        </View>
 
         {isWeb && exactMatches.length > 0 && (
           <View style={[styles(colors).mediaCol, styles(colors).mediaColWeb]}>
@@ -1656,6 +1885,180 @@ const styles = (colors: any) =>
     actionButtonLabel: {
       fontSize: 12,
       fontWeight: '600',
+    },
+    commentsSection: {
+      borderWidth: 1,
+      borderColor: colors.borderSubtle,
+      backgroundColor: colors.surface,
+      borderRadius: 22,
+      padding: 18,
+      gap: 14,
+      width: '100%',
+    },
+    commentsHeader: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      gap: 12,
+    },
+    commentsTitle: {
+      color: colors.textPrimary,
+      fontSize: 19,
+      fontWeight: '800',
+    },
+    commentsSubtitle: {
+      color: colors.textMuted,
+      fontSize: 12,
+      marginTop: 3,
+    },
+    likeSummary: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 5,
+      paddingHorizontal: 10,
+      paddingVertical: 7,
+      borderRadius: 999,
+    },
+    likeSummaryText: {
+      fontSize: 12,
+      fontWeight: '800',
+    },
+    replyingBox: {
+      borderWidth: 1,
+      borderRadius: 10,
+      paddingHorizontal: 10,
+      paddingVertical: 8,
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      gap: 10,
+    },
+    replyingText: {
+      color: colors.textSecondary,
+      fontSize: 12,
+      flex: 1,
+    },
+    commentComposer: {
+      flexDirection: 'row',
+      alignItems: 'flex-end',
+      gap: 10,
+    },
+    commentInput: {
+      flex: 1,
+      minHeight: 44,
+      maxHeight: 120,
+      borderWidth: 1,
+      borderColor: colors.borderSubtle,
+      backgroundColor: colors.surfaceInput,
+      color: colors.textPrimary,
+      borderRadius: 14,
+      paddingHorizontal: 12,
+      paddingVertical: 10,
+      fontSize: 14,
+    },
+    commentSubmitButton: {
+      width: 42,
+      height: 42,
+      borderRadius: 21,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    commentError: {
+      color: colors.error,
+      fontSize: 12,
+      fontWeight: '600',
+    },
+    commentList: {
+      gap: 10,
+    },
+    commentItem: {
+      flexDirection: 'row',
+      gap: 10,
+      borderWidth: 1,
+      borderRadius: 14,
+      padding: 12,
+    },
+    commentAvatar: {
+      width: 36,
+      height: 36,
+      borderRadius: 18,
+      backgroundColor: colors.accent + '24',
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    commentAvatarText: {
+      color: colors.accent,
+      fontSize: 14,
+      fontWeight: '800',
+    },
+    commentBody: {
+      flex: 1,
+      minWidth: 0,
+      gap: 5,
+    },
+    commentMetaRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      gap: 8,
+    },
+    commentAuthor: {
+      color: colors.textPrimary,
+      fontSize: 13,
+      fontWeight: '800',
+    },
+    commentTime: {
+      color: colors.textMuted,
+      fontSize: 11,
+    },
+    commentContent: {
+      color: colors.textSecondary,
+      fontSize: 14,
+      lineHeight: 20,
+    },
+    replyButton: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      alignSelf: 'flex-start',
+      gap: 4,
+      paddingTop: 2,
+    },
+    replyButtonText: {
+      color: colors.accent,
+      fontSize: 12,
+      fontWeight: '800',
+    },
+    replyItem: {
+      flexDirection: 'row',
+      gap: 8,
+      marginTop: 9,
+      paddingTop: 9,
+      borderTopWidth: 1,
+      borderTopColor: colors.borderSubtle,
+    },
+    replyAvatar: {
+      width: 28,
+      height: 28,
+      borderRadius: 14,
+      backgroundColor: colors.accent + '1A',
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    replyAvatarText: {
+      color: colors.accent,
+      fontSize: 11,
+      fontWeight: '800',
+    },
+    replyBody: {
+      flex: 1,
+      minWidth: 0,
+      gap: 4,
+    },
+    noCommentsText: {
+      color: colors.textMuted,
+      fontSize: 13,
+      textAlign: 'center',
+      paddingVertical: 12,
     },
     modalOverlay: {
       flex: 1,
