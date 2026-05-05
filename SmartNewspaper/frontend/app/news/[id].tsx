@@ -322,8 +322,14 @@ export default function NewsDetailPage() {
   const [replyingTo, setReplyingTo] = useState<ArticleComment | null>(null);
   const [commentSubmitting, setCommentSubmitting] = useState(false);
   const [commentError, setCommentError] = useState<string | null>(null);
+  const [likeError, setLikeError] = useState<string | null>(null);
+  const [likeLoading, setLikeLoading] = useState(false);
   const leftCarouselRef = useRef<ScrollView | null>(null);
   const rightCarouselRef = useRef<ScrollView | null>(null);
+  const scrollViewRef = useRef<ScrollView | null>(null);
+  const commentSectionRef = useRef<View | null>(null);
+  const commentInputRef = useRef<TextInput | null>(null);
+  const [commentSectionY, setCommentSectionY] = useState(0);
   const params = useLocalSearchParams<{
     id?: string;
     title?: string;
@@ -707,12 +713,20 @@ export default function NewsDetailPage() {
   };
 
   const handleToggleLike = async () => {
-    if (!params.id || interactionLoading) return;
+    if (!params.id || likeLoading) return;
+
+    setLikeError(null);
+    if (!messageToken) {
+      setLikeError('Beğenmek için giriş yapmalısınız.');
+      setTimeout(() => setLikeError(null), 3000);
+      return;
+    }
 
     const previousLiked = likedByMe;
     const previousCount = likesCount;
     setLikedByMe(!previousLiked);
     setLikesCount(Math.max(0, previousCount + (previousLiked ? -1 : 1)));
+    setLikeLoading(true);
 
     try {
       const result = await toggleArticleLike(params.id);
@@ -722,7 +736,16 @@ export default function NewsDetailPage() {
       console.error('Error toggling like:', error);
       setLikedByMe(previousLiked);
       setLikesCount(previousCount);
+      setLikeError('Beğeni kaydedilemedi.');
+      setTimeout(() => setLikeError(null), 3000);
+    } finally {
+      setLikeLoading(false);
     }
+  };
+
+  const handleScrollToComments = () => {
+    scrollViewRef.current?.scrollTo({ y: commentSectionY - 16, animated: true });
+    setTimeout(() => commentInputRef.current?.focus(), 400);
   };
 
   const handleSubmitComment = async () => {
@@ -806,7 +829,7 @@ export default function NewsDetailPage() {
   const rightImageHeight = rightSlotHeight > 18 ? rightSlotHeight - 18 : rightSlotHeight;
 
   return (
-    <ScrollView style={styles(colors).container} contentContainerStyle={styles(colors).content}>
+    <ScrollView ref={scrollViewRef} style={styles(colors).container} contentContainerStyle={styles(colors).content}>
       <View style={styles(colors).articleHero}>
         {mainImage ? (
           <Image source={{ uri: mainImage }} style={styles(colors).articleHeroImage} resizeMode="cover" />
@@ -860,10 +883,16 @@ export default function NewsDetailPage() {
               styles(colors).actionButton,
               { backgroundColor: likedByMe ? colors.accent + '1A' : colors.surfaceInput },
               pressed && { opacity: 0.7 },
+              likeLoading && { opacity: 0.6 },
             ]}
             onPress={handleToggleLike}
+            disabled={likeLoading}
           >
-            <Ionicons name={likedByMe ? 'heart' : 'heart-outline'} size={16} color={likedByMe ? colors.accent : colors.textPrimary} />
+            {likeLoading ? (
+              <ActivityIndicator size="small" color={colors.accent} />
+            ) : (
+              <Ionicons name={likedByMe ? 'heart' : 'heart-outline'} size={16} color={likedByMe ? colors.accent : colors.textPrimary} />
+            )}
             <Text style={[styles(colors).actionButtonLabel, { color: likedByMe ? colors.accent : colors.textPrimary }]}>
               Beğen {likesCount > 0 ? likesCount : ''}
             </Text>
@@ -875,6 +904,7 @@ export default function NewsDetailPage() {
               { backgroundColor: colors.surfaceInput },
               pressed && { opacity: 0.7 },
             ]}
+            onPress={handleScrollToComments}
           >
             <Ionicons name="chatbubble-outline" size={16} color={colors.textPrimary} />
             <Text style={[styles(colors).actionButtonLabel, { color: colors.textPrimary }]}>
@@ -906,6 +936,11 @@ export default function NewsDetailPage() {
             <Text style={[styles(colors).actionButtonLabel, { color: colors.textPrimary }]}>Mesajla Gönder</Text>
           </Pressable>
         </View>
+        {!!likeError && (
+          <Text style={[styles(colors).actionButtonLabel, { color: colors.error, marginTop: 6, paddingHorizontal: 4 }]}>
+            {likeError}
+          </Text>
+        )}
       </View>
 
       <Modal
@@ -1272,114 +1307,6 @@ export default function NewsDetailPage() {
         </View>
         )}
 
-        <View style={styles(colors).commentsSection}>
-          <View style={styles(colors).commentsHeader}>
-            <View>
-              <Text style={styles(colors).commentsTitle}>Yorumlar</Text>
-              <Text style={styles(colors).commentsSubtitle}>
-                {commentsCount > 0 ? `${commentsCount} yorum` : 'İlk yorumu sen yaz'}
-              </Text>
-            </View>
-            <View style={[styles(colors).likeSummary, { backgroundColor: colors.accent + '12' }]}>
-              <Ionicons name="heart" size={15} color={colors.accent} />
-              <Text style={[styles(colors).likeSummaryText, { color: colors.accent }]}>
-                {likesCount}
-              </Text>
-            </View>
-          </View>
-
-          {replyingTo ? (
-            <View style={[styles(colors).replyingBox, { borderColor: colors.borderSubtle }]}>
-              <Text style={styles(colors).replyingText}>
-                {replyingTo.username} kullanıcısına yanıt veriyorsun
-              </Text>
-              <Pressable onPress={() => setReplyingTo(null)}>
-                <Ionicons name="close" size={17} color={colors.textMuted} />
-              </Pressable>
-            </View>
-          ) : null}
-
-          <View style={styles(colors).commentComposer}>
-            <TextInput
-              style={styles(colors).commentInput}
-              placeholder={replyingTo ? 'Yanıt yaz...' : 'Yorum yaz...'}
-              placeholderTextColor={colors.textMuted}
-              value={commentText}
-              onChangeText={setCommentText}
-              multiline
-            />
-            <Pressable
-              style={[
-                styles(colors).commentSubmitButton,
-                {
-                  backgroundColor: colors.accent,
-                  opacity: commentSubmitting || !commentText.trim() ? 0.55 : 1,
-                },
-              ]}
-              onPress={handleSubmitComment}
-              disabled={commentSubmitting || !commentText.trim()}
-            >
-              {commentSubmitting ? (
-                <ActivityIndicator size="small" color="#fff" />
-              ) : (
-                <Ionicons name="send" size={16} color="#fff" />
-              )}
-            </Pressable>
-          </View>
-
-          {commentError ? (
-            <Text style={styles(colors).commentError}>{commentError}</Text>
-          ) : null}
-
-          <View style={styles(colors).commentList}>
-            {topLevelComments.map((comment) => (
-              <View key={comment.id} style={[styles(colors).commentItem, { borderColor: colors.borderSubtle }]}>
-                <View style={styles(colors).commentAvatar}>
-                  <Text style={styles(colors).commentAvatarText}>
-                    {comment.username[0]?.toUpperCase() || '?'}
-                  </Text>
-                </View>
-                <View style={styles(colors).commentBody}>
-                  <View style={styles(colors).commentMetaRow}>
-                    <Text style={styles(colors).commentAuthor}>{comment.username}</Text>
-                    <Text style={styles(colors).commentTime}>
-                      {new Date(comment.created_at).toLocaleDateString('tr-TR')}
-                    </Text>
-                  </View>
-                  <Text style={styles(colors).commentContent}>{comment.content}</Text>
-                  <Pressable style={styles(colors).replyButton} onPress={() => setReplyingTo(comment)}>
-                    <Ionicons name="return-down-forward-outline" size={14} color={colors.accent} />
-                    <Text style={styles(colors).replyButtonText}>Yanıtla</Text>
-                  </Pressable>
-
-                  {(repliesByParent.get(comment.id) || []).map((reply) => (
-                    <View key={reply.id} style={styles(colors).replyItem}>
-                      <View style={styles(colors).replyAvatar}>
-                        <Text style={styles(colors).replyAvatarText}>
-                          {reply.username[0]?.toUpperCase() || '?'}
-                        </Text>
-                      </View>
-                      <View style={styles(colors).replyBody}>
-                        <View style={styles(colors).commentMetaRow}>
-                          <Text style={styles(colors).commentAuthor}>{reply.username}</Text>
-                          <Text style={styles(colors).commentTime}>
-                            {new Date(reply.created_at).toLocaleDateString('tr-TR')}
-                          </Text>
-                        </View>
-                        <Text style={styles(colors).commentContent}>{reply.content}</Text>
-                      </View>
-                    </View>
-                  ))}
-                </View>
-              </View>
-            ))}
-
-            {!interactionLoading && topLevelComments.length === 0 ? (
-              <Text style={styles(colors).noCommentsText}>Henüz yorum yok.</Text>
-            ) : null}
-          </View>
-        </View>
-
         {isWeb && exactMatches.length > 0 && (
           <View style={[styles(colors).mediaCol, styles(colors).mediaColWeb]}>
             <View style={styles(colors).relatedHeader}>
@@ -1399,6 +1326,119 @@ export default function NewsDetailPage() {
             </View>
           </View>
         )}
+      </View>
+
+      <View
+        ref={commentSectionRef}
+        style={styles(colors).commentsSection}
+        onLayout={(e) => setCommentSectionY(e.nativeEvent.layout.y)}
+      >
+        <View style={styles(colors).commentsHeader}>
+          <View>
+            <Text style={styles(colors).commentsTitle}>Yorumlar</Text>
+            <Text style={styles(colors).commentsSubtitle}>
+              {commentsCount > 0 ? `${commentsCount} yorum` : 'İlk yorumu sen yaz'}
+            </Text>
+          </View>
+          <View style={[styles(colors).likeSummary, { backgroundColor: colors.accent + '12' }]}>
+            <Ionicons name="heart" size={15} color={colors.accent} />
+            <Text style={[styles(colors).likeSummaryText, { color: colors.accent }]}>
+              {likesCount}
+            </Text>
+          </View>
+        </View>
+
+        {replyingTo ? (
+          <View style={[styles(colors).replyingBox, { borderColor: colors.borderSubtle }]}>
+            <Text style={styles(colors).replyingText}>
+              {replyingTo.username} kullanıcısına yanıt veriyorsun
+            </Text>
+            <Pressable onPress={() => setReplyingTo(null)}>
+              <Ionicons name="close" size={17} color={colors.textMuted} />
+            </Pressable>
+          </View>
+        ) : null}
+
+        <View style={styles(colors).commentComposer}>
+          <TextInput
+            ref={commentInputRef}
+            style={styles(colors).commentInput}
+            placeholder={replyingTo ? 'Yanıt yaz...' : 'Yorum yaz...'}
+            placeholderTextColor={colors.textMuted}
+            value={commentText}
+            onChangeText={setCommentText}
+            multiline
+          />
+          <Pressable
+            style={[
+              styles(colors).commentSubmitButton,
+              {
+                backgroundColor: colors.accent,
+                opacity: commentSubmitting || !commentText.trim() ? 0.55 : 1,
+              },
+            ]}
+            onPress={handleSubmitComment}
+            disabled={commentSubmitting || !commentText.trim()}
+          >
+            {commentSubmitting ? (
+              <ActivityIndicator size="small" color="#fff" />
+            ) : (
+              <Ionicons name="send" size={16} color="#fff" />
+            )}
+          </Pressable>
+        </View>
+
+        {commentError ? (
+          <Text style={styles(colors).commentError}>{commentError}</Text>
+        ) : null}
+
+        <View style={styles(colors).commentList}>
+          {topLevelComments.map((comment) => (
+            <View key={comment.id} style={[styles(colors).commentItem, { borderColor: colors.borderSubtle }]}>
+              <View style={styles(colors).commentAvatar}>
+                <Text style={styles(colors).commentAvatarText}>
+                  {comment.username[0]?.toUpperCase() || '?'}
+                </Text>
+              </View>
+              <View style={styles(colors).commentBody}>
+                <View style={styles(colors).commentMetaRow}>
+                  <Text style={styles(colors).commentAuthor}>{comment.username}</Text>
+                  <Text style={styles(colors).commentTime}>
+                    {new Date(comment.created_at).toLocaleDateString('tr-TR')}
+                  </Text>
+                </View>
+                <Text style={styles(colors).commentContent}>{comment.content}</Text>
+                <Pressable style={styles(colors).replyButton} onPress={() => setReplyingTo(comment)}>
+                  <Ionicons name="return-down-forward-outline" size={14} color={colors.accent} />
+                  <Text style={styles(colors).replyButtonText}>Yanıtla</Text>
+                </Pressable>
+
+                {(repliesByParent.get(comment.id) || []).map((reply) => (
+                  <View key={reply.id} style={styles(colors).replyItem}>
+                    <View style={styles(colors).replyAvatar}>
+                      <Text style={styles(colors).replyAvatarText}>
+                        {reply.username[0]?.toUpperCase() || '?'}
+                      </Text>
+                    </View>
+                    <View style={styles(colors).replyBody}>
+                      <View style={styles(colors).commentMetaRow}>
+                        <Text style={styles(colors).commentAuthor}>{reply.username}</Text>
+                        <Text style={styles(colors).commentTime}>
+                          {new Date(reply.created_at).toLocaleDateString('tr-TR')}
+                        </Text>
+                      </View>
+                      <Text style={styles(colors).commentContent}>{reply.content}</Text>
+                    </View>
+                  </View>
+                ))}
+              </View>
+            </View>
+          ))}
+
+          {!interactionLoading && topLevelComments.length === 0 ? (
+            <Text style={styles(colors).noCommentsText}>Henüz yorum yok.</Text>
+          ) : null}
+        </View>
       </View>
 
       {!isWeb && exactMatches.length > 0 && (

@@ -42,12 +42,12 @@ const DEFAULT_WIDGETS: WidgetConfig[] = [
 
 type DashTab = 'foryou' | 'popular' | 'analysis';
 
-function renderWidgetContent(type: WidgetConfig['type']) {
-  switch (type) {
-    case 'news':     return <NewsWidget />;
-    case 'currency': return <CurrencyWidget />;
-    case 'weather':  return <WeatherWidget />;
-    case 'sports':   return <SportsWidget />;
+function renderWidgetContent(config: WidgetConfig) {
+  switch (config.type) {
+    case 'news':     return <NewsWidget size={config.size} />;
+    case 'currency': return <CurrencyWidget size={config.size} />;
+    case 'weather':  return <WeatherWidget size={config.size} />;
+    case 'sports':   return <SportsWidget size={config.size} />;
     default:
       return null;
   }
@@ -148,10 +148,11 @@ export default function HomeScreen() {
   const bgColor = colors.background;
 
   const getGridCellStyle = (size: WidgetConfig['size']) => {
-    if (!isWeb) return styles.gridCell;
-    if (size === 'lg') return [styles.gridCell, { width: isWide ? '50%' : '100%' }] as any;
-    if (size === 'md') return [styles.gridCell, { width: isWide ? '32%' : isTablet ? '48%' : '100%' }] as any;
-    return [styles.gridCell, { width: isWide ? '24%' : isTablet ? '48%' : '100%' }] as any;
+    const minHeights = { sm: 260, md: 320, lg: 420 };
+    const minH = minHeights[size] ?? 260;
+    if (!isWeb) return { width: '100%', minHeight: minH };
+    // CSS Grid: lg spans both columns (full row), sm/md each span 1 column (half row)
+    return { gridColumn: size === 'lg' ? 'span 2' : 'span 1', minHeight: minH } as any;
   };
 
   return (
@@ -229,7 +230,11 @@ export default function HomeScreen() {
               style={StyleSheet.absoluteFill}
               resizeMode="cover"
             />
-            <View style={styles.heroOverlay} />
+            {/* Multi-stop gradient overlay for depth */}
+            <View style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(0,0,0,0.18)' }]} />
+            <View style={[StyleSheet.absoluteFill, {
+              background: 'linear-gradient(to bottom, transparent 30%, rgba(0,0,0,0.75) 100%)',
+            } as any]} />
             <View style={styles.heroContent}>
               <View style={[styles.heroBadge, { backgroundColor: colors.accent }]}>
                 <Text style={styles.heroBadgeText}>MANŞET</Text>
@@ -345,11 +350,20 @@ export default function HomeScreen() {
       </Animated.View>
 
       {/* ── Widget Grid ── */}
-      <Animated.View style={[styles.grid, { opacity: listFade }]}>
+      <Animated.View
+        style={[
+          styles.grid,
+          { opacity: listFade },
+          isWeb && ({
+            display: 'grid',
+            gridTemplateColumns: 'repeat(2, 1fr)',
+          } as any),
+        ]}
+      >
         {widgets.map((widget) => (
           <View
             key={widget.id}
-            style={getGridCellStyle(widget.size)}
+            style={[!isWeb && styles.gridCell, getGridCellStyle(widget.size), isWeb && { display: 'flex' } as any] as any}
           >
             <WidgetCard
               config={widget}
@@ -357,7 +371,7 @@ export default function HomeScreen() {
               onRemove={handleRemoveWidget}
               onResize={handleResizeWidget}
             >
-              {renderWidgetContent(widget.type)}
+              {renderWidgetContent(widget)}
             </WidgetCard>
           </View>
         ))}
@@ -407,7 +421,7 @@ function timeAgo(iso: string): string {
 
 const styles = StyleSheet.create({
   root: { flex: 1 },
-  content: { padding: 24, paddingBottom: 48, gap: 28 },
+  content: { padding: 24, paddingBottom: 56, gap: 24 },
   webContent: { maxWidth: 1640, width: '100%' as any, alignSelf: 'center' },
 
   // Header
@@ -447,33 +461,33 @@ const styles = StyleSheet.create({
   },
 
   // Featured
-  featuredSection: { flexDirection: 'row', gap: 16, minHeight: 360 },
+  featuredSection: { flexDirection: 'row', gap: 16, minHeight: 400 },
   featuredSectionStacked: { flexDirection: 'column' },
   hero: {
-    flex: 2, borderRadius: 28, overflow: 'hidden',
-    minHeight: 360, position: 'relative',
+    flex: 2, borderRadius: 32, overflow: 'hidden',
+    minHeight: 400, position: 'relative',
   },
   heroOverlay: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(0,0,0,0.35)',
+    backgroundColor: 'rgba(0,0,0,0.42)',
   },
   heroContent: {
-    position: 'absolute', bottom: 0, left: 0, right: 0, padding: 28, gap: 12,
+    position: 'absolute', bottom: 0, left: 0, right: 0, padding: 32, gap: 14,
   },
   heroBadge: {
-    alignSelf: 'flex-start', paddingHorizontal: 12, paddingVertical: 5,
+    alignSelf: 'flex-start', paddingHorizontal: 14, paddingVertical: 6,
     borderRadius: 999,
   },
-  heroBadgeText: { fontSize: 10, fontWeight: '900', color: '#fff', letterSpacing: 2 },
-  heroTitle: { fontSize: 26, fontWeight: '900', color: '#fff', letterSpacing: -0.5, lineHeight: 32 },
-  heroDesc: { fontSize: 14, color: 'rgba(255,255,255,0.75)', lineHeight: 20 },
+  heroBadgeText: { fontSize: 10, fontWeight: '900', color: '#fff', letterSpacing: 2.5 },
+  heroTitle: { fontSize: 30, fontWeight: '900', color: '#fff', letterSpacing: -0.6, lineHeight: 36 },
+  heroDesc: { fontSize: 14, color: 'rgba(255,255,255,0.8)', lineHeight: 21 },
 
-  highlights: { flex: 1, gap: 8, minWidth: 220 },
-  highlightsLabel: { fontSize: 10, fontWeight: '900', letterSpacing: 2, paddingLeft: 4, marginBottom: 4 },
-  highlightCard: { flex: 1, borderRadius: 20, borderWidth: 1, overflow: 'hidden' },
-  highlightInner: { flex: 1, padding: 16, gap: 8, justifyContent: 'space-between' },
+  highlights: { flex: 1, gap: 10, minWidth: 240 },
+  highlightsLabel: { fontSize: 10, fontWeight: '900', letterSpacing: 2, paddingLeft: 4, marginBottom: 2 },
+  highlightCard: { flex: 1, borderRadius: 22, borderWidth: 1, overflow: 'hidden' },
+  highlightInner: { flex: 1, padding: 18, gap: 8, justifyContent: 'space-between' },
   highlightCat: { fontSize: 9, fontWeight: '900', letterSpacing: 1.5 },
-  highlightTitle: { fontSize: 15, fontWeight: '700', lineHeight: 20 },
+  highlightTitle: { fontSize: 16, fontWeight: '800', lineHeight: 22 },
   highlightFooter: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   highlightTime: { fontSize: 10, fontWeight: '600' },
   detailsLink: { flexDirection: 'row', alignItems: 'center', gap: 3 },
@@ -501,7 +515,7 @@ const styles = StyleSheet.create({
   addLabel: { fontSize: 11, fontWeight: '700', color: '#fff', letterSpacing: 0.5 },
 
   // Grid
-  grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 16 },
+  grid: { gap: 18 },
   gridCell: { width: '100%' },
   gridCellMd: { width: '48%' } as any,
   gridCellLg: { width: '100%' },
