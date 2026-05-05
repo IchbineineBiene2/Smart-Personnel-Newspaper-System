@@ -1,15 +1,16 @@
-import { Tabs } from 'expo-router';
+import { Tabs, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { BottomTabBar, BottomTabBarProps } from '@react-navigation/bottom-tabs';
 import { Animated, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useRef, useEffect } from 'react';
+import { useRef, useEffect, useState } from 'react';
 
 import { useTheme } from '@/hooks/useTheme';
 import { useLanguage } from '@/hooks/useLanguage';
 import AppHeader from '@/components/AppHeader';
 import { NewsNotificationToast } from '@/components/NewsNotificationToast';
 import { useNotification } from '@/contexts/NotificationContext';
+import { getToken, logoutUser } from '@/services/auth';
 
 const NAV_ROUTES: { name: string; label: string; icon: string; iconFilled: string }[] = [
   { name: 'index',    label: 'Ana Sayfa',   icon: 'grid-outline',     iconFilled: 'grid' },
@@ -39,6 +40,7 @@ function NavItem({
   isActive,
   onPress,
   colors,
+  hasUnread,
 }: {
   label: string;
   icon: string;
@@ -46,6 +48,7 @@ function NavItem({
   isActive: boolean;
   onPress: () => void;
   colors: any;
+  hasUnread?: boolean;
 }) {
   const bgAnim = useRef(new Animated.Value(isActive ? 1 : 0)).current;
   const scaleAnim = useRef(new Animated.Value(isActive ? 1 : 0.95)).current;
@@ -91,6 +94,9 @@ function NavItem({
           size={20}
           color={isActive ? colors.accent : colors.textMuted}
         />
+        {hasUnread ? (
+          <View style={[styles.unreadDot, { backgroundColor: colors.accent }]} />
+        ) : null}
         <Text
           style={[
             styles.navLabel,
@@ -114,6 +120,8 @@ function WebSidebarTabBar({
   pageBackground: string;
 }) {
   const { state, navigation } = tabProps;
+  const router = useRouter();
+  const [hasUnreadMessages, setHasUnreadMessages] = useState(false);
   const fadeAnim = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
@@ -122,6 +130,44 @@ function WebSidebarTabBar({
       duration: 350,
       useNativeDriver: true,
     }).start();
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+
+    const loadUnreadMessages = async () => {
+      try {
+        const token = await getToken();
+        if (!token) {
+          if (active) setHasUnreadMessages(false);
+          return;
+        }
+
+        const response = await fetch('http://localhost:3000/api/messages/conversations', {
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        });
+
+        if (!response.ok) return;
+
+        const data = await response.json();
+        const hasUnread = (data.conversations || []).some(
+          (conversation: { unread_count?: number }) => (conversation.unread_count || 0) > 0
+        );
+        if (active) setHasUnreadMessages(hasUnread);
+      } catch {
+        if (active) setHasUnreadMessages(false);
+      }
+    };
+
+    loadUnreadMessages();
+    const interval = setInterval(loadUnreadMessages, 5000);
+
+    return () => {
+      active = false;
+      clearInterval(interval);
+    };
   }, []);
 
   const today = new Date().toLocaleDateString('tr-TR', {
@@ -172,6 +218,7 @@ function WebSidebarTabBar({
               iconFilled={navRoute.iconFilled}
               isActive={isActive}
               colors={colors}
+              hasUnread={route.name === 'messages' && hasUnreadMessages}
               onPress={() => navigation.navigate(route.name)}
             />
           );
@@ -204,6 +251,10 @@ function WebSidebarTabBar({
             styles.logoutBtn,
             { backgroundColor: pressed ? '#ef444410' : 'transparent' },
           ]}
+          onPress={async () => {
+            await logoutUser();
+            router.replace('/auth/login');
+          }}
         >
           <Ionicons name="log-out-outline" size={18} color="#ef4444" />
           <Text style={styles.logoutText}>ÇIKIŞ YAP</Text>
@@ -453,6 +504,14 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     borderRadius: 16,
     position: 'relative',
+  },
+  unreadDot: {
+    position: 'absolute',
+    left: 30,
+    top: 12,
+    width: 8,
+    height: 8,
+    borderRadius: 4,
   },
   activeBar: {
     position: 'absolute',

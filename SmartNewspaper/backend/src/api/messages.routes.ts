@@ -17,27 +17,41 @@ router.get('/conversations', async (req: Request, res: Response) => {
     }
 
     const result = await dbQuery(
-      `SELECT DISTINCT 
-         CASE 
-           WHEN sender_id = $1 THEN recipient_id 
-           ELSE sender_id 
-         END as other_user_id,
-         (SELECT username FROM users WHERE id = 
-           CASE 
-             WHEN sender_id = $1 THEN recipient_id 
-             ELSE sender_id 
-           END) as username,
-         (SELECT email FROM users WHERE id = 
-           CASE 
-             WHEN sender_id = $1 THEN recipient_id 
-             ELSE sender_id 
-           END) as email,
-         MAX(created_at) as last_message_at,
-         SUM(CASE WHEN is_read = FALSE AND recipient_id = $1 THEN 1 ELSE 0 END) as unread_count
-       FROM messages
-       WHERE sender_id = $1 OR recipient_id = $1
-       GROUP BY other_user_id
-       ORDER BY last_message_at DESC`,
+      `WITH conversation_messages AS (
+         SELECT
+           m.*,
+           CASE
+             WHEN m.sender_id = $1 THEN m.recipient_id
+             ELSE m.sender_id
+           END AS other_user_id,
+           ROW_NUMBER() OVER (
+             PARTITION BY CASE WHEN m.sender_id = $1 THEN m.recipient_id ELSE m.sender_id END
+             ORDER BY m.created_at DESC, m.id DESC
+           ) AS row_number
+         FROM messages m
+         WHERE m.sender_id = $1 OR m.recipient_id = $1
+       ),
+       unread_counts AS (
+         SELECT
+           sender_id AS other_user_id,
+           COUNT(*)::int AS unread_count
+         FROM messages
+         WHERE recipient_id = $1 AND is_read = FALSE
+         GROUP BY sender_id
+       )
+       SELECT
+         cm.other_user_id,
+         u.username,
+         u.email,
+         cm.sender_id AS last_sender_id,
+         cm.content AS last_message,
+         cm.created_at AS last_message_at,
+         COALESCE(uc.unread_count, 0) AS unread_count
+       FROM conversation_messages cm
+       JOIN users u ON u.id = cm.other_user_id
+       LEFT JOIN unread_counts uc ON uc.other_user_id = cm.other_user_id
+       WHERE cm.row_number = 1
+       ORDER BY cm.created_at DESC, cm.id DESC`,
       [req.user.userId]
     );
 
@@ -87,7 +101,8 @@ router.get('/:userId', async (req: Request, res: Response) => {
     // Mark messages as read
     await dbQuery(
       `UPDATE messages 
-       SET is_read = TRUE
+       SET is_read = TRUE,
+           updated_at = NOW()
        WHERE recipient_id = $1 AND sender_id = $2 AND is_read = FALSE`,
       [req.user.userId, userId]
     );

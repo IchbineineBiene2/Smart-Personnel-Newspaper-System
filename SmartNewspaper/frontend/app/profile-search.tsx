@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   View,
   Text,
@@ -9,6 +9,7 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import { useRouter } from 'expo-router';
+import { useLocalSearchParams } from 'expo-router';
 
 interface UserProfile {
   id: number;
@@ -18,13 +19,38 @@ interface UserProfile {
 
 const ProfileSearchScreen = () => {
   const router = useRouter();
+  const { query } = useLocalSearchParams<{ query?: string }>();
   const [searchQuery, setSearchQuery] = useState('');
   const [results, setResults] = useState<UserProfile[]>([]);
   const [loading, setLoading] = useState(false);
   const [token, setToken] = useState<string>('');
 
+  useEffect(() => {
+    const loadToken = async () => {
+      try {
+        const authModule = require('@/services/auth');
+        const storedToken = await authModule.getToken?.();
+        if (storedToken) {
+          setToken(storedToken);
+        }
+      } catch (error) {
+        console.error('Error loading token:', error);
+      }
+    };
+
+    loadToken();
+  }, []);
+
+  useEffect(() => {
+    if (token && query) {
+      const initialQuery = Array.isArray(query) ? query[0] : query;
+      setSearchQuery(initialQuery);
+      searchUsers(initialQuery);
+    }
+  }, [token, query]);
+
   const searchUsers = async (query: string) => {
-    if (query.length < 2) {
+    if (!token || query.length < 2) {
       setResults([]);
       return;
     }
@@ -58,8 +84,8 @@ const ProfileSearchScreen = () => {
 
   const openMessage = (userId: number, username: string) => {
     router.push({
-      pathname: '/messages',
-      params: { otherUserId: userId, username },
+      pathname: '/messages/[userId]',
+      params: { userId: userId.toString(), username },
     });
   };
 

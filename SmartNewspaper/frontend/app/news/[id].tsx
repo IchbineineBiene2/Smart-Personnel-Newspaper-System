@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Image,
+  Modal,
   NativeScrollEvent,
   NativeSyntheticEvent,
   Platform,
@@ -10,6 +11,7 @@ import {
   Share,
   StyleSheet,
   Text,
+  TextInput,
   View,
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
@@ -172,6 +174,21 @@ function buildPublisherLogoUrl(sourceName: string, sourceUrl?: string): string |
 // ─── Benzer Haber Skorlama ───────────────────────────────────────────────────
 type ArticleLike = { id: string; category?: string; title: string; language: string; description: string; source: { name: string }; publishedAt: string; imageUrl?: string; similarityScore?: number };
 
+type UserProfile = {
+  id: number;
+  username: string;
+  email: string;
+};
+
+type ConversationRecipient = {
+  other_user_id: number;
+  username: string;
+  email: string;
+  last_message_at?: string;
+};
+
+const ARTICLE_SHARE_PREFIX = 'SPN_ARTICLE_SHARE:';
+
 function getSimilarArticles(
   currentId: string,
   currentCategory: string,
@@ -280,6 +297,15 @@ export default function NewsDetailPage() {
   const [rightSlotWidth, setRightSlotWidth] = useState(0);
   const [leftSlotHeight, setLeftSlotHeight] = useState(0);
   const [rightSlotHeight, setRightSlotHeight] = useState(0);
+  const [messagePanelVisible, setMessagePanelVisible] = useState(false);
+  const [messageToken, setMessageToken] = useState<string>('');
+  const [recipientQuery, setRecipientQuery] = useState('');
+  const [recipientResults, setRecipientResults] = useState<UserProfile[]>([]);
+  const [recentRecipients, setRecentRecipients] = useState<ConversationRecipient[]>([]);
+  const [recipientSearching, setRecipientSearching] = useState(false);
+  const [loadingRecipients, setLoadingRecipients] = useState(false);
+  const [sendingArticleTo, setSendingArticleTo] = useState<number | null>(null);
+  const [sendFeedback, setSendFeedback] = useState<string | null>(null);
   const leftCarouselRef = useRef<ScrollView | null>(null);
   const rightCarouselRef = useRef<ScrollView | null>(null);
   const params = useLocalSearchParams<{
@@ -292,6 +318,22 @@ export default function NewsDetailPage() {
     publishedAt?: string;
     category?: string;
   }>();
+
+  useEffect(() => {
+    const loadToken = async () => {
+      try {
+        const authModule = require('@/services/auth');
+        const storedToken = await authModule.getToken?.();
+        if (storedToken) {
+          setMessageToken(storedToken);
+        }
+      } catch (error) {
+        console.error('Error loading message token:', error);
+      }
+    };
+
+    loadToken();
+  }, []);
 
   const articleFromCache = articles.find((item: { id: string }) => item.id === params.id);
 
@@ -497,6 +539,125 @@ export default function NewsDetailPage() {
     }
   };
 
+  const openMessagePanel = () => {
+    setMessagePanelVisible(true);
+    setSendFeedback(null);
+  };
+
+  const loadRecentRecipients = async () => {
+    if (!messageToken) return;
+
+    try {
+      setLoadingRecipients(true);
+      const response = await fetch('http://localhost:3000/api/messages/conversations', {
+        headers: {
+          Authorization: `Bearer ${messageToken}`,
+        },
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        setRecentRecipients(data.conversations || []);
+      }
+    } catch (error) {
+      console.error('Error loading recent recipients:', error);
+    } finally {
+      setLoadingRecipients(false);
+    }
+  };
+
+  useEffect(() => {
+    if (messagePanelVisible && messageToken) {
+      loadRecentRecipients();
+    }
+  }, [messagePanelVisible, messageToken]);
+
+  const searchRecipients = async (query: string) => {
+    const trimmed = query.trim();
+    setRecipientQuery(query);
+    setSendFeedback(null);
+
+    if (!messageToken || trimmed.length < 2) {
+      setRecipientResults([]);
+      return;
+    }
+
+    try {
+      setRecipientSearching(true);
+      const response = await fetch(
+        `http://localhost:3000/api/contacts/search?q=${encodeURIComponent(trimmed)}`,
+        {
+          headers: {
+            Authorization: `Bearer ${messageToken}`,
+          },
+        }
+      );
+
+      if (response.ok) {
+        const data = await response.json();
+        setRecipientResults(data.users || []);
+      } else {
+        setRecipientResults([]);
+      }
+    } catch (error) {
+      console.error('Error searching recipients:', error);
+      setRecipientResults([]);
+    } finally {
+      setRecipientSearching(false);
+    }
+  };
+
+  const sendArticleToUser = async (recipient: UserProfile | ConversationRecipient) => {
+    if (!messageToken) {
+      setSendFeedback('Mesaj göndermek için giriş yapmalısınız.');
+      return;
+    }
+
+    const recipientId = 'id' in recipient ? recipient.id : recipient.other_user_id;
+
+    const articleMessage = `${ARTICLE_SHARE_PREFIX}${JSON.stringify({
+      id: params.id,
+      title: resolvedTitle,
+      summary: resolvedSummary,
+      imageUrl: mainImage || imageUrl,
+      source: sourceName,
+      publishedAt: articleFromCache?.publishedAt ?? params.publishedAt,
+      category,
+      sourceUrl,
+    })}`;
+
+    try {
+      setSendingArticleTo(recipientId);
+      setSendFeedback(null);
+      const response = await fetch('http://localhost:3000/api/messages/send', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${messageToken}`,
+        },
+        body: JSON.stringify({
+          recipient_id: recipientId,
+          content: articleMessage,
+        }),
+      });
+
+      if (response.ok) {
+        setSendFeedback(`${recipient.username} kullanıcısına gönderildi.`);
+        setRecipientQuery('');
+        setRecipientResults([]);
+        loadRecentRecipients();
+      } else {
+        const data = await response.json().catch(() => null);
+        setSendFeedback(data?.error || 'Haber gönderilemedi.');
+      }
+    } catch (error) {
+      console.error('Error sending article:', error);
+      setSendFeedback('Haber gönderilemedi.');
+    } finally {
+      setSendingArticleTo(null);
+    }
+  };
+
   const isSaved = savedIds.includes(params.id || '');
 
   const handleToggleSave = () => {
@@ -611,8 +772,137 @@ export default function NewsDetailPage() {
             <Ionicons name="share-social-outline" size={16} color={colors.textPrimary} />
             <Text style={[styles(colors).actionButtonLabel, { color: colors.textPrimary }]}>Paylaş</Text>
           </Pressable>
+
+          <Pressable
+            style={({ pressed }) => [
+              styles(colors).actionButton,
+              { backgroundColor: colors.surfaceInput },
+              pressed && { opacity: 0.7 },
+            ]}
+            onPress={openMessagePanel}
+          >
+            <Ionicons name="paper-plane-outline" size={16} color={colors.textPrimary} />
+            <Text style={[styles(colors).actionButtonLabel, { color: colors.textPrimary }]}>Mesajla Gönder</Text>
+          </Pressable>
         </View>
       </View>
+
+      <Modal
+        visible={messagePanelVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setMessagePanelVisible(false)}
+      >
+        <View style={styles(colors).modalOverlay}>
+          <Pressable style={styles(colors).modalBackdrop} onPress={() => setMessagePanelVisible(false)} />
+          <View style={styles(colors).messagePanel}>
+            <View style={styles(colors).messagePanelHeader}>
+              <View style={{ flex: 1, minWidth: 0 }}>
+                <Text style={styles(colors).messagePanelTitle}>Haberi Gönder</Text>
+                <Text style={styles(colors).messagePanelSubtitle} numberOfLines={1}>{resolvedTitle}</Text>
+              </View>
+              <Pressable style={styles(colors).panelIconButton} onPress={() => setMessagePanelVisible(false)}>
+                <Ionicons name="close" size={20} color={colors.textPrimary} />
+              </Pressable>
+            </View>
+
+            <View style={styles(colors).recipientSearchBox}>
+              <Ionicons name="search" size={18} color={colors.textMuted} />
+              <TextInput
+                style={styles(colors).recipientSearchInput}
+                placeholder="Kullanıcı ara..."
+                placeholderTextColor={colors.textMuted}
+                value={recipientQuery}
+                onChangeText={searchRecipients}
+                autoCapitalize="none"
+              />
+            </View>
+
+            {!messageToken ? (
+              <Text style={styles(colors).panelStatusText}>Haber göndermek için giriş yapmalısınız.</Text>
+            ) : recipientSearching || loadingRecipients ? (
+              <ActivityIndicator color={colors.accent} style={{ marginVertical: 18 }} />
+            ) : recipientQuery.trim().length < 2 ? (
+              <ScrollView style={styles(colors).recipientList} keyboardShouldPersistTaps="handled">
+                {recentRecipients.length > 0 ? (
+                  <>
+                    <Text style={styles(colors).recipientSectionTitle}>Son sohbetler</Text>
+                    {recentRecipients.map((recipient) => {
+                      const recipientId = recipient.other_user_id;
+                      return (
+                        <Pressable
+                          key={recipientId}
+                          style={({ pressed }) => [
+                            styles(colors).recipientRow,
+                            pressed && { opacity: 0.75 },
+                          ]}
+                          onPress={() => sendArticleToUser(recipient)}
+                          disabled={sendingArticleTo === recipientId}
+                        >
+                          <View style={styles(colors).recipientAvatar}>
+                            <Text style={styles(colors).recipientAvatarText}>
+                              {recipient.username[0]?.toUpperCase() || '?'}
+                            </Text>
+                          </View>
+                          <View style={{ flex: 1, minWidth: 0 }}>
+                            <Text style={styles(colors).recipientName}>{recipient.username}</Text>
+                            <Text style={styles(colors).recipientEmail} numberOfLines={1}>{recipient.email}</Text>
+                          </View>
+                          {sendingArticleTo === recipientId ? (
+                            <ActivityIndicator size="small" color={colors.accent} />
+                          ) : (
+                            <Ionicons name="send" size={18} color={colors.accent} />
+                          )}
+                        </Pressable>
+                      );
+                    })}
+                  </>
+                ) : (
+                  <Text style={styles(colors).panelStatusText}>
+                    Henüz sohbet yok. Göndermek istediğiniz kişiyi arayın.
+                  </Text>
+                )}
+              </ScrollView>
+            ) : (
+              <ScrollView style={styles(colors).recipientList} keyboardShouldPersistTaps="handled">
+                {recipientResults.map((recipient) => (
+                  <Pressable
+                    key={recipient.id}
+                    style={({ pressed }) => [
+                      styles(colors).recipientRow,
+                      pressed && { opacity: 0.75 },
+                    ]}
+                    onPress={() => sendArticleToUser(recipient)}
+                    disabled={sendingArticleTo === recipient.id}
+                  >
+                    <View style={styles(colors).recipientAvatar}>
+                      <Text style={styles(colors).recipientAvatarText}>
+                        {recipient.username[0]?.toUpperCase() || '?'}
+                      </Text>
+                    </View>
+                    <View style={{ flex: 1, minWidth: 0 }}>
+                      <Text style={styles(colors).recipientName}>{recipient.username}</Text>
+                      <Text style={styles(colors).recipientEmail} numberOfLines={1}>{recipient.email}</Text>
+                    </View>
+                    {sendingArticleTo === recipient.id ? (
+                      <ActivityIndicator size="small" color={colors.accent} />
+                    ) : (
+                      <Ionicons name="send" size={18} color={colors.accent} />
+                    )}
+                  </Pressable>
+                ))}
+                {recipientQuery.trim().length >= 2 && recipientResults.length === 0 ? (
+                  <Text style={styles(colors).panelStatusText}>Kullanıcı bulunamadı.</Text>
+                ) : null}
+              </ScrollView>
+            )}
+
+            {sendFeedback ? (
+              <Text style={styles(colors).sendFeedback}>{sendFeedback}</Text>
+            ) : null}
+          </View>
+        </View>
+      </Modal>
 
       <View style={[styles(colors).detailLayout, isWeb ? styles(colors).detailLayoutWeb : null]}>
         <View style={styles(colors).bodyCol}>
@@ -1366,5 +1656,120 @@ const styles = (colors: any) =>
     actionButtonLabel: {
       fontSize: 12,
       fontWeight: '600',
+    },
+    modalOverlay: {
+      flex: 1,
+      alignItems: 'center',
+      justifyContent: 'center',
+      padding: 18,
+    },
+    modalBackdrop: {
+      ...StyleSheet.absoluteFillObject,
+      backgroundColor: 'rgba(0,0,0,0.45)',
+    },
+    messagePanel: {
+      width: '100%',
+      maxWidth: 420,
+      maxHeight: '82%' as any,
+      borderWidth: 1,
+      borderColor: colors.borderSubtle,
+      borderRadius: 18,
+      backgroundColor: colors.surface,
+      padding: 16,
+      gap: 12,
+    },
+    messagePanelHeader: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 12,
+    },
+    messagePanelTitle: {
+      color: colors.textPrimary,
+      fontSize: 18,
+      fontWeight: '800',
+    },
+    messagePanelSubtitle: {
+      color: colors.textMuted,
+      fontSize: 12,
+      marginTop: 3,
+    },
+    panelIconButton: {
+      width: 36,
+      height: 36,
+      borderRadius: 18,
+      alignItems: 'center',
+      justifyContent: 'center',
+      backgroundColor: colors.surfaceInput,
+    },
+    recipientSearchBox: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 8,
+      borderWidth: 1,
+      borderColor: colors.borderSubtle,
+      borderRadius: 12,
+      paddingHorizontal: 12,
+      backgroundColor: colors.surfaceInput,
+    },
+    recipientSearchInput: {
+      flex: 1,
+      minHeight: 44,
+      color: colors.textPrimary,
+      fontSize: 14,
+    },
+    recipientList: {
+      maxHeight: 300,
+    },
+    recipientSectionTitle: {
+      color: colors.textMuted,
+      fontSize: 11,
+      fontWeight: '800',
+      textTransform: 'uppercase',
+      letterSpacing: 0.8,
+      paddingVertical: 8,
+      paddingHorizontal: 2,
+    },
+    recipientRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 10,
+      paddingVertical: 10,
+      borderBottomWidth: 1,
+      borderBottomColor: colors.borderSubtle,
+    },
+    recipientAvatar: {
+      width: 38,
+      height: 38,
+      borderRadius: 19,
+      alignItems: 'center',
+      justifyContent: 'center',
+      backgroundColor: colors.accent + '25',
+    },
+    recipientAvatarText: {
+      color: colors.accent,
+      fontSize: 15,
+      fontWeight: '800',
+    },
+    recipientName: {
+      color: colors.textPrimary,
+      fontSize: 14,
+      fontWeight: '700',
+    },
+    recipientEmail: {
+      color: colors.textMuted,
+      fontSize: 12,
+      marginTop: 2,
+    },
+    panelStatusText: {
+      color: colors.textMuted,
+      fontSize: 13,
+      textAlign: 'center',
+      paddingVertical: 16,
+    },
+    sendFeedback: {
+      color: colors.accent,
+      fontSize: 13,
+      fontWeight: '700',
+      textAlign: 'center',
     },
   });
