@@ -6,6 +6,7 @@ import {
   StyleSheet,
   Switch,
   Text,
+  TextInput,
   Platform,
   View,
 } from 'react-native';
@@ -17,7 +18,7 @@ import { usePreferences } from '@/hooks/usePreferences';
 import { useBookmarks } from '@/hooks/useBookmarks';
 import { useTheme } from '@/hooks/useTheme';
 import { useLanguage, LANGUAGE_LABELS, LANGUAGES } from '@/hooks/useLanguage';
-import { UserProfile, getUserProfile, logoutUser } from '@/services/auth';
+import { UserProfile, getUserProfile, logoutUser, updateUserProfile } from '@/services/auth';
 import { ThemeName } from '@/theme/themes';
 
 type ProfileTab = 'general' | 'preferences' | 'security' | 'subscription';
@@ -47,7 +48,10 @@ export default function ProfileScreen() {
   const { preferredCategories, preferredNewspapers, toggleCategory, toggleNewspaper } = usePreferences();
   const { savedIds } = useBookmarks();
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
-  const [activeTab, setActiveTab] = useState<ProfileTab>('preferences');
+  const [activeTab, setActiveTab] = useState<ProfileTab>('general');
+  const [isEditingGeneral, setIsEditingGeneral] = useState(false);
+  const [editName, setEditName] = useState('');
+  const [editEmail, setEditEmail] = useState('');
   const [autoNightMode, setAutoNightMode] = useState(false);
 
   const headerFade = useRef(new Animated.Value(0)).current;
@@ -61,6 +65,11 @@ export default function ProfileScreen() {
       getUserProfile().then((p) => setUserProfile(p));
     }, [])
   );
+
+  useEffect(() => {
+    setEditName(userProfile?.name ?? '');
+    setEditEmail(userProfile?.email ?? '');
+  }, [userProfile]);
 
   useEffect(() => {
     Animated.stagger(80, [
@@ -78,6 +87,23 @@ export default function ProfileScreen() {
   const handleLogout = async () => {
     await logoutUser();
     router.replace('/auth/login');
+  };
+
+  const handleSaveGeneral = async () => {
+    const name = editName.trim();
+    const email = editEmail.trim().toLowerCase();
+    if (!name || !email) return;
+
+    await updateUserProfile({ name, email });
+    const updated = await getUserProfile();
+    setUserProfile(updated);
+    setIsEditingGeneral(false);
+  };
+
+  const handleCancelGeneral = () => {
+    setEditName(userProfile?.name ?? '');
+    setEditEmail(userProfile?.email ?? '');
+    setIsEditingGeneral(false);
   };
 
   return (
@@ -245,11 +271,77 @@ export default function ProfileScreen() {
           {activeTab === 'general' && (
             <View style={styles.panel}>
               <View style={[styles.panelCard, { backgroundColor: colors.surface, borderColor: colors.borderSubtle }]}>
-                <View style={styles.panelHeader}>
+                <View style={styles.panelHeaderBetween}>
+                  <View style={styles.panelHeader}>
                   <Ionicons name="person" size={20} color={colors.accent} />
                   <Text style={[styles.panelTitle, { color: colors.textPrimary }]}>Profil Bilgileri</Text>
+                  </View>
+                  {isEditingGeneral ? (
+                    <View style={styles.editActions}>
+                      <Pressable
+                        style={[styles.iconActionBtn, { backgroundColor: colors.surfaceHigh, borderColor: colors.borderSubtle }]}
+                        onPress={handleCancelGeneral}
+                      >
+                        <Ionicons name="close" size={16} color={colors.textMuted} />
+                      </Pressable>
+                      <Pressable
+                        style={[styles.iconActionBtn, { backgroundColor: colors.accent, borderColor: colors.accent }]}
+                        onPress={handleSaveGeneral}
+                      >
+                        <Ionicons name="checkmark" size={16} color="#fff" />
+                      </Pressable>
+                    </View>
+                  ) : (
+                    <Pressable
+                      style={[styles.editProfileBtn, { backgroundColor: colors.accent + '14', borderColor: colors.accent + '35' }]}
+                      onPress={() => setIsEditingGeneral(true)}
+                    >
+                      <Ionicons name="create-outline" size={14} color={colors.accent} />
+                      <Text style={[styles.editProfileText, { color: colors.accent }]}>Düzenle</Text>
+                    </Pressable>
+                  )}
                 </View>
-                {[
+                {isEditingGeneral && (
+                  <View style={styles.editForm}>
+                    <View style={styles.inputGroup}>
+                      <Text style={[styles.infoLabel, { color: colors.textMuted }]}>Ad Soyad</Text>
+                      <TextInput
+                        value={editName}
+                        onChangeText={setEditName}
+                        placeholder="Ad Soyad"
+                        placeholderTextColor={colors.textMuted}
+                        style={[
+                          styles.profileInput,
+                          {
+                            backgroundColor: colors.surfaceHigh,
+                            borderColor: colors.borderSubtle,
+                            color: colors.textPrimary,
+                          },
+                        ]}
+                      />
+                    </View>
+                    <View style={styles.inputGroup}>
+                      <Text style={[styles.infoLabel, { color: colors.textMuted }]}>E-posta</Text>
+                      <TextInput
+                        value={editEmail}
+                        onChangeText={setEditEmail}
+                        placeholder="email@example.com"
+                        placeholderTextColor={colors.textMuted}
+                        autoCapitalize="none"
+                        keyboardType="email-address"
+                        style={[
+                          styles.profileInput,
+                          {
+                            backgroundColor: colors.surfaceHigh,
+                            borderColor: colors.borderSubtle,
+                            color: colors.textPrimary,
+                          },
+                        ]}
+                      />
+                    </View>
+                  </View>
+                )}
+                {!isEditingGeneral && [
                   { label: 'Ad Soyad', value: userProfile?.name ?? '—', icon: 'person-outline' },
                   { label: 'E-posta', value: userProfile?.email ?? '—', icon: 'mail-outline' },
                   { label: 'Üyelik', value: 'PRO Üye', icon: 'star-outline' },
@@ -397,6 +489,13 @@ const styles = StyleSheet.create({
   panel: { gap: 16 },
   panelCard: { borderRadius: 20, borderWidth: 1, padding: 20, gap: 16 },
   panelHeader: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  panelHeaderBetween: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    gap: 12,
+    flexWrap: 'wrap',
+  },
   panelTitle: { fontSize: 18, fontWeight: '800' },
   panelSubtitle: { fontSize: 13, lineHeight: 19, marginTop: -8 },
   settingLabel: { fontSize: 10, fontWeight: '900', letterSpacing: 2, textTransform: 'uppercase' },
@@ -439,6 +538,36 @@ const styles = StyleSheet.create({
   infoText: { flex: 1 },
   infoLabel: { fontSize: 10, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.5 },
   infoValue: { fontSize: 14, fontWeight: '600', marginTop: 2 },
+  editActions: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  editProfileBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 10,
+    borderWidth: 1,
+  },
+  editProfileText: { fontSize: 12, fontWeight: '800' },
+  iconActionBtn: {
+    width: 34,
+    height: 34,
+    borderRadius: 10,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  editForm: { gap: 12 },
+  inputGroup: { gap: 6 },
+  profileInput: {
+    borderWidth: 1,
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 11,
+    fontSize: 14,
+    fontWeight: '600',
+    outlineStyle: 'none' as any,
+  },
 
   // Stat big
   statBig: {
