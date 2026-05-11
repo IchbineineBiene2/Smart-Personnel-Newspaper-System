@@ -41,11 +41,27 @@ const THEME_COLORS: Record<ThemeName, { dot: string; bg: string; label: string; 
 
 const PROFILE_THEME_NAMES: ThemeName[] = ['midnight', 'emerald', 'mars', 'cyber', 'vincent'];
 
+const NEWS_LANGUAGE_OPTIONS = [
+  { code: 'tr', label: 'Türkçe' },
+  { code: 'en', label: 'İngilizce' },
+  { code: 'de', label: 'Almanca' },
+  { code: 'fr', label: 'Fransızca' },
+  { code: 'es', label: 'İspanyolca' },
+  { code: 'ar', label: 'Arapça' },
+];
+
 export default function ProfileScreen() {
   const router = useRouter();
   const { colors, themeName, setTheme } = useTheme();
   const { language, setLanguage } = useLanguage();
-  const { preferredCategories, preferredNewspapers, toggleCategory, toggleNewspaper } = usePreferences();
+  const {
+    preferredCategories,
+    preferredNewspapers,
+    preferredNewsLanguages,
+    toggleCategory,
+    toggleNewspaper,
+    toggleNewsLanguage,
+  } = usePreferences();
   const { savedIds } = useBookmarks();
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const [activeTab, setActiveTab] = useState<ProfileTab>('general');
@@ -263,6 +279,38 @@ export default function ProfileScreen() {
                       </Text>
                     </Pressable>
                   ))}
+                </View>
+              </View>
+
+              <View style={[styles.panelCard, { backgroundColor: colors.surface, borderColor: colors.borderSubtle }]}>
+                <View style={styles.panelHeader}>
+                  <Ionicons name="newspaper-outline" size={20} color={colors.accent} />
+                  <Text style={[styles.panelTitle, { color: colors.textPrimary }]}>Haber Dilleri</Text>
+                </View>
+                <Text style={[styles.panelSubtitle, { color: colors.textMuted }]}>
+                  Ana sayfa, akış ve keşfet haberlerini seçtiğiniz dillerle sınırlandırır.
+                </Text>
+                <View style={styles.langRow}>
+                  {NEWS_LANGUAGE_OPTIONS.map((item) => {
+                    const selected = preferredNewsLanguages.includes(item.code);
+                    return (
+                      <Pressable
+                        key={item.code}
+                        style={[
+                          styles.langBtn,
+                          {
+                            backgroundColor: selected ? colors.accent : colors.surfaceHigh,
+                            borderColor: selected ? colors.accent : colors.borderSubtle,
+                          },
+                        ]}
+                        onPress={() => toggleNewsLanguage(item.code)}
+                      >
+                        <Text style={[styles.langText, { color: selected ? '#fff' : colors.textMuted }]}>
+                          {item.label}
+                        </Text>
+                      </Pressable>
+                    );
+                  })}
                 </View>
               </View>
             </View>

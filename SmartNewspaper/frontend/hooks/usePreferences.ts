@@ -5,17 +5,20 @@ import { ContentCategory, NewspaperSource } from '@/services/content';
 
 const CATEGORIES_STORAGE_KEY = 'preferred-categories';
 const NEWSPAPERS_STORAGE_KEY = 'preferred-newspapers';
+const NEWS_LANGUAGES_STORAGE_KEY = 'preferred-news-languages';
 
 export function usePreferences() {
   const [preferredCategories, setPreferredCategories] = useState<ContentCategory[]>([]);
   const [preferredNewspapers, setPreferredNewspapers] = useState<NewspaperSource[]>([]);
+  const [preferredNewsLanguages, setPreferredNewsLanguages] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
 
   const loadPreferences = useCallback(async () => {
     try {
-      const [rawCategories, rawNewspapers] = await Promise.all([
+      const [rawCategories, rawNewspapers, rawNewsLanguages] = await Promise.all([
         AsyncStorage.getItem(CATEGORIES_STORAGE_KEY),
         AsyncStorage.getItem(NEWSPAPERS_STORAGE_KEY),
+        AsyncStorage.getItem(NEWS_LANGUAGES_STORAGE_KEY),
       ]);
 
       if (rawCategories) {
@@ -30,6 +33,13 @@ export function usePreferences() {
         setPreferredNewspapers(parsedNewspapers);
       } else {
         setPreferredNewspapers([]);
+      }
+
+      if (rawNewsLanguages) {
+        const parsedLanguages = JSON.parse(rawNewsLanguages) as string[];
+        setPreferredNewsLanguages(parsedLanguages);
+      } else {
+        setPreferredNewsLanguages([]);
       }
     } finally {
       setLoading(false);
@@ -48,6 +58,11 @@ export function usePreferences() {
   const persistNewspapers = useCallback(async (newspapers: NewspaperSource[]) => {
     setPreferredNewspapers(newspapers);
     await AsyncStorage.setItem(NEWSPAPERS_STORAGE_KEY, JSON.stringify(newspapers));
+  }, []);
+
+  const persistNewsLanguages = useCallback(async (languages: string[]) => {
+    setPreferredNewsLanguages(languages);
+    await AsyncStorage.setItem(NEWS_LANGUAGES_STORAGE_KEY, JSON.stringify(languages));
   }, []);
 
   const toggleCategory = useCallback(
@@ -72,12 +87,25 @@ export function usePreferences() {
     [persistNewspapers, preferredNewspapers]
   );
 
+  const toggleNewsLanguage = useCallback(
+    async (language: string) => {
+      const next = preferredNewsLanguages.includes(language)
+        ? preferredNewsLanguages.filter((item) => item !== language)
+        : [...preferredNewsLanguages, language];
+
+      await persistNewsLanguages(next);
+    },
+    [persistNewsLanguages, preferredNewsLanguages]
+  );
+
   return {
     preferredCategories,
     preferredNewspapers,
+    preferredNewsLanguages,
     loading,
     toggleCategory,
     toggleNewspaper,
+    toggleNewsLanguage,
     reload: loadPreferences,
   };
 }

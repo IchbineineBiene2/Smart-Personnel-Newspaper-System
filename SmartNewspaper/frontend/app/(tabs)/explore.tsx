@@ -15,6 +15,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 
 import { useApiNews } from '@/hooks/useNews';
+import { usePreferences } from '@/hooks/usePreferences';
 import { useTheme } from '@/hooks/useTheme';
 import {
   ApiArticle,
@@ -58,7 +59,8 @@ export default function ExploreScreen() {
   const { colors } = useTheme();
   const router = useRouter();
   const { width } = useWindowDimensions();
-  const { articles, loading } = useApiNews();
+  const { preferredNewsLanguages } = usePreferences();
+  const { articles, loading } = useApiNews(preferredNewsLanguages);
   const isWeb = Platform.OS === 'web';
 
   const [breaking, setBreaking] = useState<ApiArticle[]>([]);
@@ -79,9 +81,28 @@ export default function ExploreScreen() {
     ]).start();
   }, []);
 
+  useEffect(() => {
+    fetchBreakingArticles(8).then(setBreaking).catch(() => {});
+    fetchTrendingArticles(10).then(setTrending).catch(() => {});
+    fetchNewsSources().then(setSources).catch(() => {});
+  }, []);
+
+  const matchesPreferredLanguage = (article: ApiArticle) =>
+    preferredNewsLanguages.length === 0 || preferredNewsLanguages.includes(article.language);
+
+  const visibleBreaking = useMemo(
+    () => breaking.filter(matchesPreferredLanguage),
+    [breaking, preferredNewsLanguages]
+  );
+
+  const visibleTrending = useMemo(
+    () => trending.filter(matchesPreferredLanguage),
+    [trending, preferredNewsLanguages]
+  );
+
   // Breaking ticker scroll loop
   useEffect(() => {
-    if (breaking.length === 0) return;
+    if (visibleBreaking.length === 0) return;
     const animate = () => {
       tickerX.setValue(0);
       Animated.timing(tickerX, {
@@ -93,13 +114,7 @@ export default function ExploreScreen() {
       });
     };
     animate();
-  }, [breaking.length]);
-
-  useEffect(() => {
-    fetchBreakingArticles(8).then(setBreaking).catch(() => {});
-    fetchTrendingArticles(10).then(setTrending).catch(() => {});
-    fetchNewsSources().then(setSources).catch(() => {});
-  }, []);
+  }, [visibleBreaking.length]);
 
   // Articles enriched with normalized category
   const enriched = useMemo(
@@ -118,8 +133,8 @@ export default function ExploreScreen() {
   }, [enriched, activeCategory]);
 
   // Hero = top article with image (prefer trending if available, else filtered)
-  const heroPool = activeCategory === 'tumu' && trending.length > 0
-    ? trending.map((a) => ({ article: a, cat: mapToContentCategory(a.category, a.title, a.description) }))
+  const heroPool = activeCategory === 'tumu' && visibleTrending.length > 0
+    ? visibleTrending.map((a) => ({ article: a, cat: mapToContentCategory(a.category, a.title, a.description) }))
     : filtered;
 
   const heroMain = heroPool.find((e) => !!e.article.imageUrl) ?? heroPool[0];
@@ -128,8 +143,8 @@ export default function ExploreScreen() {
   const editorPicks = filtered.filter((e) => !!e.article.imageUrl).slice(3, 9);
 
   // Most read = trending (fallback to filtered top 10)
-  const mostRead = trending.length > 0
-    ? trending.slice(0, 10)
+  const mostRead = visibleTrending.length > 0
+    ? visibleTrending.slice(0, 10)
     : filtered.slice(0, 10).map((e) => e.article);
 
   // Per-category bands (only show categories with content)
@@ -169,7 +184,7 @@ export default function ExploreScreen() {
       showsVerticalScrollIndicator={false}
     >
       {/* ─────────────────────────── BREAKING TICKER ─────────────────────────── */}
-      {breaking.length > 0 && (
+      {visibleBreaking.length > 0 && (
         <View style={[styles.tickerBar, { backgroundColor: '#ef4444' }]}>
           <View style={styles.tickerBadge}>
             <View style={styles.tickerDot} />
@@ -190,7 +205,7 @@ export default function ExploreScreen() {
                 ],
               }}
             >
-              {[...breaking, ...breaking].map((a, i) => (
+              {[...visibleBreaking, ...visibleBreaking].map((a, i) => (
                 <Pressable key={`${a.id}-${i}`} onPress={() => openArticle(a)} style={styles.tickerItem}>
                   <Text style={styles.tickerText} numberOfLines={1}>
                     • {a.title}

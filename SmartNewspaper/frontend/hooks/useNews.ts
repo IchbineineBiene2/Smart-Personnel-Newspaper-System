@@ -6,6 +6,8 @@ import { injectArticleCache } from '@/hooks/useSearch';
 // Modül seviyesi cache — birden fazla ekran aynı veriyi paylaşır, tek istek yapılır
 let cachedArticles: ApiArticle[] = [];
 let pendingFetch: Promise<ApiArticle[]> | null = null;
+const languageCache = new Map<string, ApiArticle[]>();
+const languagePendingFetch = new Map<string, Promise<ApiArticle[]>>();
 
 async function loadArticles(): Promise<ApiArticle[]> {
   if (pendingFetch) return pendingFetch;
@@ -19,35 +21,109 @@ async function loadArticles(): Promise<ApiArticle[]> {
   return pendingFetch;
 }
 
+function normalizeLanguages(languages?: string[]): string[] {
+  return [...new Set((languages ?? []).map((item) => item.trim()).filter(Boolean))].sort();
+}
+
+function mergeAndSortArticles(groups: ApiArticle[][]): ApiArticle[] {
+  const seen = new Set<string>();
+  return groups
+    .flat()
+    .filter((article) => {
+      if (seen.has(article.id)) return false;
+      seen.add(article.id);
+      return true;
+    })
+    .sort((a, b) => new Date(b.publishedAt).getTime() - new Date(a.publishedAt).getTime());
+}
+
+function getCachedArticlesForLanguages(languages: string[]): ApiArticle[] {
+  const normalized = normalizeLanguages(languages);
+  if (normalized.length === 0) return cachedArticles;
+
+  const groups: ApiArticle[][] = [];
+  for (const language of normalized) {
+    const cached = languageCache.get(language);
+    if (!cached) return [];
+    groups.push(cached);
+  }
+
+  const merged = mergeAndSortArticles(groups);
+  injectArticleCache(merged);
+  return merged;
+}
+
+async function loadArticlesForLanguages(languages: string[], force = false): Promise<ApiArticle[]> {
+  const normalized = normalizeLanguages(languages);
+  if (normalized.length === 0) return loadArticles();
+
+  const groups = await Promise.all(
+    normalized.map((language) => {
+      const pending = languagePendingFetch.get(language);
+      if (pending) return pending;
+
+      const cached = languageCache.get(language);
+      if (cached && !force) return cached;
+
+      const request = fetchArticles({ language, limit: 300 }).then((data) => {
+        languageCache.set(language, data);
+        injectArticleCache(data);
+        languagePendingFetch.delete(language);
+        return data;
+      });
+      languagePendingFetch.set(language, request);
+      return request;
+    })
+  );
+
+  return mergeAndSortArticles(groups);
+}
+
 /** Ham API makalelerini döndürür */
-export function useApiNews() {
-  const [articles, setArticles] = useState<ApiArticle[]>(cachedArticles);
-  const [loading, setLoading] = useState(cachedArticles.length === 0);
+export function useApiNews(languages: string[] = []) {
+  const normalizedLanguages = normalizeLanguages(languages);
+  const languageKey = normalizedLanguages.join(',');
+  const [articles, setArticles] = useState<ApiArticle[]>(() => getCachedArticlesForLanguages(normalizedLanguages));
+  const [loading, setLoading] = useState(cachedArticles.length === 0 || normalizedLanguages.length > 0);
   const [error, setError] = useState<string | null>(null);
   const pollingIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
+    let active = true;
+    const hasLanguageFilter = normalizedLanguages.length > 0;
+    const cached = getCachedArticlesForLanguages(normalizedLanguages);
+    const load = (force = false) => hasLanguageFilter
+      ? loadArticlesForLanguages(normalizedLanguages, force)
+      : loadArticles();
+
     // İlk yükleme
-    if (cachedArticles.length === 0) {
+    if (hasLanguageFilter) {
+      setArticles(cached);
+    }
+
+    if (cached.length === 0 || hasLanguageFilter) {
       setLoading(true);
-      loadArticles()
+      load()
         .then((data) => {
+          if (!active) return;
           setArticles(data);
           setLoading(false);
         })
         .catch((err: Error) => {
+          if (!active) return;
           setError(err.message);
           setLoading(false);
         });
     } else {
-      setArticles(cachedArticles);
+      setArticles(cached);
       setLoading(false);
     }
 
     // Her 30 saniyede yeni haberler kontrol et (polling)
     pollingIntervalRef.current = setInterval(() => {
-      loadArticles()
+      load(true)
         .then((data) => {
+          if (!active) return;
           setArticles(data);
         })
         .catch(() => {
@@ -56,11 +132,12 @@ export function useApiNews() {
     }, 30 * 1000); // 30 saniye
 
     return () => {
+      active = false;
       if (pollingIntervalRef.current) {
         clearInterval(pollingIntervalRef.current);
       }
     };
-  }, []);
+  }, [languageKey]);
 
   return { articles, loading, error };
 }

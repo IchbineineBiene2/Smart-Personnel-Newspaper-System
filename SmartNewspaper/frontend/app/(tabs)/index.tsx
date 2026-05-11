@@ -57,8 +57,8 @@ export default function HomeScreen() {
   const { colors, themeName } = useTheme();
   const { width } = useWindowDimensions();
   const router = useRouter();
-  const { articles, loading } = useApiNews();
-  const { preferredCategories } = usePreferences();
+  const { preferredCategories, preferredNewsLanguages } = usePreferences();
+  const { articles, loading } = useApiNews(preferredNewsLanguages);
   useNewsNotifications();
   useEventNotifications();
 

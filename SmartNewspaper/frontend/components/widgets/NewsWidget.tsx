@@ -2,6 +2,7 @@ import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useTheme } from '@/hooks/useTheme';
 import { useApiNews } from '@/hooks/useNews';
+import { usePreferences } from '@/hooks/usePreferences';
 import { proxyImageUrl } from '@/services/newsApi';
 import type { WidgetSize } from './WidgetCard';
 
@@ -15,7 +16,8 @@ interface Props { size?: WidgetSize }
 
 export function NewsWidget({ size = 'sm' }: Props) {
   const { colors } = useTheme();
-  const { articles, loading } = useApiNews();
+  const { preferredNewsLanguages } = usePreferences();
+  const { articles, loading } = useApiNews(preferredNewsLanguages);
   const router = useRouter();
 
   const count = size === 'lg' ? 6 : size === 'md' ? 5 : 4;

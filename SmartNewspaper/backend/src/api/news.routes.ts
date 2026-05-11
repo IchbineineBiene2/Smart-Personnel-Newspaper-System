@@ -4,6 +4,7 @@ import { fetchAllRssFeeds } from '../collectors/rssCollector';
 import { filterDuplicates } from '../processors/duplicateDetector';
 import { scrapeArticleDetails } from '../collectors/scraper';
 import { query } from '../db';
+import { generateArticleAnalysis } from '../services/articleAnalysis';
 
 const router = Router();
 
@@ -142,6 +143,19 @@ router.get('/:id/full-content', async (req: Request, res: Response) => {
     } catch {
       return res.status(500).json({ error: 'İçerik alınamadı' });
     }
+  }
+});
+
+// GET /api/news/:id/analysis - Haber metninden AI yorum/analiz üret
+router.get('/:id/analysis', async (req: Request, res: Response) => {
+  try {
+    const article = await getArticleById(req.params.id);
+    if (!article) return res.status(404).json({ error: 'Haber bulunamadı' });
+
+    return res.json(generateArticleAnalysis(article));
+  } catch (err) {
+    console.error('[NewsAPI] Haber analiz hatası:', err);
+    return res.status(500).json({ error: 'Haber analizi üretilemedi' });
   }
 });
 

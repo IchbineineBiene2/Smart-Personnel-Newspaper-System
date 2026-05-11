@@ -21,7 +21,14 @@ import { Radius, Spacing, Typography } from '@/constants/theme';
 import { useApiNews } from '@/hooks/useNews';
 import { useBookmarks } from '@/hooks/useBookmarks';
 import { useTheme } from '@/hooks/useTheme';
-import { fetchArticleFullContent, fetchSimilarArticlesFromDb, mapToContentCategory, proxyImageUrl } from '@/services/newsApi';
+import {
+  ArticleAiAnalysis,
+  fetchArticleAiAnalysis,
+  fetchArticleFullContent,
+  fetchSimilarArticlesFromDb,
+  mapToContentCategory,
+  proxyImageUrl,
+} from '@/services/newsApi';
 import { getPublisherIdFromSourceName } from '@/services/publisherProfiles';
 import {
   addArticleComment,
@@ -354,6 +361,9 @@ export default function NewsDetailPage() {
   const [commentError, setCommentError] = useState<string | null>(null);
   const [likeError, setLikeError] = useState<string | null>(null);
   const [likeLoading, setLikeLoading] = useState(false);
+  const [aiAnalysis, setAiAnalysis] = useState<ArticleAiAnalysis | null>(null);
+  const [aiAnalysisLoading, setAiAnalysisLoading] = useState(false);
+  const [aiAnalysisError, setAiAnalysisError] = useState<string | null>(null);
   const leftCarouselRef = useRef<ScrollView | null>(null);
   const rightCarouselRef = useRef<ScrollView | null>(null);
   const scrollViewRef = useRef<ScrollView | null>(null);
@@ -512,6 +522,30 @@ export default function NewsDetailPage() {
       active = false;
     };
   }, [params.id, category, resolvedTitle, resolvedSummary, currentLanguage, sourceName, articles]);
+
+  useEffect(() => {
+    let active = true;
+    if (!params.id) return;
+
+    setAiAnalysis(null);
+    setAiAnalysisError(null);
+    setAiAnalysisLoading(true);
+
+    fetchArticleAiAnalysis(params.id)
+      .then((analysis) => {
+        if (active) setAiAnalysis(analysis);
+      })
+      .catch(() => {
+        if (active) setAiAnalysisError('AI analiz şu anda üretilemedi.');
+      })
+      .finally(() => {
+        if (active) setAiAnalysisLoading(false);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [params.id]);
   const publisherLogoUrl = useMemo(
     () => buildPublisherLogoUrl(sourceName, sourceUrl),
     [sourceName, sourceUrl]
@@ -888,6 +922,90 @@ export default function NewsDetailPage() {
 
   const leftImageHeight = leftSlotHeight > 18 ? leftSlotHeight - 18 : leftSlotHeight;
   const rightImageHeight = rightSlotHeight > 18 ? rightSlotHeight - 18 : rightSlotHeight;
+
+  const renderAiAnalysisCard = () => (
+    <View style={styles(colors).aiAnalysisCard}>
+      <View style={styles(colors).aiAnalysisHeader}>
+        <View style={styles(colors).aiAnalysisTitleWrap}>
+          <View style={styles(colors).aiAnalysisIcon}>
+            <Ionicons name="sparkles-outline" size={18} color={colors.accent} />
+          </View>
+          <View style={{ flex: 1, minWidth: 0 }}>
+            <Text style={styles(colors).aiAnalysisTitle}>AI Yorum ve Analiz</Text>
+            <Text style={styles(colors).aiAnalysisSubtitle}>Haber metninden çıkarılan kısa değerlendirme</Text>
+          </View>
+        </View>
+        {aiAnalysis?.available ? (
+          <Text style={styles(colors).aiConfidenceBadge}>
+            {aiAnalysis.confidence === 'high' ? 'GÜÇLÜ' : aiAnalysis.confidence === 'medium' ? 'ORTA' : 'DÜŞÜK'}
+          </Text>
+        ) : null}
+      </View>
+
+      <ScrollView
+        style={styles(colors).aiAnalysisScroll}
+        contentContainerStyle={styles(colors).aiAnalysisScrollContent}
+        nestedScrollEnabled
+        showsVerticalScrollIndicator={false}
+      >
+        {aiAnalysisLoading ? (
+          <View style={styles(colors).aiAnalysisState}>
+            <ActivityIndicator color={colors.accent} />
+            <Text style={styles(colors).statusText}>AI analiz hazırlanıyor...</Text>
+          </View>
+        ) : aiAnalysisError ? (
+          <Text style={styles(colors).aiUnavailableText}>{aiAnalysisError}</Text>
+        ) : aiAnalysis && !aiAnalysis.available ? (
+          <Text style={styles(colors).aiUnavailableText}>
+            {aiAnalysis.message || 'Bu haber için analiz üretmeye yetecek bağlam bulunamadı.'}
+          </Text>
+        ) : aiAnalysis ? (
+          <View style={styles(colors).aiAnalysisBody}>
+            <Text style={styles(colors).aiSummaryText}>{aiAnalysis.summary}</Text>
+
+            {aiAnalysis.keyPoints.length > 0 ? (
+              <View style={styles(colors).aiSection}>
+                <Text style={styles(colors).aiSectionTitle}>Öne çıkanlar</Text>
+                {aiAnalysis.keyPoints.map((point, index) => (
+                  <View key={`ai-point-${index}`} style={styles(colors).aiBulletRow}>
+                    <View style={styles(colors).aiBullet} />
+                    <Text style={styles(colors).aiBulletText}>{point}</Text>
+                  </View>
+                ))}
+              </View>
+            ) : null}
+
+            {!!aiAnalysis.context && (
+              <View style={styles(colors).aiCallout}>
+                <Text style={styles(colors).aiCalloutLabel}>Bağlam</Text>
+                <Text style={styles(colors).aiCalloutText}>{aiAnalysis.context}</Text>
+              </View>
+            )}
+
+            {aiAnalysis.perspectives.length > 0 ? (
+              <View style={styles(colors).aiSection}>
+                <Text style={styles(colors).aiSectionTitle}>Olası bakış açıları</Text>
+                {aiAnalysis.perspectives.map((item, index) => (
+                  <Text key={`ai-perspective-${index}`} style={styles(colors).aiMutedLine}>
+                    {index + 1}. {item}
+                  </Text>
+                ))}
+              </View>
+            ) : null}
+
+            {aiAnalysis.questions.length > 0 ? (
+              <View style={styles(colors).aiSection}>
+                <Text style={styles(colors).aiSectionTitle}>Okurken sorulacak sorular</Text>
+                {aiAnalysis.questions.map((item, index) => (
+                  <Text key={`ai-question-${index}`} style={styles(colors).aiMutedLine}>• {item}</Text>
+                ))}
+              </View>
+            ) : null}
+          </View>
+        ) : null}
+      </ScrollView>
+    </View>
+  );
 
   return (
     <ScrollView ref={scrollViewRef} style={styles(colors).container} contentContainerStyle={styles(colors).content}>
@@ -1369,40 +1487,44 @@ export default function NewsDetailPage() {
         )}
 
         {isWeb && (
-          <View style={[styles(colors).mediaCol, styles(colors).mediaColWeb, styles(colors).sameStoryPanel]}>
-            <View style={styles(colors).relatedHeader}>
-              <View style={[styles(colors).relatedDot, { backgroundColor: colors.accent }]} />
-              <Text style={styles(colors).relatedTitle}>AYNI HABER, FARKLI KAYNAKLAR</Text>
+          <View style={[styles(colors).mediaCol, styles(colors).mediaColWeb]}>
+            <View style={styles(colors).sameStoryPanel}>
+              <View style={styles(colors).relatedHeader}>
+                <View style={[styles(colors).relatedDot, { backgroundColor: colors.accent }]} />
+                <Text style={styles(colors).relatedTitle}>AYNI HABER, FARKLI KAYNAKLAR</Text>
+              </View>
+              <Text style={styles(colors).sameStoryHint}>
+                Farklı ifadeler ve bakış açılarıyla yayımlanan yakın haberler
+              </Text>
+              {loadingMatches && alternateSourceArticles.length === 0 ? (
+                <View style={styles(colors).sameStoryLoading}>
+                  <ActivityIndicator color={colors.accent} />
+                  <Text style={styles(colors).statusText}>Alternatif kaynaklar aranıyor...</Text>
+                </View>
+              ) : alternateSourceArticles.length > 0 ? (
+                <View style={styles(colors).sameStoryList}>
+                  {alternateSourceArticles.map((item) => (
+                    <RelatedArticleCard
+                      key={`same-story-web-${item.id}`}
+                      article={item}
+                      colors={colors}
+                      isSidebar={true}
+                      onPress={() => router.push({ pathname: '/news/[id]', params: { id: item.id } })}
+                    />
+                  ))}
+                </View>
+              ) : (
+                <View style={styles(colors).sameStoryEmpty}>
+                  <Ionicons name="newspaper-outline" size={26} color={colors.textMuted} />
+                  <Text style={styles(colors).sameStoryEmptyTitle}>Birebir eşleşme bulunamadı</Text>
+                  <Text style={styles(colors).sameStoryEmptyText}>
+                    Bu haber için farklı bir kaynakta aynı habere ait güvenilir bir eşleşme yok.
+                  </Text>
+                </View>
+              )}
             </View>
-            <Text style={styles(colors).sameStoryHint}>
-              Farklı ifadeler ve bakış açılarıyla yayımlanan yakın haberler
-            </Text>
-            {loadingMatches && alternateSourceArticles.length === 0 ? (
-              <View style={styles(colors).sameStoryLoading}>
-                <ActivityIndicator color={colors.accent} />
-                <Text style={styles(colors).statusText}>Alternatif kaynaklar aranıyor...</Text>
-              </View>
-            ) : alternateSourceArticles.length > 0 ? (
-              <View style={styles(colors).sameStoryList}>
-                {alternateSourceArticles.map((item) => (
-                  <RelatedArticleCard
-                    key={`same-story-web-${item.id}`}
-                    article={item}
-                    colors={colors}
-                    isSidebar={true}
-                    onPress={() => router.push({ pathname: '/news/[id]', params: { id: item.id } })}
-                  />
-                ))}
-              </View>
-            ) : (
-              <View style={styles(colors).sameStoryEmpty}>
-                <Ionicons name="newspaper-outline" size={26} color={colors.textMuted} />
-                <Text style={styles(colors).sameStoryEmptyTitle}>Birebir eşleşme bulunamadı</Text>
-                <Text style={styles(colors).sameStoryEmptyText}>
-                  Bu haber için farklı bir kaynakta aynı habere ait güvenilir bir eşleşme yok.
-                </Text>
-              </View>
-            )}
+
+            {renderAiAnalysisCard()}
           </View>
         )}
       </View>
@@ -1542,6 +1664,7 @@ export default function NewsDetailPage() {
               Bu haber için farklı bir kaynakta birebir eşleşme bulunamadı.
             </Text>
           )}
+          {renderAiAnalysisCard()}
         </View>
       )}
 
@@ -1766,6 +1889,137 @@ const styles = (colors: any) =>
       borderRadius: 28,
       padding: 26,
       gap: 18,
+    },
+    aiAnalysisCard: {
+      borderWidth: 1,
+      borderColor: colors.borderSubtle,
+      backgroundColor: colors.surface,
+      borderRadius: 20,
+      padding: 14,
+      gap: 12,
+    },
+    aiAnalysisScroll: {
+      maxHeight: 420,
+      overflow: 'hidden',
+    },
+    aiAnalysisScrollContent: {
+      gap: 14,
+      paddingBottom: 4,
+    },
+    aiAnalysisHeader: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      gap: 12,
+    },
+    aiAnalysisTitleWrap: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 12,
+      flex: 1,
+      minWidth: 0,
+    },
+    aiAnalysisIcon: {
+      width: 40,
+      height: 40,
+      borderRadius: 20,
+      backgroundColor: colors.accent + '18',
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    aiAnalysisTitle: {
+      color: colors.textPrimary,
+      fontSize: 18,
+      fontWeight: '900',
+    },
+    aiAnalysisSubtitle: {
+      color: colors.textMuted,
+      fontSize: 12,
+      marginTop: 2,
+    },
+    aiConfidenceBadge: {
+      color: colors.accent,
+      backgroundColor: colors.accent + '16',
+      borderRadius: 999,
+      overflow: 'hidden',
+      paddingHorizontal: 10,
+      paddingVertical: 5,
+      fontSize: 10,
+      fontWeight: '900',
+      letterSpacing: 0.8,
+    },
+    aiAnalysisState: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: Spacing.sm,
+      paddingVertical: Spacing.sm,
+    },
+    aiUnavailableText: {
+      color: colors.textMuted,
+      fontSize: 14,
+      lineHeight: 20,
+    },
+    aiAnalysisBody: {
+      gap: 14,
+    },
+    aiSummaryText: {
+      color: colors.textPrimary,
+      fontSize: 16,
+      lineHeight: 24,
+      fontWeight: '700',
+    },
+    aiSection: {
+      gap: 8,
+    },
+    aiSectionTitle: {
+      color: colors.textPrimary,
+      fontSize: 13,
+      fontWeight: '900',
+      textTransform: 'uppercase',
+      letterSpacing: 0.7,
+    },
+    aiBulletRow: {
+      flexDirection: 'row',
+      alignItems: 'flex-start',
+      gap: 9,
+    },
+    aiBullet: {
+      width: 6,
+      height: 6,
+      borderRadius: 3,
+      backgroundColor: colors.accent,
+      marginTop: 8,
+    },
+    aiBulletText: {
+      flex: 1,
+      color: colors.textSecondary,
+      fontSize: 14,
+      lineHeight: 21,
+    },
+    aiCallout: {
+      borderLeftWidth: 3,
+      borderLeftColor: colors.accent,
+      backgroundColor: colors.accent + '10',
+      borderRadius: 12,
+      padding: 12,
+      gap: 4,
+    },
+    aiCalloutLabel: {
+      color: colors.accent,
+      fontSize: 11,
+      fontWeight: '900',
+      textTransform: 'uppercase',
+      letterSpacing: 0.7,
+    },
+    aiCalloutText: {
+      color: colors.textSecondary,
+      fontSize: 14,
+      lineHeight: 21,
+    },
+    aiMutedLine: {
+      color: colors.textSecondary,
+      fontSize: 14,
+      lineHeight: 21,
     },
     bodyText: {
       color: colors.textSecondary,

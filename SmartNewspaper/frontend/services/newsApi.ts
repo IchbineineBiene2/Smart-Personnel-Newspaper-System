@@ -28,6 +28,18 @@ export interface ApiArticle {
   language: string;
 }
 
+export interface ArticleAiAnalysis {
+  available: boolean;
+  message?: string;
+  summary: string;
+  keyPoints: string[];
+  context: string;
+  perspectives: string[];
+  risks: string[];
+  questions: string[];
+  confidence: 'low' | 'medium' | 'high';
+}
+
 interface FetchNewsParams {
   language?: string;
   category?: string;
@@ -1369,6 +1381,12 @@ export async function fetchArticleFullContent(id: string): Promise<{ content: st
   const res = await fetch(`${API_BASE}/api/news/${encodeURIComponent(id)}/full-content`);
   if (!res.ok) throw new Error(`API hatası: ${res.status}`);
   return (await res.json()) as { content: string; images?: string[]; fromSource: boolean };
+}
+
+export async function fetchArticleAiAnalysis(id: string): Promise<ArticleAiAnalysis> {
+  const res = await fetch(`${API_BASE}/api/news/${encodeURIComponent(id)}/analysis`);
+  if (!res.ok) throw new Error(`API hatasÄ±: ${res.status}`);
+  return (await res.json()) as ArticleAiAnalysis;
 }
 
 export async function fetchTrendingArticles(limit = 10): Promise<ApiArticle[]> {

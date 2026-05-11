@@ -18,7 +18,7 @@ import { useBookmarks } from '@/hooks/useBookmarks';
 import { useApiNews } from '@/hooks/useNews';
 import { usePreferences } from '@/hooks/usePreferences';
 import { useTheme } from '@/hooks/useTheme';
-import { ApiArticle, fetchArticles, mapToContentCategory, proxyImageUrl } from '@/services/newsApi';
+import { mapToContentCategory, proxyImageUrl } from '@/services/newsApi';
 
 // ── Constants ──────────────────────────────────────────────────────────────────
 
@@ -50,8 +50,7 @@ const PER_PAGE_OPTIONS = [20, 40, 60];
 export default function FeedScreen() {
   const router   = useRouter();
   const { colors } = useTheme();
-  const { articles, loading } = useApiNews();
-  const { preferredNewspapers } = usePreferences();
+  const { preferredNewspapers, preferredNewsLanguages } = usePreferences();
   const { savedIds, toggleSaved } = useBookmarks();
   const isWeb = Platform.OS === 'web';
 
@@ -62,8 +61,8 @@ export default function FeedScreen() {
   const [perPage,    setPerPage]    = useState(40);
   const [page,       setPage]       = useState(1);
   const [sidebarVisible, setSidebarVisible] = useState(true);
-  const [languageArticles, setLanguageArticles] = useState<ApiArticle[]>([]);
-  const [languageLoading, setLanguageLoading] = useState(false);
+  const requestedLanguages = selLangs.length > 0 ? selLangs : preferredNewsLanguages;
+  const { articles, loading } = useApiNews(requestedLanguages);
 
   const sidebarAnim = useRef(new Animated.Value(1)).current;
   const entrance    = useRef(new Animated.Value(0)).current;
@@ -72,55 +71,13 @@ export default function FeedScreen() {
     Animated.timing(entrance, { toValue: 1, duration: 380, useNativeDriver: true }).start();
   }, []);
 
-  useEffect(() => {
-    let active = true;
-
-    if (selLangs.length === 0) {
-      setLanguageArticles([]);
-      setLanguageLoading(false);
-      return () => {
-        active = false;
-      };
-    }
-
-    setLanguageLoading(true);
-    Promise.all(selLangs.map((language) => fetchArticles({ language, limit: 300 })))
-      .then((groups) => {
-        if (!active) return;
-        const seen = new Set<string>();
-        const merged = groups
-          .flat()
-          .filter((article) => {
-            if (seen.has(article.id)) return false;
-            seen.add(article.id);
-            return true;
-          })
-          .sort((a, b) => new Date(b.publishedAt).getTime() - new Date(a.publishedAt).getTime());
-        setLanguageArticles(merged);
-      })
-      .catch(() => {
-        if (active) {
-          setLanguageArticles([]);
-        }
-      })
-      .finally(() => {
-        if (active) {
-          setLanguageLoading(false);
-        }
-      });
-
-    return () => {
-      active = false;
-    };
-  }, [selLangs]);
-
   const toggleSidebar = () => {
     const toValue = sidebarVisible ? 0 : 1;
     Animated.timing(sidebarAnim, { toValue, duration: 260, useNativeDriver: true }).start();
     setSidebarVisible(!sidebarVisible);
   };
 
-  const visibleArticles = selLangs.length > 0 ? languageArticles : articles;
+  const visibleArticles = articles;
 
   // ── Derived filter data ────────────────────────────────────────────────────
 
@@ -275,11 +232,11 @@ export default function FeedScreen() {
       </Animated.View>
 
       {/* Body */}
-      {(loading || languageLoading) && feedItems.length === 0 ? (
+      {loading && feedItems.length === 0 ? (
         <View style={styles.loading}>
           <ActivityIndicator color={colors.accent} />
           <Text style={[styles.loadingText, { color: colors.textMuted }]}>
-            {languageLoading ? 'Dil filtresine uygun haberler yükleniyor...' : 'Akış hazırlanıyor...'}
+            {requestedLanguages.length > 0 ? 'Dil tercihlerinize uygun haberler yükleniyor...' : 'Akış hazırlanıyor...'}
           </Text>
         </View>
       ) : (
