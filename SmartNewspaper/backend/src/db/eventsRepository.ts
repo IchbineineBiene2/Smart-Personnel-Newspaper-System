@@ -23,6 +23,21 @@ interface AnnouncementRow {
   priority: string;
 }
 
+const EVENT_IMAGE_FALLBACKS: Record<string, string> = {
+  akademik: 'https://images.unsplash.com/photo-1517245386807-bb43f82c33c4?w=900&h=900&fit=crop',
+  sosyal: 'https://images.unsplash.com/photo-1492684223066-81342ee5ff30?w=900&h=900&fit=crop',
+  'son-tarih': 'https://images.unsplash.com/photo-1506784983877-45594efa4cbe?w=900&h=900&fit=crop',
+  sinav: 'https://images.unsplash.com/photo-1434030216411-0b793f4b4173?w=900&h=900&fit=crop',
+  genel: 'https://images.unsplash.com/photo-1519389950473-47ba0277781c?w=900&h=900&fit=crop',
+  konser: 'https://images.unsplash.com/photo-1501386761578-eac5c94b800a?w=900&h=900&fit=crop',
+  tiyatro: 'https://images.unsplash.com/photo-1503095396549-807759245b35?w=900&h=900&fit=crop',
+  'stand-up': 'https://images.unsplash.com/photo-1527224857830-43a7acc85260?w=900&h=900&fit=crop',
+};
+
+function fallbackEventImage(category: string): string {
+  return EVENT_IMAGE_FALLBACKS[category] ?? EVENT_IMAGE_FALLBACKS.genel;
+}
+
 function rowToEvent(row: EventRow): EventItem {
   return {
     id: row.id,
@@ -33,7 +48,7 @@ function rowToEvent(row: EventRow): EventItem {
     location: row.location ?? '',
     category: row.category as EventCategory,
     isImportant: row.is_important,
-    imageUrl: row.image_url ?? undefined,
+    imageUrl: row.image_url ?? fallbackEventImage(row.category),
     createdAt: row.created_at.toISOString(),
   };
 }

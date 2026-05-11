@@ -29,7 +29,7 @@ export interface ApiArticle {
 }
 
 interface FetchNewsParams {
-  language?: 'tr' | 'en';
+  language?: string;
   category?: string;
   source?: string;
   limit?: number;
@@ -1411,13 +1411,14 @@ export async function fetchNewsSources(): Promise<NewsSourceSummary[]> {
   }
 }
 
-export async function fetchSimilarArticlesFromDb(id: string, threshold = 0.3): Promise<any[]> {
+export async function fetchSimilarArticlesFromDb(id: string, threshold = 0.82): Promise<any[]> {
   const res = await fetch(`${API_BASE}/api/similarity/${encodeURIComponent(id)}?threshold=${threshold}`);
   if (!res.ok) return [];
   const rows = await res.json();
   return rows.map((r: any) => ({
     id: r.id,
     title: r.title,
+    description: r.description ?? '',
     url: r.url,
     publishedAt: r.published_at,
     imageUrl: r.image_url,

@@ -18,7 +18,7 @@ import { useBookmarks } from '@/hooks/useBookmarks';
 import { useApiNews } from '@/hooks/useNews';
 import { usePreferences } from '@/hooks/usePreferences';
 import { useTheme } from '@/hooks/useTheme';
-import { mapToContentCategory, proxyImageUrl } from '@/services/newsApi';
+import { ApiArticle, fetchArticles, mapToContentCategory, proxyImageUrl } from '@/services/newsApi';
 
 // ── Constants ──────────────────────────────────────────────────────────────────
 
@@ -62,6 +62,8 @@ export default function FeedScreen() {
   const [perPage,    setPerPage]    = useState(40);
   const [page,       setPage]       = useState(1);
   const [sidebarVisible, setSidebarVisible] = useState(true);
+  const [languageArticles, setLanguageArticles] = useState<ApiArticle[]>([]);
+  const [languageLoading, setLanguageLoading] = useState(false);
 
   const sidebarAnim = useRef(new Animated.Value(1)).current;
   const entrance    = useRef(new Animated.Value(0)).current;
@@ -70,23 +72,68 @@ export default function FeedScreen() {
     Animated.timing(entrance, { toValue: 1, duration: 380, useNativeDriver: true }).start();
   }, []);
 
+  useEffect(() => {
+    let active = true;
+
+    if (selLangs.length === 0) {
+      setLanguageArticles([]);
+      setLanguageLoading(false);
+      return () => {
+        active = false;
+      };
+    }
+
+    setLanguageLoading(true);
+    Promise.all(selLangs.map((language) => fetchArticles({ language, limit: 300 })))
+      .then((groups) => {
+        if (!active) return;
+        const seen = new Set<string>();
+        const merged = groups
+          .flat()
+          .filter((article) => {
+            if (seen.has(article.id)) return false;
+            seen.add(article.id);
+            return true;
+          })
+          .sort((a, b) => new Date(b.publishedAt).getTime() - new Date(a.publishedAt).getTime());
+        setLanguageArticles(merged);
+      })
+      .catch(() => {
+        if (active) {
+          setLanguageArticles([]);
+        }
+      })
+      .finally(() => {
+        if (active) {
+          setLanguageLoading(false);
+        }
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [selLangs]);
+
   const toggleSidebar = () => {
     const toValue = sidebarVisible ? 0 : 1;
     Animated.timing(sidebarAnim, { toValue, duration: 260, useNativeDriver: true }).start();
     setSidebarVisible(!sidebarVisible);
   };
 
+  const visibleArticles = selLangs.length > 0 ? languageArticles : articles;
+
   // ── Derived filter data ────────────────────────────────────────────────────
 
   const availableLangs = useMemo(() => {
     const langs = new Set<string>();
     articles.forEach((a) => { if ((a as any).language) langs.add((a as any).language); });
+    Object.keys(LANG_META).forEach((code) => langs.add(code));
     return Array.from(langs).sort();
   }, [articles]);
 
   const availableSources = useMemo(() => {
     const seen = new Map<string, number>();
-    articles.forEach((a) => {
+    visibleArticles.forEach((a) => {
       const n = a.source.name;
       seen.set(n, (seen.get(n) ?? 0) + 1);
     });
@@ -94,12 +141,12 @@ export default function FeedScreen() {
       .sort((a, b) => b[1] - a[1])
       .slice(0, 18)
       .map(([name]) => name);
-  }, [articles]);
+  }, [visibleArticles]);
 
   // ── Filtered + paginated feed ──────────────────────────────────────────────
 
   const { feedItems, totalCount } = useMemo(() => {
-    let ranked = articles.map((article, index) => {
+    let ranked = visibleArticles.map((article, index) => {
       const category = mapToContentCategory(article.category, article.title, article.description);
       return { article, category, index };
     });
@@ -121,7 +168,7 @@ export default function FeedScreen() {
     const totalCount = ranked.length;
     const start = (page - 1) * perPage;
     return { feedItems: ranked.slice(start, start + perPage), totalCount };
-  }, [articles, viewMode, selCats, selLangs, selSources, preferredNewspapers, page, perPage]);
+  }, [visibleArticles, viewMode, selCats, selLangs, selSources, preferredNewspapers, page, perPage]);
 
   const totalPages = Math.max(1, Math.ceil(totalCount / perPage));
   const activeFilterCount = selCats.length + selLangs.length + selSources.length;
@@ -228,10 +275,12 @@ export default function FeedScreen() {
       </Animated.View>
 
       {/* Body */}
-      {loading && feedItems.length === 0 ? (
+      {(loading || languageLoading) && feedItems.length === 0 ? (
         <View style={styles.loading}>
           <ActivityIndicator color={colors.accent} />
-          <Text style={[styles.loadingText, { color: colors.textMuted }]}>Akış hazırlanıyor...</Text>
+          <Text style={[styles.loadingText, { color: colors.textMuted }]}>
+            {languageLoading ? 'Dil filtresine uygun haberler yükleniyor...' : 'Akış hazırlanıyor...'}
+          </Text>
         </View>
       ) : (
         <Animated.View style={[styles.feedWrap, isWeb && sidebarVisible && styles.webLayout, { opacity: entrance }]}>

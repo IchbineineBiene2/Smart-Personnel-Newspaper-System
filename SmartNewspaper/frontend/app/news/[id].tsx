@@ -196,28 +196,58 @@ type ConversationRecipient = {
 
 const ARTICLE_SHARE_PREFIX = 'SPN_ARTICLE_SHARE:';
 
+const SIMILARITY_STOP_WORDS = new Set([
+  'icin', 'için', 'olan', 'sonra', 'once', 'önce', 'gibi', 'daha', 'son',
+  'haber', 'haberi', 'yeni', 'ile', 've', 'bir', 'bu', 'da', 'de', 'the',
+  'and', 'for', 'with', 'from', 'that', 'this',
+]);
+
+function normalizeSourceNameForMatch(sourceName?: string): string {
+  return String(sourceName ?? '')
+    .toLocaleLowerCase('tr-TR')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function getMatchWords(...values: string[]): string[] {
+  const normalized = values
+    .join(' ')
+    .toLocaleLowerCase('tr-TR')
+    .replace(/[^a-z0-9ığüşöçİĞÜŞÖÇ\s]/gi, ' ');
+
+  return [...new Set(
+    normalized
+      .split(/\s+/)
+      .map((word) => word.trim())
+      .filter((word) => word.length >= 4 && !SIMILARITY_STOP_WORDS.has(word))
+  )];
+}
+
 function getSimilarArticles(
   currentId: string,
   currentCategory: string,
   currentTitle: string,
   currentLanguage: string | undefined,
   allArticles: ArticleLike[],
-  count = 8
+  currentSourceName?: string,
+  currentDescription = '',
+  count = 10
 ): ArticleLike[] {
-  const titleWords = currentTitle
-    .toLowerCase()
-    .split(/\s+/)
-    .filter((w) => w.length >= 4);
+  const titleWords = getMatchWords(currentTitle, currentDescription);
+  const currentSource = normalizeSourceNameForMatch(currentSourceName);
 
   return allArticles
-    .filter((a) => a.id !== currentId)
+    .filter((a) => a.id !== currentId && normalizeSourceNameForMatch(a.source?.name) !== currentSource)
     .map((a) => {
       let wordMatches = 0;
-      const aWords = a.title.toLowerCase().split(/\s+/);
+      const aWords = getMatchWords(a.title, a.description ?? '');
       titleWords.forEach((w) => { if (aWords.some((aw) => aw.startsWith(w) || w.startsWith(aw))) wordMatches += 1; });
-      return { article: a, score: wordMatches * 10 };
+      const categoryBoost = a.category === currentCategory ? 8 : 0;
+      const languageBoost = currentLanguage && a.language === currentLanguage ? 4 : 0;
+      const score = wordMatches * 10 + categoryBoost + languageBoost;
+      return { article: a, score };
     })
-    .filter((s) => s.score >= 20)
+    .filter((s) => s.score >= 24)
     .sort((a, b) => b.score - a.score || new Date(b.article.publishedAt).getTime() - new Date(a.article.publishedAt).getTime())
     .slice(0, count)
     .map((s) => s.article);
@@ -225,7 +255,7 @@ function getSimilarArticles(
 
 // ─── Yatay Öneri Kartı ───────────────────────────────────────────────────────
 function RelatedArticleCard({ article, onPress, colors, isSidebar = false }: { article: ArticleLike; onPress: () => void; colors: any, isSidebar?: boolean }) {
-  const cat = mapToContentCategory(article.category, article.title, article.description);
+  const cat = mapToContentCategory(article.category, article.title, article.description ?? '');
   const diff = Date.now() - new Date(article.publishedAt).getTime();
   const mins = Math.floor(diff / 60000);
   const timeLabel = mins < 60 ? `${mins}dk` : mins < 1440 ? `${Math.floor(mins / 60)}sa` : `${Math.floor(mins / 1440)}g`;
@@ -443,15 +473,26 @@ export default function NewsDetailPage() {
 
   const [exactMatches, setExactMatches] = useState<ArticleLike[]>([]);
   const [relatedArticles, setRelatedArticles] = useState<ArticleLike[]>([]);
+  const [loadingMatches, setLoadingMatches] = useState(false);
 
   useEffect(() => {
     let active = true;
     if (!params.id) return;
 
-    const fallbackSimilar = getSimilarArticles(params.id, category, resolvedTitle ?? '', currentLanguage, articles as ArticleLike[]);
+    const fallbackSimilar = getSimilarArticles(
+      params.id,
+      category,
+      resolvedTitle ?? '',
+      currentLanguage,
+      articles as ArticleLike[],
+      sourceName,
+      resolvedSummary
+    );
     setRelatedArticles(fallbackSimilar);
+    setExactMatches([]);
+    setLoadingMatches(true);
 
-    fetchSimilarArticlesFromDb(params.id)
+    fetchSimilarArticlesFromDb(params.id, 0.82)
       .then((dbSimilar) => {
         if (!active) return;
         if (dbSimilar && dbSimilar.length > 0) {
@@ -460,12 +501,17 @@ export default function NewsDetailPage() {
       })
       .catch((err) => {
         // ignore
+      })
+      .finally(() => {
+        if (active) {
+          setLoadingMatches(false);
+        }
       });
 
     return () => {
       active = false;
     };
-  }, [params.id, category, resolvedTitle, currentLanguage, articles]);
+  }, [params.id, category, resolvedTitle, resolvedSummary, currentLanguage, sourceName, articles]);
   const publisherLogoUrl = useMemo(
     () => buildPublisherLogoUrl(sourceName, sourceUrl),
     [sourceName, sourceUrl]
@@ -567,6 +613,21 @@ export default function NewsDetailPage() {
   const topParagraphs = useMemo(() => textToParagraphs(topText), [topText]);
   const bottomParagraphs = useMemo(() => textToParagraphs(bottomText), [bottomText]);
   const trailingParagraphs = useMemo(() => textToParagraphs(trailingText), [trailingText]);
+  const alternateSourceArticles = useMemo(() => {
+    const seen = new Set<string>();
+    const matches = exactMatches.filter((article) => {
+      if (!article?.id || seen.has(article.id) || article.id === params.id) return false;
+      if (normalizeSourceNameForMatch(article.source?.name) === normalizeSourceNameForMatch(sourceName)) return false;
+      seen.add(article.id);
+      return true;
+    });
+
+    return matches.slice(0, 10);
+  }, [exactMatches, params.id, sourceName]);
+  const generalRelatedArticles = useMemo(() => {
+    const alternateIds = new Set(alternateSourceArticles.map((article) => article.id));
+    return relatedArticles.filter((article) => !alternateIds.has(article.id));
+  }, [alternateSourceArticles, relatedArticles]);
 
   const openPublisherProfile = () => {
     const publisherId = getPublisherIdFromSourceName(sourceName);
@@ -1307,23 +1368,41 @@ export default function NewsDetailPage() {
         </View>
         )}
 
-        {isWeb && exactMatches.length > 0 && (
-          <View style={[styles(colors).mediaCol, styles(colors).mediaColWeb]}>
+        {isWeb && (
+          <View style={[styles(colors).mediaCol, styles(colors).mediaColWeb, styles(colors).sameStoryPanel]}>
             <View style={styles(colors).relatedHeader}>
               <View style={[styles(colors).relatedDot, { backgroundColor: colors.accent }]} />
-              <Text style={styles(colors).relatedTitle}>FARKLI KAYNAKLARDA BU HABER</Text>
+              <Text style={styles(colors).relatedTitle}>AYNI HABER, FARKLI KAYNAKLAR</Text>
             </View>
-            <View style={{ gap: 12, marginTop: 8 }}>
-              {exactMatches.map((item) => (
-                <RelatedArticleCard
-                  key={`exact-web-${item.id}`}
-                  article={item}
-                  colors={colors}
-                  isSidebar={true}
-                  onPress={() => router.push({ pathname: '/news/[id]', params: { id: item.id } })}
-                />
-              ))}
-            </View>
+            <Text style={styles(colors).sameStoryHint}>
+              Farklı ifadeler ve bakış açılarıyla yayımlanan yakın haberler
+            </Text>
+            {loadingMatches && alternateSourceArticles.length === 0 ? (
+              <View style={styles(colors).sameStoryLoading}>
+                <ActivityIndicator color={colors.accent} />
+                <Text style={styles(colors).statusText}>Alternatif kaynaklar aranıyor...</Text>
+              </View>
+            ) : alternateSourceArticles.length > 0 ? (
+              <View style={styles(colors).sameStoryList}>
+                {alternateSourceArticles.map((item) => (
+                  <RelatedArticleCard
+                    key={`same-story-web-${item.id}`}
+                    article={item}
+                    colors={colors}
+                    isSidebar={true}
+                    onPress={() => router.push({ pathname: '/news/[id]', params: { id: item.id } })}
+                  />
+                ))}
+              </View>
+            ) : (
+              <View style={styles(colors).sameStoryEmpty}>
+                <Ionicons name="newspaper-outline" size={26} color={colors.textMuted} />
+                <Text style={styles(colors).sameStoryEmptyTitle}>Birebir eşleşme bulunamadı</Text>
+                <Text style={styles(colors).sameStoryEmptyText}>
+                  Bu haber için farklı bir kaynakta aynı habere ait güvenilir bir eşleşme yok.
+                </Text>
+              </View>
+            )}
           </View>
         )}
       </View>
@@ -1441,33 +1520,39 @@ export default function NewsDetailPage() {
         </View>
       </View>
 
-      {!isWeb && exactMatches.length > 0 && (
+      {!isWeb && (
         <View style={styles(colors).relatedSection}>
           <View style={styles(colors).relatedHeader}>
             <View style={[styles(colors).relatedDot, { backgroundColor: colors.accent }]} />
-            <Text style={styles(colors).relatedTitle}>Farklı Kaynaklarda Bu Haber</Text>
+            <Text style={styles(colors).relatedTitle}>Aynı Haber, Farklı Kaynaklar</Text>
           </View>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles(colors).relatedList}>
-            {exactMatches.map((item) => (
-              <RelatedArticleCard
-                key={`exact-mob-${item.id}`}
-                article={item}
-                colors={colors}
-                onPress={() => router.push({ pathname: '/news/[id]', params: { id: item.id } })}
-              />
-            ))}
-          </ScrollView>
+          {alternateSourceArticles.length > 0 ? (
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles(colors).relatedList}>
+              {alternateSourceArticles.map((item) => (
+                <RelatedArticleCard
+                  key={`same-story-mob-${item.id}`}
+                  article={item}
+                  colors={colors}
+                  onPress={() => router.push({ pathname: '/news/[id]', params: { id: item.id } })}
+                />
+              ))}
+            </ScrollView>
+          ) : (
+            <Text style={styles(colors).sameStoryMobileEmpty}>
+              Bu haber için farklı bir kaynakta birebir eşleşme bulunamadı.
+            </Text>
+          )}
         </View>
       )}
 
-      {relatedArticles.length > 0 && (
+      {generalRelatedArticles.length > 0 && (
         <View style={styles(colors).relatedSection}>
           <View style={styles(colors).relatedHeader}>
             <View style={[styles(colors).relatedDot, { backgroundColor: colors.accent }]} />
             <Text style={styles(colors).relatedTitle}>Benzer Haberler</Text>
           </View>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles(colors).relatedList}>
-            {relatedArticles.map((item) => (
+            {generalRelatedArticles.map((item) => (
               <RelatedArticleCard
                 key={`related-${item.id}`}
                 article={item}
@@ -1862,6 +1947,55 @@ const styles = (colors: any) =>
       width: 360,
       position: 'sticky' as any,
       top: 16,
+    },
+    sameStoryPanel: {
+      borderWidth: 1,
+      borderColor: colors.borderSubtle,
+      backgroundColor: colors.surface,
+      borderRadius: 20,
+      padding: 12,
+    },
+    sameStoryHint: {
+      color: colors.textMuted,
+      fontSize: 12,
+      lineHeight: 17,
+      paddingHorizontal: Spacing.xs,
+    },
+    sameStoryList: {
+      gap: 12,
+      marginTop: 6,
+    },
+    sameStoryLoading: {
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: Spacing.sm,
+      paddingVertical: Spacing.xl,
+    },
+    sameStoryEmpty: {
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: Spacing.sm,
+      paddingVertical: Spacing.xl,
+      paddingHorizontal: Spacing.md,
+    },
+    sameStoryEmptyTitle: {
+      color: colors.textPrimary,
+      fontSize: Typography.fontSize.sm,
+      fontWeight: '800',
+      textAlign: 'center',
+    },
+    sameStoryEmptyText: {
+      color: colors.textMuted,
+      fontSize: 12,
+      lineHeight: 17,
+      textAlign: 'center',
+    },
+    sameStoryMobileEmpty: {
+      color: colors.textMuted,
+      fontSize: Typography.fontSize.sm,
+      lineHeight: 19,
+      paddingHorizontal: Spacing.xs,
+      paddingBottom: Spacing.sm,
     },
     galleryWrap: {
       gap: Spacing.sm,
