@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
+  Alert,
   Animated,
   Image,
   Pressable,
@@ -14,6 +15,7 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
 import { useRouter } from 'expo-router';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import { usePreferences } from '@/hooks/usePreferences';
 import { useBookmarks } from '@/hooks/useBookmarks';
@@ -25,6 +27,8 @@ import { UserProfile, getUserProfile, logoutUser, updateUserProfile } from '@/se
 import { buildPublisherDataset } from '@/services/publisherProfiles';
 import { ApiArticle, mapToContentCategory, proxyImageUrl } from '@/services/newsApi';
 import { ThemeName } from '@/theme/themes';
+
+const PROFILE_PHOTO_STORAGE_KEY = 'profile-photo-uri';
 
 type ProfileTab = 'general' | 'preferences' | 'security' | 'subscription';
 
@@ -74,6 +78,8 @@ export default function ProfileScreen() {
   const [editName, setEditName] = useState('');
   const [editEmail, setEditEmail] = useState('');
   const [autoNightMode, setAutoNightMode] = useState(false);
+  const [profilePhotoUri, setProfilePhotoUri] = useState<string | null>(null);
+  const [photoMenuOpen, setPhotoMenuOpen] = useState(false);
 
   const headerFade = useRef(new Animated.Value(0)).current;
   const contentFade = useRef(new Animated.Value(0)).current;
@@ -97,6 +103,12 @@ export default function ProfileScreen() {
     setEditName(userProfile?.name ?? '');
     setEditEmail(userProfile?.email ?? '');
   }, [userProfile]);
+
+  useEffect(() => {
+    AsyncStorage.getItem(PROFILE_PHOTO_STORAGE_KEY).then((value) => {
+      setProfilePhotoUri(value);
+    });
+  }, []);
 
   useEffect(() => {
     Animated.stagger(80, [
@@ -133,6 +145,44 @@ export default function ProfileScreen() {
     setIsEditingGeneral(false);
   };
 
+  const openPhotoPicker = (mode: 'camera' | 'library') => {
+    setPhotoMenuOpen(false);
+
+    if (Platform.OS !== 'web' || typeof document === 'undefined') {
+      Alert.alert('Desteklenmiyor', 'Fotoğraf seçme ve kamera şu anda web sürümünde destekleniyor.');
+      return;
+    }
+
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = 'image/*';
+    if (mode === 'camera') {
+      input.setAttribute('capture', 'user');
+    }
+
+    input.onchange = () => {
+      const file = input.files?.[0];
+      if (!file) return;
+
+      const reader = new FileReader();
+      reader.onload = async () => {
+        const result = typeof reader.result === 'string' ? reader.result : null;
+        if (!result) return;
+        setProfilePhotoUri(result);
+        await AsyncStorage.setItem(PROFILE_PHOTO_STORAGE_KEY, result);
+      };
+      reader.readAsDataURL(file);
+    };
+
+    input.click();
+  };
+
+  const removeProfilePhoto = async () => {
+    setPhotoMenuOpen(false);
+    setProfilePhotoUri(null);
+    await AsyncStorage.removeItem(PROFILE_PHOTO_STORAGE_KEY);
+  };
+
   return (
     <ScrollView
       style={[styles.root, { backgroundColor: bg }]}
@@ -146,9 +196,38 @@ export default function ProfileScreen() {
           <View style={[styles.profileCard, { backgroundColor: colors.surface, borderColor: colors.borderSubtle }]}>
             <View style={[styles.avatarWrap, { borderColor: colors.accent }]}>
               <View style={[styles.avatar, { backgroundColor: colors.accent + '20' }]}>
-                <Ionicons name="person" size={36} color={colors.accent} />
+                {profilePhotoUri ? (
+                  <Image source={{ uri: profilePhotoUri }} style={styles.avatarImage} resizeMode="cover" />
+                ) : (
+                  <Ionicons name="person" size={36} color={colors.accent} />
+                )}
               </View>
+              <Pressable
+                style={[styles.avatarEditButton, { backgroundColor: colors.accent, borderColor: colors.surface }]}
+                onPress={() => setPhotoMenuOpen((value) => !value)}
+              >
+                <Ionicons name="create-outline" size={14} color="#fff" />
+              </Pressable>
               <View style={[styles.onlineDot, { borderColor: colors.surface }]} />
+              {photoMenuOpen && (
+                <View style={[styles.photoMenu, { backgroundColor: colors.surface, borderColor: colors.borderSubtle }]}>
+                  <Pressable style={styles.photoMenuItem} onPress={() => openPhotoPicker('camera')}>
+                    <Ionicons name="camera-outline" size={15} color={colors.accent} />
+                    <Text style={[styles.photoMenuText, { color: colors.textPrimary }]}>Çek</Text>
+                  </Pressable>
+                  <Pressable style={styles.photoMenuItem} onPress={() => openPhotoPicker('library')}>
+                    <Ionicons name="image-outline" size={15} color={colors.accent} />
+                    <Text style={[styles.photoMenuText, { color: colors.textPrimary }]}>Seç</Text>
+                  </Pressable>
+                  <Pressable
+                    style={[styles.photoMenuItem, !profilePhotoUri && styles.photoMenuItemDisabled]}
+                    onPress={profilePhotoUri ? removeProfilePhoto : undefined}
+                  >
+                    <Ionicons name="trash-outline" size={15} color={profilePhotoUri ? '#ef4444' : colors.textMuted} />
+                    <Text style={[styles.photoMenuText, { color: profilePhotoUri ? '#ef4444' : colors.textMuted }]}>Sil</Text>
+                  </Pressable>
+                </View>
+              )}
             </View>
             <Text style={[styles.profileName, { color: colors.textPrimary }]}>
               {userProfile?.name ?? 'Ahmet Yüksel'}
@@ -636,7 +715,44 @@ const styles = StyleSheet.create({
   avatar: {
     width: 70, height: 70, borderRadius: 35,
     alignItems: 'center', justifyContent: 'center',
+    overflow: 'hidden',
   },
+  avatarImage: { width: '100%' as any, height: '100%' as any },
+  avatarEditButton: {
+    position: 'absolute',
+    right: -2,
+    bottom: 12,
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    borderWidth: 2,
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 4,
+  },
+  photoMenu: {
+    position: 'absolute',
+    top: 74,
+    left: 46,
+    width: 126,
+    borderRadius: 12,
+    borderWidth: 1,
+    paddingVertical: 6,
+    zIndex: 10,
+    shadowColor: '#000',
+    shadowOpacity: 0.14,
+    shadowRadius: 14,
+    shadowOffset: { width: 0, height: 8 },
+  },
+  photoMenuItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 9,
+  },
+  photoMenuItemDisabled: { opacity: 0.55 },
+  photoMenuText: { fontSize: 12, fontWeight: '800' },
   onlineDot: {
     position: 'absolute', bottom: 2, right: 2,
     width: 14, height: 14, borderRadius: 7,
