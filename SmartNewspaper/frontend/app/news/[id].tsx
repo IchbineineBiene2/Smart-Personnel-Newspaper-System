@@ -1004,6 +1004,32 @@ export default function NewsDetailPage() {
           </View>
         ) : null}
       </ScrollView>
+
+      <Pressable
+        style={({ pressed }) => [
+          styles(colors).transferToChatButton,
+          pressed && { opacity: 0.85 },
+        ]}
+        onPress={() =>
+          router.push({
+            pathname: '/(tabs)/ai',
+            params: {
+              articleId: params.id ?? '',
+              articleTitle: resolvedTitle,
+              articleSummary: resolvedSummary,
+              articleContent: body.slice(0, 6000),
+              articleSource: sourceName,
+              articleCategory: category,
+              articlePublishedAt: publishedLabel,
+              articleAiSummary: aiAnalysis?.summary ?? '',
+              articleAiContext: aiAnalysis?.context ?? '',
+            },
+          } as any)
+        }
+      >
+        <Ionicons name="chatbubble-ellipses-outline" size={16} color={colors.white} />
+        <Text style={styles(colors).transferToChatText}>Haberi Chat'e Taşı</Text>
+      </Pressable>
     </View>
   );
 
@@ -1897,6 +1923,23 @@ const styles = (colors: any) =>
       borderRadius: 20,
       padding: 14,
       gap: 12,
+    },
+    transferToChatButton: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: 8,
+      borderRadius: 14,
+      paddingVertical: 12,
+      paddingHorizontal: 14,
+      backgroundColor: colors.accent,
+      marginTop: 6,
+    },
+    transferToChatText: {
+      color: colors.white,
+      fontSize: 13,
+      fontWeight: '900',
+      letterSpacing: 0.2,
     },
     aiAnalysisScroll: {
       maxHeight: 420,
