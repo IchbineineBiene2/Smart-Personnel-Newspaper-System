@@ -1,10 +1,9 @@
 import { Router, Request, Response } from 'express';
 import { getArticles, getArticleById } from '../db/articleRepository';
-import { fetchAllRssFeeds } from '../collectors/rssCollector';
-import { filterDuplicates } from '../processors/duplicateDetector';
 import { scrapeArticleDetails } from '../collectors/scraper';
 import { query } from '../db';
 import { generateArticleAnalysis } from '../services/articleAnalysis';
+import { runCollection } from '../scheduler/newsScheduler';
 
 const router = Router();
 
@@ -22,6 +21,7 @@ router.get('/trending', async (req: Request, res: Response) => {
          ) AS score
        FROM articles
        WHERE published_at > NOW() - INTERVAL '48 hours'
+         AND published_at <= NOW() + INTERVAL '5 minutes'
        ORDER BY score DESC, published_at DESC
        LIMIT $1`,
       [limit]
@@ -52,6 +52,7 @@ router.get('/breaking', async (req: Request, res: Response) => {
     const result = await query<any>(
       `SELECT * FROM articles
        WHERE published_at > NOW() - INTERVAL '12 hours'
+         AND published_at <= NOW() + INTERVAL '5 minutes'
        ORDER BY published_at DESC
        LIMIT $1`,
       [limit]
@@ -83,6 +84,7 @@ router.get('/sources', async (_req: Request, res: Response) => {
               MAX(published_at) AS latest_at
        FROM articles
        WHERE published_at > NOW() - INTERVAL '7 days'
+         AND published_at <= NOW() + INTERVAL '5 minutes'
        GROUP BY source_name, source_url
        ORDER BY latest_at DESC
        LIMIT 24`
@@ -174,11 +176,22 @@ router.get('/:id', async (req: Request, res: Response) => {
 // POST /api/news/fetch - Manuel tetikleme (admin için)
 router.post('/fetch', async (req: Request, res: Response) => {
   try {
-    const rssArticles = await fetchAllRssFeeds();
-    const unique = filterDuplicates(rssArticles);
-    res.json({ fetched: rssArticles.length, unique: unique.length });
-  } catch {
-    res.status(500).json({ error: 'Haber toplama başarısız' });
+    const includeNewsApi = req.query.newsapi === 'true' || req.body?.newsapi === true;
+    const result = await runCollection(includeNewsApi);
+
+    if (!result.success) {
+      return res.status(500).json({ error: 'Haber toplama basarisiz', details: result.error });
+    }
+
+    return res.json({
+      fetched: result.collected,
+      unique: result.unique,
+      inserted: result.inserted,
+      skipped: result.skipped,
+      durationMs: result.durationMs,
+    });
+  } catch (err) {
+    return res.status(500).json({ error: 'Haber toplama basarisiz', details: (err as Error).message });
   }
 });
 

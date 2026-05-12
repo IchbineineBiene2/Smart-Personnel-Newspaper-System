@@ -68,7 +68,7 @@ async function fetchFeed(source: RssSource): Promise<Article[]> {
       content: item.content ? (item.content as string) : undefined,
       url: item.link as string,
       imageUrl: extractImageUrl(item),
-      publishedAt: item.pubDate ? new Date(item.pubDate as string) : new Date(),
+      publishedAt: parsePublishedAt(item.pubDate as string | undefined),
       source: {
         name: source.name,
         url: source.url,
@@ -77,6 +77,15 @@ async function fetchFeed(source: RssSource): Promise<Article[]> {
       category: source.category,
       language: source.language,
     }));
+}
+
+function parsePublishedAt(pubDate?: string): Date {
+  if (!pubDate) return new Date();
+  const parsed = new Date(pubDate);
+  if (Number.isNaN(parsed.getTime())) return new Date();
+
+  const fiveMinutesFromNow = Date.now() + 5 * 60 * 1000;
+  return parsed.getTime() > fiveMinutesFromNow ? new Date() : parsed;
 }
 
 export async function fetchAllRssFeeds(): Promise<Article[]> {

@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   Alert,
   Image,
@@ -11,7 +11,7 @@ import {
   View,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 
 import { Radius, Spacing, Typography } from '@/constants/theme';
 import { useBookmarks } from '@/hooks/useBookmarks';
@@ -61,13 +61,14 @@ async function downloadEditionPdf(
 
 export default function Archive() {
   const router = useRouter();
+  const params = useLocalSearchParams<{ tab?: string }>();
   const { colors } = useTheme();
   const isWeb = Platform.OS === 'web';
   const { articles } = useApiNews();
   const { savedIds, toggleSaved } = useBookmarks();
   const { preferredCategories } = usePreferences();
   const [screen, setScreen] = useState<ScreenState>('list');
-  const [activeTab, setActiveTab] = useState<ArchiveTab>('editions');
+  const [activeTab, setActiveTab] = useState<ArchiveTab>(params.tab === 'saved' ? 'saved' : 'editions');
   const [selectedEdition, setSelectedEdition] = useState<ArchivedEdition | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
 
@@ -88,6 +89,13 @@ export default function Archive() {
         .filter((article): article is ApiArticle => Boolean(article)),
     [articles, savedIds]
   );
+
+  useEffect(() => {
+    if (params.tab === 'saved') {
+      setActiveTab('saved');
+      setScreen('list');
+    }
+  }, [params.tab]);
 
   const openEdition = (edition: ArchivedEdition) => {
     setSelectedEdition(edition);

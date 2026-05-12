@@ -4,7 +4,7 @@ import { useRouter } from 'expo-router';
 import { ActivityIndicator, Image } from 'react-native';
 
 import { Radius, Spacing, Typography } from '@/constants/theme';
-import { useHiddenPublisherState } from '@/hooks/useHiddenPublisherState';
+import { usePublisherState } from '@/hooks/usePublisherState';
 import { useApiNews } from '@/hooks/useNews';
 import { useTheme } from '@/hooks/useTheme';
 import { buildPublisherDataset } from '@/services/publisherProfiles';
@@ -12,7 +12,7 @@ import { buildPublisherDataset } from '@/services/publisherProfiles';
 export default function PublisherPage() {
   const router = useRouter();
   const { colors } = useTheme();
-  const { followedIds, toggleFollow } = useHiddenPublisherState();
+  const { followedIds, toggleFollow } = usePublisherState();
   const { articles, loading } = useApiNews();
   const { publishers, filters } = useMemo(() => buildPublisherDataset(articles), [articles]);
 

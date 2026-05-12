@@ -14,6 +14,16 @@ const STARTUP_NEWSAPI_DELAY_MS = 10 * 60 * 1000;
 const MIN_NEWSAPI_STARTUP_INTERVAL_MS = 2 * 60 * 60 * 1000;
 let lastNewsApiRunAt: number | null = null;
 
+export interface CollectionResult {
+  success: boolean;
+  collected: number;
+  unique: number;
+  inserted: number;
+  skipped: number;
+  durationMs: number;
+  error?: string;
+}
+
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -85,7 +95,7 @@ async function runConcertCollection(): Promise<void> {
 }
 
 // NewsAPI developer planı: 100 istek/24s → sadece her 6 saatte bir çalışır
-async function runCollection(includeNewsApi = false): Promise<void> {
+export async function runCollection(includeNewsApi = false): Promise<CollectionResult> {
   console.log(`[Scheduler] Haber toplama başladı: ${new Date().toISOString()}`);
   const startTime = Date.now();
   const newsApiKey = includeNewsApi ? process.env.NEWS_API_KEY : undefined;
@@ -156,6 +166,15 @@ async function runCollection(includeNewsApi = false): Promise<void> {
         [allArticles.length, inserted, allArticles.length - unique.length, duration, runId]
       ).catch(() => {});
     }
+
+    return {
+      success: true,
+      collected: allArticles.length,
+      unique: unique.length,
+      inserted,
+      skipped,
+      durationMs: duration,
+    };
   } catch (err) {
     console.error('[Scheduler] Haber toplama hatası:', err);
     if (runId !== null) {
@@ -167,6 +186,15 @@ async function runCollection(includeNewsApi = false): Promise<void> {
         [(err as Error).message, Date.now() - startTime, runId]
       ).catch(() => {});
     }
+    return {
+      success: false,
+      collected: 0,
+      unique: 0,
+      inserted: 0,
+      skipped: 0,
+      durationMs: Date.now() - startTime,
+      error: (err as Error).message,
+    };
   }
 }
 
@@ -209,9 +237,12 @@ export function startScheduler(): void {
   // Başlangıçta DB'den ID'leri yükle, sonra RSS+NewsAPI ile haber topla
   loadSeenIdsFromDb()
     .then(() => {
-      console.log('[Scheduler] Startup NewsAPI çalışması 10 dakika geciktirildi.');
+      runCollection(false).catch((err) =>
+        console.error('[Scheduler] Startup RSS collection failed:', err)
+      );
+      console.log('[Scheduler] Startup NewsAPI collection delayed by 10 minutes.');
       runStartupNewsApiCollection().catch((err) =>
-        console.error('[Scheduler] Startup NewsAPI çalışması hatası:', err)
+        console.error('[Scheduler] Startup NewsAPI collection failed:', err)
       );
     })
     .catch(() => runCollection(false));

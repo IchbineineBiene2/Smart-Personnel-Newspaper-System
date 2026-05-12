@@ -1,46 +1,51 @@
 import { useEffect, useRef } from 'react';
-import { useNotification } from '@/contexts/NotificationContext';
-import { useNews } from './useNews';
 import { useRouter } from 'expo-router';
+
+import { useNotification } from '@/contexts/NotificationContext';
+import { getPublisherIdFromSourceName } from '@/services/publisherProfiles';
+import { usePublisherState } from './usePublisherState';
+import { useApiNews } from './useNews';
 
 export function useNewsNotifications() {
   const { showNotification } = useNotification();
-  const { news } = useNews();
+  const { articles } = useApiNews();
+  const { followedIds, notificationEnabledIds } = usePublisherState();
   const router = useRouter();
   const previousIdsRef = useRef<Set<string>>(new Set());
   const isInitialRef = useRef(true);
 
   useEffect(() => {
-    if (!news || news.length === 0) return;
+    if (!articles || articles.length === 0) return;
 
-    const currentIds = new Set(news.map(n => n.id));
+    const enabledPublisherIds = new Set(
+      notificationEnabledIds.filter((id) => followedIds.includes(id))
+    );
 
-    // İlk yükleme - haberler cache'e alınsın, notification gösterme
+    const notificationArticles = articles.filter((article) =>
+      enabledPublisherIds.has(getPublisherIdFromSourceName(article.source.name))
+    );
+
+    const currentIds = new Set(notificationArticles.map((article) => article.id));
+
     if (isInitialRef.current) {
       previousIdsRef.current = currentIds;
       isInitialRef.current = false;
       return;
     }
 
-    // Yeni haberler var mı kontrol et (mevcut ID'ler içinde öncekiler yok mu?)
-    for (const article of news) {
+    for (const article of notificationArticles) {
       if (!previousIdsRef.current.has(article.id)) {
-        // Bu yeni bir haber!
+        const publisherId = getPublisherIdFromSourceName(article.source.name);
         showNotification({
-          title: '📰 Yeni Haber',
+          title: article.source.name,
           description: article.title,
-          duration: 10000, // 10 saniye
-          onPress: () => {
-            // Haber detayına yönlendir
-            router.push(`/news/${article.id}`);
-          },
+          duration: 10000,
+          onPress: () => router.push(`/publisherprofile?id=${publisherId}` as any),
         });
-        // Sadece ilkini göster, loop'u kır
         break;
       }
     }
 
-    // Önceki ID'leri güncelle
     previousIdsRef.current = currentIds;
-  }, [news, showNotification, router]);
+  }, [articles, followedIds, notificationEnabledIds, router, showNotification]);
 }

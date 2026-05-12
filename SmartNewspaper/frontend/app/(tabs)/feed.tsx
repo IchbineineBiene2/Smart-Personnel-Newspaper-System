@@ -16,9 +16,11 @@ import { useRouter } from 'expo-router';
 
 import { useBookmarks } from '@/hooks/useBookmarks';
 import { useApiNews } from '@/hooks/useNews';
+import { usePublisherState } from '@/hooks/usePublisherState';
 import { usePreferences } from '@/hooks/usePreferences';
 import { useTheme } from '@/hooks/useTheme';
 import { mapToContentCategory, proxyImageUrl } from '@/services/newsApi';
+import { getPublisherIdFromSourceName } from '@/services/publisherProfiles';
 
 // ── Constants ──────────────────────────────────────────────────────────────────
 
@@ -50,7 +52,8 @@ const PER_PAGE_OPTIONS = [20, 40, 60];
 export default function FeedScreen() {
   const router   = useRouter();
   const { colors } = useTheme();
-  const { preferredNewspapers, preferredNewsLanguages } = usePreferences();
+  const { preferredNewsLanguages } = usePreferences();
+  const { followedIds } = usePublisherState();
   const { savedIds, toggleSaved } = useBookmarks();
   const isWeb = Platform.OS === 'web';
 
@@ -109,8 +112,8 @@ export default function FeedScreen() {
     });
 
     if (viewMode === 'followed') {
-      const names = preferredNewspapers.map((n) => String(n).toLowerCase());
-      ranked = ranked.filter((r) => names.some((n) => r.article.source.name.toLowerCase().includes(n)));
+      const followedSet = new Set(followedIds);
+      ranked = ranked.filter((r) => followedSet.has(getPublisherIdFromSourceName(r.article.source.name)));
     }
     if (selCats.length > 0) {
       ranked = ranked.filter((r) => selCats.includes(r.category));
@@ -125,7 +128,7 @@ export default function FeedScreen() {
     const totalCount = ranked.length;
     const start = (page - 1) * perPage;
     return { feedItems: ranked.slice(start, start + perPage), totalCount };
-  }, [visibleArticles, viewMode, selCats, selLangs, selSources, preferredNewspapers, page, perPage]);
+  }, [visibleArticles, viewMode, selCats, selLangs, selSources, followedIds, page, perPage]);
 
   const totalPages = Math.max(1, Math.ceil(totalCount / perPage));
   const activeFilterCount = selCats.length + selLangs.length + selSources.length;

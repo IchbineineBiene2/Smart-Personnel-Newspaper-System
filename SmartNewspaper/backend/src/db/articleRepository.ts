@@ -37,7 +37,17 @@ function rowToArticle(row: ArticleRow): Article {
 }
 
 /** Makaleyi DB'ye ekler; URL zaten varsa günceller (UPSERT) */
+function normalizePublishedAt(value: Date | string): Date {
+  const parsed = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(parsed.getTime())) return new Date();
+
+  const fiveMinutesFromNow = Date.now() + 5 * 60 * 1000;
+  return parsed.getTime() > fiveMinutesFromNow ? new Date() : parsed;
+}
+
 export async function upsertArticle(article: Article): Promise<void> {
+  const publishedAt = normalizePublishedAt(article.publishedAt);
+
   await query(
     `INSERT INTO articles
        (id, title, description, content, url, image_url, published_at,
@@ -60,7 +70,7 @@ export async function upsertArticle(article: Article): Promise<void> {
       article.content ?? null,
       article.url,
       article.imageUrl ?? null,
-      article.publishedAt,
+      publishedAt,
       article.language,
       article.category ?? null,
       article.source.name,
@@ -114,6 +124,7 @@ export async function getArticles(params: {
   if (category) { conditions.push(`category = $${idx++}`); values.push(category); }
   if (language) { conditions.push(`language = $${idx++}`); values.push(language); }
   if (source)   { conditions.push(`source_name ILIKE $${idx++}`); values.push(`%${source}%`); }
+  conditions.push(`published_at <= NOW() + INTERVAL '5 minutes'`);
 
   const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
 

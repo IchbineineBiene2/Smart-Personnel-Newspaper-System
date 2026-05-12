@@ -5,7 +5,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 
 import NewsQuickPreviewModal from '@/components/NewsQuickPreviewModal';
 import { Radius, Spacing, Typography } from '@/constants/theme';
-import { useHiddenPublisherState } from '@/hooks/useHiddenPublisherState';
+import { usePublisherState } from '@/hooks/usePublisherState';
 import { useApiNews } from '@/hooks/useNews';
 import { useTheme } from '@/hooks/useTheme';
 import { buildPublisherDataset, getPublisherIdFromSourceName } from '@/services/publisherProfiles';
@@ -67,7 +67,7 @@ export default function PublisherProfilePage() {
           white: colors.surface,
         }
       : colors;
-  const { followedIds, toggleFollow } = useHiddenPublisherState();
+  const { followedIds, toggleFollow } = usePublisherState();
   const { articles: apiArticles, loading } = useApiNews();
   const { publishers, articles } = useMemo(() => buildPublisherDataset(apiArticles), [apiArticles]);
 

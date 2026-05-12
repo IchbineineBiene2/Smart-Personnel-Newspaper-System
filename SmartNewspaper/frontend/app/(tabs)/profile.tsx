@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Animated,
+  Image,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -16,9 +17,13 @@ import { useRouter } from 'expo-router';
 
 import { usePreferences } from '@/hooks/usePreferences';
 import { useBookmarks } from '@/hooks/useBookmarks';
+import { useApiNews } from '@/hooks/useNews';
+import { usePublisherState } from '@/hooks/usePublisherState';
 import { useTheme } from '@/hooks/useTheme';
 import { useLanguage, LANGUAGE_LABELS, LANGUAGES } from '@/hooks/useLanguage';
 import { UserProfile, getUserProfile, logoutUser, updateUserProfile } from '@/services/auth';
+import { buildPublisherDataset } from '@/services/publisherProfiles';
+import { ApiArticle, mapToContentCategory, proxyImageUrl } from '@/services/newsApi';
 import { ThemeName } from '@/theme/themes';
 
 type ProfileTab = 'general' | 'preferences' | 'security' | 'subscription';
@@ -56,15 +61,15 @@ export default function ProfileScreen() {
   const { language, setLanguage } = useLanguage();
   const {
     preferredCategories,
-    preferredNewspapers,
     preferredNewsLanguages,
-    toggleCategory,
-    toggleNewspaper,
     toggleNewsLanguage,
   } = usePreferences();
   const { savedIds } = useBookmarks();
+  const { articles: apiArticles } = useApiNews();
+  const { followedIds, notificationEnabledIds, togglePublisherNotifications } = usePublisherState();
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const [activeTab, setActiveTab] = useState<ProfileTab>('general');
+  const [showFollowedPublishers, setShowFollowedPublishers] = useState(false);
   const [isEditingGeneral, setIsEditingGeneral] = useState(false);
   const [editName, setEditName] = useState('');
   const [editEmail, setEditEmail] = useState('');
@@ -75,6 +80,12 @@ export default function ProfileScreen() {
 
   const isWeb = Platform.OS === 'web';
   const bg = colors.background;
+  const { publishers } = buildPublisherDataset(apiArticles);
+  const followedPublishers = publishers.filter((publisher) => followedIds.includes(publisher.id));
+  const savedArticles = savedIds
+    .map((id) => apiArticles.find((article) => article.id === id))
+    .filter((article): article is ApiArticle => Boolean(article))
+    .slice(0, 4);
 
   useFocusEffect(
     useCallback(() => {
@@ -146,10 +157,19 @@ export default function ProfileScreen() {
               @{userProfile?.email?.split('@')[0] ?? 'yukselahmet740'}
             </Text>
             <View style={styles.profileStats}>
-              <View style={[styles.statBox, { backgroundColor: colors.surfaceHigh, borderColor: colors.borderSubtle }]}>
-                <Text style={[styles.statNum, { color: colors.textPrimary }]}>{preferredNewspapers.length}</Text>
+              <Pressable
+                style={({ pressed }) => [
+                  styles.statBox,
+                  { backgroundColor: colors.surfaceHigh, borderColor: colors.borderSubtle, opacity: pressed ? 0.75 : 1 },
+                ]}
+                onPress={() => {
+                  setShowFollowedPublishers(true);
+                  setActiveTab('general');
+                }}
+              >
+                <Text style={[styles.statNum, { color: colors.textPrimary }]}>{followedPublishers.length}</Text>
                 <Text style={[styles.statLabel, { color: colors.textMuted }]}>TAKİP</Text>
-              </View>
+              </Pressable>
               <View style={[styles.statBox, { backgroundColor: colors.surfaceHigh, borderColor: colors.borderSubtle }]}>
                 <Text style={[styles.statNum, { color: colors.textPrimary }]}>{preferredCategories.length}</Text>
                 <Text style={[styles.statLabel, { color: colors.textMuted }]}>KATEGORİ</Text>
@@ -318,7 +338,81 @@ export default function ProfileScreen() {
 
           {activeTab === 'general' && (
             <View style={styles.panel}>
-              <View style={[styles.panelCard, { backgroundColor: colors.surface, borderColor: colors.borderSubtle }]}>
+              {showFollowedPublishers && (
+                <View style={[styles.panelCard, { backgroundColor: colors.surface, borderColor: colors.borderSubtle }]}>
+                  <View style={styles.panelHeaderBetween}>
+                    <View style={styles.panelHeader}>
+                      <Ionicons name="people-outline" size={20} color={colors.accent} />
+                      <Text style={[styles.panelTitle, { color: colors.textPrimary }]}>Takip Edilen Hesaplar</Text>
+                    </View>
+                    <Pressable
+                      style={[styles.iconActionBtn, { backgroundColor: colors.surfaceHigh, borderColor: colors.borderSubtle }]}
+                      onPress={() => setShowFollowedPublishers(false)}
+                    >
+                      <Ionicons name="close" size={16} color={colors.textMuted} />
+                    </Pressable>
+                  </View>
+
+                  {followedPublishers.length === 0 ? (
+                    <Text style={[styles.panelSubtitle, { color: colors.textMuted }]}>
+                      Henüz takip edilen yayıncı yok.
+                    </Text>
+                  ) : (
+                    <View style={styles.followedList}>
+                      {followedPublishers.map((publisher) => {
+                        const enabled = notificationEnabledIds.includes(publisher.id);
+                        return (
+                          <Pressable
+                            key={publisher.id}
+                            style={[styles.followedRow, { borderColor: colors.borderSubtle }]}
+                            onPress={() => router.push(`/publisherprofile?id=${publisher.id}` as any)}
+                          >
+                            <View style={[styles.publisherLogo, { backgroundColor: colors.accent + '18' }]}>
+                              {publisher.logoUrl ? (
+                                <Image source={{ uri: publisher.logoUrl }} style={styles.publisherLogoImage} resizeMode="cover" />
+                              ) : (
+                                <Text style={[styles.publisherLogoText, { color: colors.accent }]}>{publisher.logoText}</Text>
+                              )}
+                            </View>
+                            <View style={styles.followedText}>
+                              <Text style={[styles.followedName, { color: colors.textPrimary }]} numberOfLines={1}>
+                                {publisher.name}
+                              </Text>
+                              <Text style={[styles.followedMeta, { color: colors.textMuted }]} numberOfLines={1}>
+                                {publisher.articlesCount} haber | {publisher.cadence}
+                              </Text>
+                            </View>
+                            <Pressable
+                              style={[
+                                styles.notifyButton,
+                                {
+                                  backgroundColor: enabled ? colors.accent : colors.surfaceHigh,
+                                  borderColor: enabled ? colors.accent : colors.borderSubtle,
+                                },
+                              ]}
+                              onPress={(event) => {
+                                event.stopPropagation();
+                                togglePublisherNotifications(publisher.id);
+                              }}
+                            >
+                              <Ionicons
+                                name={enabled ? 'notifications' : 'notifications-outline'}
+                                size={14}
+                                color={enabled ? '#fff' : colors.textMuted}
+                              />
+                              <Text style={[styles.notifyButtonText, { color: enabled ? '#fff' : colors.textMuted }]}>
+                                {enabled ? 'Açık' : 'Bildirimleri aç'}
+                              </Text>
+                            </Pressable>
+                          </Pressable>
+                        );
+                      })}
+                    </View>
+                  )}
+                </View>
+              )}
+
+              <View style={[styles.panelCard, { backgroundColor: colors.surface, borderColor: colors.borderSubtle }, showFollowedPublishers && styles.hiddenPanel]}>
                 <View style={styles.panelHeaderBetween}>
                   <View style={styles.panelHeader}>
                   <Ionicons name="person" size={20} color={colors.accent} />
@@ -404,15 +498,55 @@ export default function ProfileScreen() {
                 ))}
               </View>
 
-              <View style={[styles.panelCard, { backgroundColor: colors.surface, borderColor: colors.borderSubtle }]}>
-                <View style={styles.panelHeader}>
+              <View style={[styles.panelCard, { backgroundColor: colors.surface, borderColor: colors.borderSubtle }, showFollowedPublishers && styles.hiddenPanel]}>
+                <Pressable
+                  style={styles.panelHeader}
+                  onPress={() => router.push({ pathname: '/(tabs)/archive', params: { tab: 'saved' } } as any)}
+                >
                   <Ionicons name="newspaper" size={20} color={colors.accent} />
                   <Text style={[styles.panelTitle, { color: colors.textPrimary }]}>Kaydedilen Haberler</Text>
-                </View>
+                  <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
+                </Pressable>
                 <View style={[styles.statBig, { backgroundColor: colors.accent + '10', borderColor: colors.accent + '30' }]}>
                   <Text style={[styles.statBigNum, { color: colors.accent }]}>{savedIds.length}</Text>
                   <Text style={[styles.statBigLabel, { color: colors.textMuted }]}>kaydedilmiş makale</Text>
                 </View>
+                {savedArticles.length > 0 ? (
+                  <View style={styles.savedPreviewList}>
+                    {savedArticles.map((article) => {
+                      const imageUrl = proxyImageUrl(article.imageUrl);
+                      const category = mapToContentCategory(article.category, article.title, article.description);
+                      return (
+                        <Pressable
+                          key={article.id}
+                          style={[styles.savedPreviewRow, { borderColor: colors.borderSubtle }]}
+                          onPress={() => router.push({ pathname: '/news/[id]', params: { id: article.id } })}
+                        >
+                          {imageUrl ? (
+                            <Image source={{ uri: imageUrl }} style={styles.savedPreviewImage} resizeMode="cover" />
+                          ) : (
+                            <View style={[styles.savedPreviewImage, styles.savedPreviewPlaceholder, { backgroundColor: colors.surfaceHigh }]}>
+                              <Ionicons name="newspaper-outline" size={18} color={colors.accent} />
+                            </View>
+                          )}
+                          <View style={styles.savedPreviewText}>
+                            <Text style={[styles.savedPreviewCategory, { color: colors.accent }]} numberOfLines={1}>
+                              {category}
+                            </Text>
+                            <Text style={[styles.savedPreviewTitle, { color: colors.textPrimary }]} numberOfLines={2}>
+                              {article.title}
+                            </Text>
+                            <Text style={[styles.savedPreviewSource, { color: colors.textMuted }]} numberOfLines={1}>
+                              {article.source.name}
+                            </Text>
+                          </View>
+                        </Pressable>
+                      );
+                    })}
+                  </View>
+                ) : (
+                  <Text style={[styles.emptySavedPreview, { color: colors.textMuted }]}>Henüz önizlenecek kayıt yok.</Text>
+                )}
               </View>
             </View>
           )}
@@ -517,6 +651,37 @@ const styles = StyleSheet.create({
   },
   statNum: { fontSize: 18, fontWeight: '800' },
   statLabel: { fontSize: 9, fontWeight: '800', letterSpacing: 1 },
+  followedList: { gap: 10 },
+  followedRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+  },
+  publisherLogo: {
+    width: 42,
+    height: 42,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    overflow: 'hidden',
+  },
+  publisherLogoImage: { width: '100%' as any, height: '100%' as any },
+  publisherLogoText: { fontSize: 13, fontWeight: '900' },
+  followedText: { flex: 1, minWidth: 0 },
+  followedName: { fontSize: 14, fontWeight: '800' },
+  followedMeta: { fontSize: 11, fontWeight: '600', marginTop: 2 },
+  notifyButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    borderRadius: 10,
+    borderWidth: 1,
+  },
+  notifyButtonText: { fontSize: 11, fontWeight: '800' },
 
   // Tab list
   tabList: { borderRadius: 20, borderWidth: 1, overflow: 'hidden' },
@@ -535,6 +700,7 @@ const styles = StyleSheet.create({
   // Right
   right: { flex: 1, minWidth: 280 },
   panel: { gap: 16 },
+  hiddenPanel: { display: 'none' },
   panelCard: { borderRadius: 20, borderWidth: 1, padding: 20, gap: 16 },
   panelHeader: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   panelHeaderBetween: {
@@ -624,6 +790,30 @@ const styles = StyleSheet.create({
   },
   statBigNum: { fontSize: 36, fontWeight: '900' },
   statBigLabel: { fontSize: 12, fontWeight: '600' },
+  savedPreviewList: { gap: 10 },
+  savedPreviewRow: {
+    flexDirection: 'row',
+    gap: 12,
+    alignItems: 'center',
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+  },
+  savedPreviewImage: {
+    width: 72,
+    height: 54,
+    borderRadius: 10,
+    flexShrink: 0,
+    overflow: 'hidden',
+  },
+  savedPreviewPlaceholder: {
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  savedPreviewText: { flex: 1, minWidth: 0 },
+  savedPreviewCategory: { fontSize: 9, fontWeight: '900', letterSpacing: 1, textTransform: 'uppercase' },
+  savedPreviewTitle: { fontSize: 13, fontWeight: '800', lineHeight: 18 },
+  savedPreviewSource: { fontSize: 11, fontWeight: '600', marginTop: 2 },
+  emptySavedPreview: { fontSize: 12, fontWeight: '600' },
 
   // Security
   securityItem: {

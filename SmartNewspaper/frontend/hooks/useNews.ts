@@ -8,6 +8,11 @@ let cachedArticles: ApiArticle[] = [];
 let pendingFetch: Promise<ApiArticle[]> | null = null;
 const languageCache = new Map<string, ApiArticle[]>();
 const languagePendingFetch = new Map<string, Promise<ApiArticle[]>>();
+const BACKGROUND_REFRESH_MS = 60 * 1000;
+
+function getArticleSignature(articles: ApiArticle[]): string {
+  return articles.map((article) => `${article.id}:${article.publishedAt}`).join('|');
+}
 
 async function loadArticles(): Promise<ApiArticle[]> {
   if (pendingFetch) return pendingFetch;
@@ -87,6 +92,8 @@ export function useApiNews(languages: string[] = []) {
   const [loading, setLoading] = useState(cachedArticles.length === 0 || normalizedLanguages.length > 0);
   const [error, setError] = useState<string | null>(null);
   const pollingIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const lastUserActivityRef = useRef(Date.now());
+  const articleSignatureRef = useRef(getArticleSignature(articles));
 
   useEffect(() => {
     let active = true;
@@ -96,9 +103,27 @@ export function useApiNews(languages: string[] = []) {
       ? loadArticlesForLanguages(normalizedLanguages, force)
       : loadArticles();
 
+    const applyArticles = (data: ApiArticle[]) => {
+      const nextSignature = getArticleSignature(data);
+      if (nextSignature === articleSignatureRef.current) return;
+      articleSignatureRef.current = nextSignature;
+      setArticles(data);
+    };
+
+    const markUserActivity = () => {
+      lastUserActivityRef.current = Date.now();
+    };
+
+    const activityEvents = ['pointerdown', 'keydown', 'wheel', 'touchstart', 'scroll'];
+    if (typeof window !== 'undefined') {
+      activityEvents.forEach((eventName) =>
+        window.addEventListener(eventName, markUserActivity, { passive: true })
+      );
+    }
+
     // İlk yükleme
     if (hasLanguageFilter) {
-      setArticles(cached);
+      applyArticles(cached);
     }
 
     if (cached.length === 0 || hasLanguageFilter) {
@@ -106,7 +131,7 @@ export function useApiNews(languages: string[] = []) {
       load()
         .then((data) => {
           if (!active) return;
-          setArticles(data);
+          applyArticles(data);
           setLoading(false);
         })
         .catch((err: Error) => {
@@ -115,26 +140,33 @@ export function useApiNews(languages: string[] = []) {
           setLoading(false);
         });
     } else {
-      setArticles(cached);
+      applyArticles(cached);
       setLoading(false);
     }
 
-    // Her 30 saniyede yeni haberler kontrol et (polling)
+    // Kullanici bostayken arka planda yenile; veri ayniysa UI'a dokunma.
     pollingIntervalRef.current = setInterval(() => {
+      if (Date.now() - lastUserActivityRef.current < BACKGROUND_REFRESH_MS) return;
+
       load(true)
         .then((data) => {
           if (!active) return;
-          setArticles(data);
+          applyArticles(data);
         })
         .catch(() => {
           // Hata sessiz geçsin, UI etkilemesin
         });
-    }, 30 * 1000); // 30 saniye
+    }, BACKGROUND_REFRESH_MS);
 
     return () => {
       active = false;
       if (pollingIntervalRef.current) {
         clearInterval(pollingIntervalRef.current);
+      }
+      if (typeof window !== 'undefined') {
+        activityEvents.forEach((eventName) =>
+          window.removeEventListener(eventName, markUserActivity)
+        );
       }
     };
   }, [languageKey]);

@@ -2,12 +2,12 @@ import React, { useCallback, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   FlatList,
+  Image,
   RefreshControl,
   StyleSheet,
   Text,
   TouchableOpacity,
   View,
-  Linking,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
@@ -15,9 +15,12 @@ import { useRouter } from 'expo-router';
 
 import { useTheme } from '@/hooks/useTheme';
 import { useApiNews } from '@/hooks/useNews';
+import { usePublisherState } from '@/hooks/usePublisherState';
 import { useEvents } from '@/hooks/useEvents';
-import { useConcerts, getTicketUrl } from '@/hooks/useConcerts';
+import { useConcerts } from '@/hooks/useConcerts';
 import { getToken } from '@/services/auth';
+import { getPublisherIdFromSourceName } from '@/services/publisherProfiles';
+import { proxyImageUrl } from '@/services/newsApi';
 
 type NotificationFilter = 'all' | 'messages' | 'upcoming' | 'news' | 'finished' | 'system';
 
@@ -49,6 +52,8 @@ interface FeedNotification {
   createdAt: string;
   unread?: boolean;
   badge?: string;
+  imageUrl?: string;
+  publisherId?: string;
   onPress?: () => void;
   apiId?: number;
 }
@@ -86,6 +91,7 @@ export default function NotificationsScreen() {
   const router = useRouter();
   const { colors } = useTheme();
   const { articles, loading: newsLoading } = useApiNews();
+  const { followedIds, notificationEnabledIds } = usePublisherState();
   const { events } = useEvents();
   const { concerts } = useConcerts();
 
@@ -292,25 +298,31 @@ export default function NotificationsScreen() {
         },
       }));
 
+    const enabledPublisherIds = new Set(
+      notificationEnabledIds.filter((id) => followedIds.includes(id))
+    );
+
     const newsItems: FeedNotification[] = articles
-      .slice()
+      .filter((article) => enabledPublisherIds.has(getPublisherIdFromSourceName(article.source.name)))
       .sort((a, b) => new Date(b.publishedAt).getTime() - new Date(a.publishedAt).getTime())
-      .slice(0, 6)
+      .slice(0, 12)
       .map((article) => ({
         id: `news-${article.id}`,
         filter: 'news',
         icon: 'newspaper',
         accent: '#3b82f6',
-        title: 'Son düşen yeni haber',
+        title: article.source.name,
         content: article.title,
         createdAt: article.publishedAt,
         badge: article.category || 'Haber',
-        onPress: () => router.push({ pathname: '/news/[id]', params: { id: article.id } }),
+        imageUrl: proxyImageUrl(article.imageUrl) ?? article.imageUrl,
+        publisherId: getPublisherIdFromSourceName(article.source.name),
+        onPress: () => router.push(`/publisherprofile?id=${getPublisherIdFromSourceName(article.source.name)}` as any),
       }));
 
     return [...messageItems, ...upcomingItems, ...newsItems, ...finishedItems, ...systemItems]
       .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-  }, [apiNotifications, articles, colors.accent, conversations, concerts, events, router]);
+  }, [apiNotifications, articles, colors.accent, conversations, concerts, events, followedIds, notificationEnabledIds, router]);
 
   const filteredItems = activeFilter === 'all'
     ? feedItems
@@ -386,9 +398,13 @@ export default function NotificationsScreen() {
       onPress={item.onPress}
       activeOpacity={0.8}
     >
-      <View style={[styles.iconContainer, { backgroundColor: item.accent + '18' }]}>
-        <Ionicons name={item.icon as any} size={18} color={item.accent} />
-      </View>
+      {item.imageUrl ? (
+        <Image source={{ uri: item.imageUrl }} style={styles.notificationImage} resizeMode="cover" />
+      ) : (
+        <View style={[styles.iconContainer, { backgroundColor: item.accent + '18' }]}>
+          <Ionicons name={item.icon as any} size={18} color={item.accent} />
+        </View>
+      )}
 
       <View style={styles.notificationContent}>
         <View style={styles.notificationTitleRow}>
@@ -586,6 +602,12 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     justifyContent: 'center',
     alignItems: 'center',
+  },
+  notificationImage: {
+    width: 46,
+    height: 46,
+    borderRadius: 12,
+    backgroundColor: '#e5e7eb',
   },
   notificationContent: {
     flex: 1,
