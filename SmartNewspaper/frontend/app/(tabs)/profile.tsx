@@ -24,6 +24,7 @@ import { usePublisherState } from '@/hooks/usePublisherState';
 import { useTheme } from '@/hooks/useTheme';
 import { useLanguage, LANGUAGE_LABELS, LANGUAGES } from '@/hooks/useLanguage';
 import { UserProfile, getUserProfile, logoutUser, updateUserProfile } from '@/services/auth';
+import { CATEGORIES } from '@/services/content';
 import { buildPublisherDataset } from '@/services/publisherProfiles';
 import { ApiArticle, mapToContentCategory, proxyImageUrl } from '@/services/newsApi';
 import { ThemeName } from '@/theme/themes';
@@ -66,14 +67,17 @@ export default function ProfileScreen() {
   const {
     preferredCategories,
     preferredNewsLanguages,
+    toggleCategory,
     toggleNewsLanguage,
   } = usePreferences();
   const { savedIds } = useBookmarks();
   const { articles: apiArticles } = useApiNews();
-  const { followedIds, notificationEnabledIds, togglePublisherNotifications } = usePublisherState();
+  const { followedIds, notificationEnabledIds, toggleFollow, togglePublisherNotifications } = usePublisherState();
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const [activeTab, setActiveTab] = useState<ProfileTab>('general');
   const [showFollowedPublishers, setShowFollowedPublishers] = useState(false);
+  const [showCategorySelector, setShowCategorySelector] = useState(false);
+  const [publisherPanelView, setPublisherPanelView] = useState<'followed' | 'other'>('followed');
   const [isEditingGeneral, setIsEditingGeneral] = useState(false);
   const [editName, setEditName] = useState('');
   const [editEmail, setEditEmail] = useState('');
@@ -88,6 +92,7 @@ export default function ProfileScreen() {
   const bg = colors.background;
   const { publishers } = buildPublisherDataset(apiArticles);
   const followedPublishers = publishers.filter((publisher) => followedIds.includes(publisher.id));
+  const otherPublishers = publishers.filter((publisher) => !followedIds.includes(publisher.id));
   const savedArticles = savedIds
     .map((id) => apiArticles.find((article) => article.id === id))
     .filter((article): article is ApiArticle => Boolean(article))
@@ -95,7 +100,7 @@ export default function ProfileScreen() {
 
   useFocusEffect(
     useCallback(() => {
-      getUserProfile().then((p) => setUserProfile(p));
+      getUserProfile().then((profile) => setUserProfile(profile));
     }, [])
   );
 
@@ -104,83 +109,9 @@ export default function ProfileScreen() {
     setEditEmail(userProfile?.email ?? '');
   }, [userProfile]);
 
-  useEffect(() => {
-    AsyncStorage.getItem(PROFILE_PHOTO_STORAGE_KEY).then((value) => {
-      setProfilePhotoUri(value);
-    });
-  }, []);
-
-  useEffect(() => {
-    Animated.stagger(80, [
-      Animated.timing(headerFade, { toValue: 1, duration: 350, useNativeDriver: true }),
-      Animated.timing(contentFade, { toValue: 1, duration: 500, useNativeDriver: true }),
-    ]).start();
-  }, []);
-
-  useEffect(() => {
-    Animated.timing(contentFade, { toValue: 0, duration: 100, useNativeDriver: true }).start(() => {
-      Animated.timing(contentFade, { toValue: 1, duration: 250, useNativeDriver: true }).start();
-    });
-  }, [activeTab]);
-
   const handleLogout = async () => {
     await logoutUser();
     router.replace('/auth/login');
-  };
-
-  const handleSaveGeneral = async () => {
-    const name = editName.trim();
-    const email = editEmail.trim().toLowerCase();
-    if (!name || !email) return;
-
-    await updateUserProfile({ name, email });
-    const updated = await getUserProfile();
-    setUserProfile(updated);
-    setIsEditingGeneral(false);
-  };
-
-  const handleCancelGeneral = () => {
-    setEditName(userProfile?.name ?? '');
-    setEditEmail(userProfile?.email ?? '');
-    setIsEditingGeneral(false);
-  };
-
-  const openPhotoPicker = (mode: 'camera' | 'library') => {
-    setPhotoMenuOpen(false);
-
-    if (Platform.OS !== 'web' || typeof document === 'undefined') {
-      Alert.alert('Desteklenmiyor', 'Fotoğraf seçme ve kamera şu anda web sürümünde destekleniyor.');
-      return;
-    }
-
-    const input = document.createElement('input');
-    input.type = 'file';
-    input.accept = 'image/*';
-    if (mode === 'camera') {
-      input.setAttribute('capture', 'user');
-    }
-
-    input.onchange = () => {
-      const file = input.files?.[0];
-      if (!file) return;
-
-      const reader = new FileReader();
-      reader.onload = async () => {
-        const result = typeof reader.result === 'string' ? reader.result : null;
-        if (!result) return;
-        setProfilePhotoUri(result);
-        await AsyncStorage.setItem(PROFILE_PHOTO_STORAGE_KEY, result);
-      };
-      reader.readAsDataURL(file);
-    };
-
-    input.click();
-  };
-
-  const removeProfilePhoto = async () => {
-    setPhotoMenuOpen(false);
-    setProfilePhotoUri(null);
-    await AsyncStorage.removeItem(PROFILE_PHOTO_STORAGE_KEY);
   };
 
   return (
@@ -189,7 +120,7 @@ export default function ProfileScreen() {
       contentContainerStyle={[styles.content, isWeb && styles.webContent]}
       showsVerticalScrollIndicator={false}
     >
-      <Animated.View style={[styles.body, { opacity: headerFade }]}>
+      <Animated.View style={styles.body}>
         {/* ── Left: Profile Card + Tabs ── */}
         <View style={styles.left}>
           {/* Profile Card */}
@@ -243,16 +174,28 @@ export default function ProfileScreen() {
                 ]}
                 onPress={() => {
                   setShowFollowedPublishers(true);
+                  setShowCategorySelector(false);
+                  setPublisherPanelView('followed');
                   setActiveTab('general');
                 }}
               >
                 <Text style={[styles.statNum, { color: colors.textPrimary }]}>{followedPublishers.length}</Text>
                 <Text style={[styles.statLabel, { color: colors.textMuted }]}>TAKİP</Text>
               </Pressable>
-              <View style={[styles.statBox, { backgroundColor: colors.surfaceHigh, borderColor: colors.borderSubtle }]}>
+              <Pressable
+                style={({ pressed }) => [
+                  styles.statBox,
+                  { backgroundColor: colors.surfaceHigh, borderColor: colors.borderSubtle, opacity: pressed ? 0.75 : 1 },
+                ]}
+                onPress={() => {
+                  setShowCategorySelector(true);
+                  setShowFollowedPublishers(false);
+                  setActiveTab('general');
+                }}
+              >
                 <Text style={[styles.statNum, { color: colors.textPrimary }]}>{preferredCategories.length}</Text>
                 <Text style={[styles.statLabel, { color: colors.textMuted }]}>KATEGORİ</Text>
-              </View>
+              </Pressable>
             </View>
           </View>
 
@@ -289,7 +232,7 @@ export default function ProfileScreen() {
         </View>
 
         {/* ── Right: Content Panel ── */}
-        <Animated.View style={[styles.right, { opacity: contentFade }]}>
+        <Animated.View style={styles.right}>
           {activeTab === 'preferences' && (
             <View style={styles.panel}>
               {/* Appearance settings */}
@@ -417,6 +360,56 @@ export default function ProfileScreen() {
 
           {activeTab === 'general' && (
             <View style={styles.panel}>
+              {showCategorySelector && (
+                <View style={[styles.panelCard, { backgroundColor: colors.surface, borderColor: colors.borderSubtle }]}>
+                  <View style={styles.panelHeaderBetween}>
+                    <View style={styles.panelHeader}>
+                      <Ionicons name="albums-outline" size={20} color={colors.accent} />
+                      <Text style={[styles.panelTitle, { color: colors.textPrimary }]}>Kategori Seçimi</Text>
+                    </View>
+                    <Pressable
+                      style={[styles.iconActionBtn, { backgroundColor: colors.surfaceHigh, borderColor: colors.borderSubtle }]}
+                      onPress={() => setShowCategorySelector(false)}
+                    >
+                      <Ionicons name="close" size={16} color={colors.textMuted} />
+                    </Pressable>
+                  </View>
+
+                  <Text style={[styles.panelSubtitle, { color: colors.textMuted }]}>
+                    İlgi alanlarınızı seçin. Seçimler anında kaydedilir.
+                  </Text>
+
+                  <View style={styles.categoryChipGroup}>
+                    {CATEGORIES.map((category) => {
+                      const selected = preferredCategories.includes(category);
+                      return (
+                        <Pressable
+                          key={category}
+                          style={[
+                            styles.categoryChip,
+                            {
+                              backgroundColor: selected ? colors.accent : colors.surfaceHigh,
+                              borderColor: selected ? colors.accent : colors.borderSubtle,
+                            },
+                          ]}
+                          onPress={() => toggleCategory(category)}
+                        >
+                          <Text style={[styles.categoryChipText, { color: selected ? '#fff' : colors.textMuted }]}>
+                            {category}
+                          </Text>
+                        </Pressable>
+                      );
+                    })}
+                  </View>
+
+                  <View style={[styles.categorySummary, { backgroundColor: colors.surfaceHigh, borderColor: colors.borderSubtle }]}>
+                    <Text style={[styles.categorySummaryText, { color: colors.textPrimary }]}>
+                      {preferredCategories.length ? preferredCategories.join(', ') : 'Henüz kategori seçilmedi.'}
+                    </Text>
+                  </View>
+                </View>
+              )}
+
               {showFollowedPublishers && (
                 <View style={[styles.panelCard, { backgroundColor: colors.surface, borderColor: colors.borderSubtle }]}>
                   <View style={styles.panelHeaderBetween}>
@@ -432,14 +425,114 @@ export default function ProfileScreen() {
                     </Pressable>
                   </View>
 
-                  {followedPublishers.length === 0 ? (
+                  <View style={styles.publisherPanelTabs}>
+                    <Pressable
+                      style={[
+                        styles.publisherPanelTab,
+                        publisherPanelView === 'followed' && { backgroundColor: colors.accent, borderColor: colors.accent },
+                      ]}
+                      onPress={() => setPublisherPanelView('followed')}
+                    >
+                      <Text style={[styles.publisherPanelTabText, { color: publisherPanelView === 'followed' ? '#fff' : colors.textMuted }]}>
+                        Takip Edilenler
+                      </Text>
+                    </Pressable>
+                    <Pressable
+                      style={[
+                        styles.publisherPanelTab,
+                        publisherPanelView === 'other' && { backgroundColor: colors.accent, borderColor: colors.accent },
+                      ]}
+                      onPress={() => setPublisherPanelView('other')}
+                    >
+                      <Text style={[styles.publisherPanelTabText, { color: publisherPanelView === 'other' ? '#fff' : colors.textMuted }]}>
+                        Diğer Hesaplar
+                      </Text>
+                    </Pressable>
+                  </View>
+
+                  {publisherPanelView === 'followed' ? (
+                    followedPublishers.length === 0 ? (
+                      <Text style={[styles.panelSubtitle, { color: colors.textMuted }]}>
+                        Henüz takip edilen yayıncı yok.
+                      </Text>
+                    ) : (
+                      <View style={styles.followedList}>
+                        {followedPublishers.map((publisher) => {
+                          const enabled = notificationEnabledIds.includes(publisher.id);
+                          return (
+                            <Pressable
+                              key={publisher.id}
+                              style={[styles.followedRow, { borderColor: colors.borderSubtle }]}
+                              onPress={() => router.push(`/publisherprofile?id=${publisher.id}` as any)}
+                            >
+                              <View style={[styles.publisherLogo, { backgroundColor: colors.accent + '18' }]}>
+                                {publisher.logoUrl ? (
+                                  <Image source={{ uri: publisher.logoUrl }} style={styles.publisherLogoImage} resizeMode="cover" />
+                                ) : (
+                                  <Text style={[styles.publisherLogoText, { color: colors.accent }]}>{publisher.logoText}</Text>
+                                )}
+                              </View>
+                              <View style={styles.followedText}>
+                                <Text style={[styles.followedName, { color: colors.textPrimary }]} numberOfLines={1}>
+                                  {publisher.name}
+                                </Text>
+                                <Text style={[styles.followedMeta, { color: colors.textMuted }]} numberOfLines={1}>
+                                  {publisher.articlesCount} haber | {publisher.cadence}
+                                </Text>
+                              </View>
+                              <Pressable
+                                style={[
+                                  styles.unfollowButton,
+                                  {
+                                    backgroundColor: colors.surfaceHigh,
+                                    borderColor: colors.borderSubtle,
+                                  },
+                                ]}
+                                onPress={(event) => {
+                                  event.stopPropagation();
+                                  toggleFollow(publisher.id);
+                                }}
+                              >
+                                <Ionicons name="remove-circle-outline" size={14} color="#ef4444" />
+                                <Text style={styles.unfollowButtonText}>Takibi bırak</Text>
+                              </Pressable>
+                              <Pressable
+                                style={[
+                                  styles.notifyButton,
+                                  {
+                                    backgroundColor: enabled ? colors.accent : colors.surfaceHigh,
+                                    borderColor: enabled ? colors.accent : colors.borderSubtle,
+                                  },
+                                ]}
+                                onPress={(event) => {
+                                  event.stopPropagation();
+                                  togglePublisherNotifications(publisher.id);
+                                }}
+                              >
+                                <Ionicons
+                                  name={enabled ? 'notifications' : 'notifications-outline'}
+                                  size={14}
+                                  color={enabled ? '#fff' : colors.textMuted}
+                                />
+                                <Text style={[styles.notifyButtonText, { color: enabled ? '#fff' : colors.textMuted }]}>
+                                  {enabled ? 'Açık' : 'Bildirimleri aç'}
+                                </Text>
+                              </Pressable>
+                            </Pressable>
+                          );
+                        })}
+                      </View>
+                    )
+                  ) : otherPublishers.length === 0 ? (
                     <Text style={[styles.panelSubtitle, { color: colors.textMuted }]}>
-                      Henüz takip edilen yayıncı yok.
+                      Takip edilecek başka haber hesabı bulunamadı.
                     </Text>
                   ) : (
                     <View style={styles.followedList}>
-                      {followedPublishers.map((publisher) => {
+                      {otherPublishers.map((publisher) => {
                         const enabled = notificationEnabledIds.includes(publisher.id);
+                        const followed = followedIds.includes(publisher.id);
+
                         return (
                           <Pressable
                             key={publisher.id}
@@ -463,6 +556,28 @@ export default function ProfileScreen() {
                             </View>
                             <Pressable
                               style={[
+                                styles.followButton,
+                                {
+                                  backgroundColor: followed ? colors.surfaceHigh : colors.accent,
+                                  borderColor: followed ? colors.borderSubtle : colors.accent,
+                                },
+                              ]}
+                              onPress={(event) => {
+                                event.stopPropagation();
+                                toggleFollow(publisher.id);
+                              }}
+                            >
+                              <Ionicons
+                                name={followed ? 'checkmark-circle' : 'add-circle-outline'}
+                                size={14}
+                                color={followed ? colors.textMuted : '#fff'}
+                              />
+                              <Text style={[styles.followButtonText, { color: followed ? colors.textMuted : '#fff' }]}>
+                                {followed ? 'Takipte' : 'Takip Et'}
+                              </Text>
+                            </Pressable>
+                            <Pressable
+                              style={[
                                 styles.notifyButton,
                                 {
                                   backgroundColor: enabled ? colors.accent : colors.surfaceHigh,
@@ -473,6 +588,7 @@ export default function ProfileScreen() {
                                 event.stopPropagation();
                                 togglePublisherNotifications(publisher.id);
                               }}
+                              disabled={!followed}
                             >
                               <Ionicons
                                 name={enabled ? 'notifications' : 'notifications-outline'}
@@ -480,7 +596,7 @@ export default function ProfileScreen() {
                                 color={enabled ? '#fff' : colors.textMuted}
                               />
                               <Text style={[styles.notifyButtonText, { color: enabled ? '#fff' : colors.textMuted }]}>
-                                {enabled ? 'Açık' : 'Bildirimleri aç'}
+                                {enabled ? 'Açık' : 'Bildirim'}
                               </Text>
                             </Pressable>
                           </Pressable>
@@ -491,7 +607,13 @@ export default function ProfileScreen() {
                 </View>
               )}
 
-              <View style={[styles.panelCard, { backgroundColor: colors.surface, borderColor: colors.borderSubtle }, showFollowedPublishers && styles.hiddenPanel]}>
+              <View
+                style={[
+                  styles.panelCard,
+                  { backgroundColor: colors.surface, borderColor: colors.borderSubtle },
+                  (showFollowedPublishers || showCategorySelector) && styles.hiddenPanel,
+                ]}
+              >
                 <View style={styles.panelHeaderBetween}>
                   <View style={styles.panelHeader}>
                   <Ionicons name="person" size={20} color={colors.accent} />
@@ -577,7 +699,13 @@ export default function ProfileScreen() {
                 ))}
               </View>
 
-              <View style={[styles.panelCard, { backgroundColor: colors.surface, borderColor: colors.borderSubtle }, showFollowedPublishers && styles.hiddenPanel]}>
+              <View
+                style={[
+                  styles.panelCard,
+                  { backgroundColor: colors.surface, borderColor: colors.borderSubtle },
+                  (showFollowedPublishers || showCategorySelector) && styles.hiddenPanel,
+                ]}
+              >
                 <Pressable
                   style={styles.panelHeader}
                   onPress={() => router.push({ pathname: '/(tabs)/archive', params: { tab: 'saved' } } as any)}
@@ -788,6 +916,41 @@ const styles = StyleSheet.create({
   followedText: { flex: 1, minWidth: 0 },
   followedName: { fontSize: 14, fontWeight: '800' },
   followedMeta: { fontSize: 11, fontWeight: '600', marginTop: 2 },
+  publisherPanelTabs: {
+    flexDirection: 'row',
+    gap: 8,
+    flexWrap: 'wrap',
+  },
+  publisherPanelTab: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: 'transparent',
+    backgroundColor: 'rgba(255,255,255,0.04)',
+  },
+  publisherPanelTabText: { fontSize: 11, fontWeight: '800' },
+  sectionCount: { fontSize: 11, fontWeight: '700' },
+  followButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    borderRadius: 10,
+    borderWidth: 1,
+  },
+  followButtonText: { fontSize: 11, fontWeight: '800' },
+  unfollowButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    borderRadius: 10,
+    borderWidth: 1,
+  },
+  unfollowButtonText: { fontSize: 11, fontWeight: '800', color: '#ef4444' },
   notifyButton: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -798,6 +961,25 @@ const styles = StyleSheet.create({
     borderWidth: 1,
   },
   notifyButtonText: { fontSize: 11, fontWeight: '800' },
+  categoryChipGroup: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 10,
+  },
+  categoryChip: {
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 999,
+    borderWidth: 1,
+  },
+  categoryChipText: { fontSize: 12, fontWeight: '800' },
+  categorySummary: {
+    marginTop: 6,
+    borderRadius: 14,
+    borderWidth: 1,
+    padding: 14,
+  },
+  categorySummaryText: { fontSize: 12, fontWeight: '600', lineHeight: 18 },
 
   // Tab list
   tabList: { borderRadius: 20, borderWidth: 1, overflow: 'hidden' },

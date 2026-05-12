@@ -52,7 +52,7 @@ const PER_PAGE_OPTIONS = [20, 40, 60];
 export default function FeedScreen() {
   const router   = useRouter();
   const { colors } = useTheme();
-  const { preferredNewsLanguages } = usePreferences();
+  const { preferredCategories, preferredNewsLanguages } = usePreferences();
   const { followedIds } = usePublisherState();
   const { savedIds, toggleSaved } = useBookmarks();
   const isWeb = Platform.OS === 'web';
@@ -64,7 +64,9 @@ export default function FeedScreen() {
   const [perPage,    setPerPage]    = useState(40);
   const [page,       setPage]       = useState(1);
   const [sidebarVisible, setSidebarVisible] = useState(true);
-  const requestedLanguages = selLangs.length > 0 ? selLangs : preferredNewsLanguages;
+  const requestedLanguages = viewMode === 'followed'
+    ? selLangs
+    : (selLangs.length > 0 ? selLangs : preferredNewsLanguages);
   const { articles, loading } = useApiNews(requestedLanguages);
 
   const sidebarAnim = useRef(new Animated.Value(1)).current;
@@ -112,11 +114,24 @@ export default function FeedScreen() {
     });
 
     if (viewMode === 'followed') {
-      const followedSet = new Set(followedIds);
-      ranked = ranked.filter((r) => followedSet.has(getPublisherIdFromSourceName(r.article.source.name)));
-    }
-    if (selCats.length > 0) {
-      ranked = ranked.filter((r) => selCats.includes(r.category));
+      if (followedIds.length === 0) {
+        ranked = [];
+      } else {
+        const followedSet = new Set(followedIds);
+        ranked = ranked.filter((r) => followedSet.has(getPublisherIdFromSourceName(r.article.source.name)));
+        if (selCats.length > 0) {
+          ranked = ranked.filter((r) => selCats.includes(r.category));
+        }
+      }
+    } else {
+      // personal mode
+      const effectiveCats = selCats.length > 0 ? selCats : preferredCategories;
+      if (effectiveCats.length === 0) {
+        ranked = [];
+      } else {
+        const catSet = new Set(effectiveCats);
+        ranked = ranked.filter((r) => catSet.has(r.category));
+      }
     }
     if (selLangs.length > 0) {
       ranked = ranked.filter((r) => selLangs.includes((r.article as any).language ?? ''));
@@ -128,7 +143,7 @@ export default function FeedScreen() {
     const totalCount = ranked.length;
     const start = (page - 1) * perPage;
     return { feedItems: ranked.slice(start, start + perPage), totalCount };
-  }, [visibleArticles, viewMode, selCats, selLangs, selSources, followedIds, page, perPage]);
+  }, [visibleArticles, viewMode, selCats, selLangs, selSources, followedIds, preferredCategories, page, perPage]);
 
   const totalPages = Math.max(1, Math.ceil(totalCount / perPage));
   const activeFilterCount = selCats.length + selLangs.length + selSources.length;
@@ -264,12 +279,38 @@ export default function FeedScreen() {
 
             {feedItems.length === 0 ? (
               <View style={[styles.emptyState, { borderColor: colors.borderSubtle }]}>
-                <Ionicons name="filter-outline" size={36} color={colors.textMuted} />
-                <Text style={[styles.emptyTitle, { color: colors.textPrimary }]}>Sonuç bulunamadı</Text>
-                <Text style={[styles.emptyDesc, { color: colors.textMuted }]}>Filtreleri değiştirerek tekrar deneyin.</Text>
-                <Pressable onPress={resetFilters} style={[styles.emptyBtn, { backgroundColor: colors.accent }]}>
-                  <Text style={styles.emptyBtnText}>Filtreleri Sıfırla</Text>
-                </Pressable>
+                {viewMode === 'personal' && preferredCategories.length === 0 && selCats.length === 0 ? (
+                  <>
+                    <Ionicons name="options-outline" size={36} color={colors.textMuted} />
+                    <Text style={[styles.emptyTitle, { color: colors.textPrimary }]}>Kategori seçilmedi</Text>
+                    <Text style={[styles.emptyDesc, { color: colors.textMuted }]}>
+                      Kişisel akışınızı görmek için Profil → Tercihler sayfasından ilgilendiğiniz kategorileri seçin.
+                    </Text>
+                    <Pressable onPress={() => router.push('/(tabs)/profile' as any)} style={[styles.emptyBtn, { backgroundColor: colors.accent }]}>
+                      <Text style={styles.emptyBtnText}>Tercihlere Git</Text>
+                    </Pressable>
+                  </>
+                ) : viewMode === 'followed' && followedIds.length === 0 ? (
+                  <>
+                    <Ionicons name="people-outline" size={36} color={colors.textMuted} />
+                    <Text style={[styles.emptyTitle, { color: colors.textPrimary }]}>Takip edilen yayıncı yok</Text>
+                    <Text style={[styles.emptyDesc, { color: colors.textMuted }]}>
+                      Yayıncılar sayfasından haber kaynaklarını takip ederek bu akışı aktifleştirin.
+                    </Text>
+                    <Pressable onPress={() => router.push('/(tabs)/publisherpage' as any)} style={[styles.emptyBtn, { backgroundColor: colors.accent }]}>
+                      <Text style={styles.emptyBtnText}>Yayıncıları Keşfet</Text>
+                    </Pressable>
+                  </>
+                ) : (
+                  <>
+                    <Ionicons name="filter-outline" size={36} color={colors.textMuted} />
+                    <Text style={[styles.emptyTitle, { color: colors.textPrimary }]}>Sonuç bulunamadı</Text>
+                    <Text style={[styles.emptyDesc, { color: colors.textMuted }]}>Filtreleri değiştirerek tekrar deneyin.</Text>
+                    <Pressable onPress={resetFilters} style={[styles.emptyBtn, { backgroundColor: colors.accent }]}>
+                      <Text style={styles.emptyBtnText}>Filtreleri Sıfırla</Text>
+                    </Pressable>
+                  </>
+                )}
               </View>
             ) : (
               <View style={styles.feed}>
