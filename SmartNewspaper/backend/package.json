@@ -6,7 +6,9 @@
   "scripts": {
     "dev": "ts-node-dev --respawn --transpile-only src/index.ts",
     "build": "tsc",
-    "start": "node dist/index.js"
+    "start": "node dist/index.js",
+    "backfill:embeddings-v2": "node dist/scripts/backfillEmbeddingsV2.js",
+    "backfill:embeddings-v2:dev": "ts-node-dev --transpile-only src/scripts/backfillEmbeddingsV2.ts"
   },
   "dependencies": {
     "@types/cheerio": "^0.22.35",
