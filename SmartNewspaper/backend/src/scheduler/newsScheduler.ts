@@ -9,6 +9,8 @@ import { filterDuplicates, clearCache, loadSeenIdsFromDb } from '../processors/d
 import { upsertArticles } from '../db/articleRepository';
 import { query } from '../db/index';
 import { findAndSaveSimilarArticles } from '../processors/similarity-processor';
+import { findAndSaveSimilarArticlesV2 } from '../processors/similarityProcessorV2';
+import { computeAndSaveEmbeddingsV2 } from '../processors/embeddingV2';
 
 const STARTUP_NEWSAPI_DELAY_MS = 10 * 60 * 1000;
 const MIN_NEWSAPI_STARTUP_INTERVAL_MS = 2 * 60 * 60 * 1000;
@@ -138,7 +140,7 @@ export async function runCollection(includeNewsApi = false): Promise<CollectionR
 
     const { inserted, skipped } = await upsertArticles(finalArticles);
 
-    // Compute embeddings!
+    // Compute embeddings — eski model (geçiş için) + v2 (multilingual-e5-large)
     if (inserted > 0) {
       console.log('[Scheduler] Generating embeddings for new articles...');
       try {
@@ -146,6 +148,11 @@ export async function runCollection(includeNewsApi = false): Promise<CollectionR
         await computeAndSaveEmbeddings();
       } catch(e) {
         console.error('[Embedding Error]', e);
+      }
+      try {
+        await computeAndSaveEmbeddingsV2({ limit: 200, onlyMissing: true });
+      } catch(e) {
+        console.error('[EmbeddingV2 Error]', e);
       }
     }
 
@@ -225,12 +232,33 @@ export function startScheduler(): void {
 
   console.log('[Scheduler] Zamanlayıcılar başlatıldı (RSS her 10dk | NewsAPI her 6s | Konser her 6s | sıfırlama 03:00)');
 
+  // V1 (eski 384-dim) — geçiş döneminde paralel çalışsın. v2 stabil olduğunda kaldırılacak.
   cron.schedule('0 * * * *', async () => {
-    console.log('[Scheduler] Benzerlik analizi başlatılıyor...');
+    console.log('[Scheduler] Benzerlik analizi (v1) başlatılıyor...');
     try {
       await findAndSaveSimilarArticles();
     } catch (e) {
-      console.error('[Scheduler] Benzerlik analizi hatası:', e);
+      console.error('[Scheduler] V1 Benzerlik analizi hatası:', e);
+    }
+  });
+
+  // V2 (multilingual-e5-large + iki katmanlı + entity guard) — her 30dk incremental
+  cron.schedule('*/30 * * * *', async () => {
+    console.log('[Scheduler] Benzerlik analizi (v2) başlatılıyor (incremental)...');
+    try {
+      await findAndSaveSimilarArticlesV2({ sinceMinutes: 45 });
+    } catch (e) {
+      console.error('[Scheduler] V2 Benzerlik analizi hatası:', e);
+    }
+  });
+
+  // V2 full sweep — gece bir kez tüm 3 günlük pencereyi yeniden tara
+  cron.schedule('30 4 * * *', async () => {
+    console.log('[Scheduler] Benzerlik analizi (v2 fullSweep) başlatılıyor...');
+    try {
+      await findAndSaveSimilarArticlesV2({ fullSweep: true });
+    } catch (e) {
+      console.error('[Scheduler] V2 fullSweep hatası:', e);
     }
   });
 
