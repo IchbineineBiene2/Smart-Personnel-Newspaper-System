@@ -6,7 +6,8 @@ CREATE TABLE IF NOT EXISTS archive_editions (
   edition_type VARCHAR(50) DEFAULT 'daily',
   title VARCHAR(255),
   description TEXT,
-  selected_articles INT[] DEFAULT '{}',
+  selected_articles TEXT[] DEFAULT '{}',
+  articles_snapshot JSONB DEFAULT '[]',
   pdf_url VARCHAR(255),
   created_at TIMESTAMP DEFAULT NOW(),
   updated_at TIMESTAMP DEFAULT NOW()
@@ -14,3 +15,5 @@ CREATE TABLE IF NOT EXISTS archive_editions (
 
 CREATE INDEX IF NOT EXISTS idx_archive_editions_user_id ON archive_editions(user_id);
 CREATE INDEX IF NOT EXISTS idx_archive_editions_edition_date ON archive_editions(edition_date DESC);
+CREATE INDEX IF NOT EXISTS idx_archive_editions_selected_articles
+  ON archive_editions(user_id, selected_articles);

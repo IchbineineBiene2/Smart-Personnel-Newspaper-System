@@ -13,6 +13,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
+import { useRouter } from 'expo-router';
 
 import { useApiNews } from '@/hooks/useNews';
 import { useBookmarks } from '@/hooks/useBookmarks';
@@ -22,8 +23,8 @@ import { ApiArticle, fetchArticleFullContent, mapToContentCategory, proxyImageUr
 import { exportNewspaperPdf } from '@/services/pdf/newspaperPdfExporter';
 import { NewspaperArticleInput } from '@/services/pdf/newspaperPdfTemplate';
 import { exportInteractiveNewspaperHtml } from '@/services/pdf/interactiveNewspaperHtmlExporter';
-import { createEdition } from '@/services/archive';
-import { getToken } from '@/services/auth';
+import { createEdition, fetchUserEditions } from '@/services/archive';
+import { getToken, getCurrentUser } from '@/services/auth';
 
 type DateFilter = 'day' | 'week' | 'all';
 type CountOption = 6 | 9 | 12;
@@ -53,6 +54,7 @@ function scoreArticle(article: ApiArticle, preferredCategories: string[], savedI
 }
 
 export default function NewspaperBuilder() {
+  const router = useRouter();
   const { colors } = useTheme();
   const { articles, loading } = useApiNews();
   const { savedIds } = useBookmarks();
@@ -185,15 +187,63 @@ export default function NewspaperBuilder() {
     try {
       setCreating(true);
       
+      // Secili makale id'lerini aynen sakla; backend article id'leri string hash olarak tutuyor.
+      const articleIds = selectedArticles
+        .map((article) => String(article.id).trim())
+        .filter(Boolean)
+        .sort((a, b) => a.localeCompare(b));
+
+      // Duplicate check - kullanıcının eski gazetelerini al
+      const user = await getCurrentUser();
+      if (user) {
+        const userEditions = await fetchUserEditions(user.userId, userToken);
+
+        // Aynı makalelerle bir gazete zaten varsa, uyar
+        const duplicate = userEditions.some(edition => {
+          const editionArticles = (edition.selected_articles || [])
+            .map((articleId) => String(articleId).trim())
+            .filter(Boolean)
+            .sort((a, b) => a.localeCompare(b));
+
+          // Makaleleri karşılaştır
+          if (editionArticles.length !== articleIds.length) return false;
+          return editionArticles.every((id, idx) => id === articleIds[idx]);
+        });
+
+        if (duplicate) {
+          Alert.alert('Bilgi', 'Bu makalelerle zaten bir gazete oluşturmussunuz.');
+          setCreating(false);
+          return;
+        }
+      }
+
       // Gazeteyi arşive kaydet
-      await createEdition(
+      const result = await createEdition(
         paperName.trim() || 'Smart Newspaper',
         `${selectedCategories.join(', ')} kategorilerinden seçilmiş ${selectedArticles.length} haber`,
-        selectedArticles.map((a) => parseInt(a.id, 10)).filter((n) => !isNaN(n)),
-        userToken
+        articleIds,
+        userToken,
+        selectedArticles.map((article) => ({
+          id: article.id,
+          title: article.title,
+          description: article.description || '',
+          content: article.content,
+          url: article.url,
+          imageUrl: article.imageUrl,
+          publishedAt: article.publishedAt,
+          category: article.category,
+          source: article.source,
+          language: article.language,
+        }))
       );
 
-      Alert.alert('Başarılı', 'Gazete arşivde kaydedildi. Arşiv sayfasından indirebilirsiniz.');
+      if (result.error) {
+        Alert.alert('Hata', result.error);
+      } else if (result.edition) {
+        router.push('/(tabs)/archive' as any);
+      } else {
+        Alert.alert('Hata', 'Gazete oluşturulamadı. Lütfen tekrar deneyin.');
+      }
     } catch (error) {
       console.error('Newspaper create error:', error);
       Alert.alert('Hata', 'Gazete oluşturulurken bir sorun oluştu.');

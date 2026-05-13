@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
+  ActivityIndicator,
   Alert,
   Image,
   Platform,
@@ -11,6 +12,7 @@ import {
   View,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { useFocusEffect } from '@react-navigation/native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 
 import { Radius, Spacing, Typography } from '@/constants/theme';
@@ -24,38 +26,60 @@ import {
   ArchivedEdition,
 } from '@/services/archive';
 import { exportNewspaperPdf } from '@/services/pdf/newspaperPdfExporter';
-import { ApiArticle, mapToContentCategory, proxyImageUrl } from '@/services/newsApi';
+import { exportInteractiveNewspaperHtml } from '@/services/pdf/interactiveNewspaperHtmlExporter';
+import { NewspaperArticleInput } from '@/services/pdf/newspaperPdfTemplate';
+import { ApiArticle, fetchArticleFullContent, mapToContentCategory, proxyImageUrl } from '@/services/newsApi';
 import { getToken, getCurrentUser } from '@/services/auth';
 
 type ScreenState = 'list' | 'detail' | 'search';
 type ArchiveTab = 'editions' | 'saved';
 
-async function downloadEditionPdf(
-  edition: ArchivedEdition,
-  articles: ApiArticle[],
-  preferredCategories: string[]
-) {
+function getEditionName(edition: ArchivedEdition) {
+  return edition.title?.trim() || 'Smart Newspaper';
+}
+
+function snapshotToApiArticle(snapshot: NonNullable<ArchivedEdition['articles_snapshot']>[number]): ApiArticle {
+  return {
+    id: snapshot.id,
+    title: snapshot.title,
+    description: snapshot.description || '',
+    content: snapshot.content,
+    url: snapshot.url || '',
+    imageUrl: snapshot.imageUrl,
+    publishedAt: snapshot.publishedAt,
+    category: snapshot.category,
+    source: {
+      id: snapshot.source?.id,
+      name: snapshot.source?.name || 'Smart Newspaper',
+      url: snapshot.source?.url || '',
+      type: snapshot.source?.type || 'rss',
+    },
+    language: snapshot.language || 'tr',
+  };
+}
+
+async function mapEditionArticleForExport(article: ApiArticle): Promise<NewspaperArticleInput> {
+  let content = article.content || article.description || '';
+  let imageUrl = article.imageUrl ? proxyImageUrl(article.imageUrl) : undefined;
+
   try {
-    await exportNewspaperPdf({
-      engine: Platform.OS === 'web' ? 'react-pdf' : 'html-css',
-      newspaperName: 'Smart Newspaper',
-      generatedAt: edition.created_at,
-      shareTitle: edition.edition_date,
-      personalization: { preferredCategories },
-      articles: articles.map((article) => ({
-        id: article.id,
-        title: article.title,
-        summary: article.description,
-        content: article.description,
-        category: mapToContentCategory(article.category, article.title, article.description),
-        source: article.source.name,
-        date: article.publishedAt,
-        imageUrl: article.imageUrl,
-      })),
-    });
+    const full = await fetchArticleFullContent(article.id);
+    if (full.content?.trim()) content = full.content;
+    if (!imageUrl && full.images?.[0]) imageUrl = proxyImageUrl(full.images[0]) || full.images[0];
   } catch {
-    Alert.alert('Hata', 'PDF olusturulurken bir sorun olustu.');
+    // Export can still be created from the article summary.
   }
+
+  return {
+    id: article.id,
+    title: article.title,
+    summary: article.description || '',
+    content,
+    category: mapToContentCategory(article.category, article.title, article.description),
+    source: article.source.name,
+    date: article.publishedAt,
+    imageUrl,
+  };
 }
 
 export default function Archive() {
@@ -73,35 +97,48 @@ export default function Archive() {
   const [userEditions, setUserEditions] = useState<ArchivedEdition[]>([]);
   const [loading, setLoading] = useState(true);
   const [userToken, setUserToken] = useState<string | null>(null);
+  const [downloadingPdf, setDownloadingPdf] = useState(false);
+  const [downloadingHtml, setDownloadingHtml] = useState(false);
 
-  useEffect(() => {
-    const loadUserData = async () => {
-      try {
-        setLoading(true);
-        const token = await getToken();
-        const user = await getCurrentUser();
-        
-        setUserToken(token);
-        
-        if (token && user) {
-          const editions = await fetchUserEditions(user.userId, token);
-          setUserEditions(editions);
-        }
-      } catch (error) {
-        console.error('Failed to load user editions:', error);
-      } finally {
-        setLoading(false);
+  const loadUserEditions = useCallback(async () => {
+    try {
+      setLoading(true);
+      const token = await getToken();
+      const user = await getCurrentUser();
+
+      setUserToken(token);
+
+      if (token && user) {
+        const editions = await fetchUserEditions(user.userId, token);
+        setUserEditions(editions);
+      } else {
+        setUserEditions([]);
       }
-    };
-
-    loadUserData();
+    } catch (error) {
+      console.error('Failed to load user editions:', error);
+    } finally {
+      setLoading(false);
+    }
   }, []);
+
+  useFocusEffect(
+    useCallback(() => {
+      loadUserEditions();
+    }, [loadUserEditions])
+  );
 
   // Get articles for selected edition from news API
   const editionArticles = useMemo(() => {
     if (!selectedEdition || !selectedEdition.selected_articles) return [];
     const selectedIds = selectedEdition.selected_articles.map(String);
-    return articles.filter((article) => selectedIds.includes(article.id));
+    const liveArticlesById = new Map(articles.map((article) => [article.id, article]));
+    const snapshotArticlesById = new Map(
+      (selectedEdition.articles_snapshot || []).map((snapshot) => [snapshot.id, snapshotToApiArticle(snapshot)])
+    );
+
+    return selectedIds
+      .map((id) => liveArticlesById.get(id) || snapshotArticlesById.get(id))
+      .filter((article): article is ApiArticle => Boolean(article));
   }, [selectedEdition, articles]);
 
   const savedArticles = useMemo(
@@ -111,6 +148,34 @@ export default function Archive() {
         .filter((article): article is ApiArticle => Boolean(article)),
     [articles, savedIds]
   );
+
+  const searchResults = useMemo(() => {
+    const query = searchQuery.trim().toLocaleLowerCase('tr-TR');
+    if (query.length < 2) return [];
+
+    return articles
+      .filter((article) => {
+        const category = mapToContentCategory(article.category, article.title, article.description);
+        const haystack = [
+          article.title,
+          article.description,
+          category,
+          article.source.name,
+        ]
+          .join(' ')
+          .toLocaleLowerCase('tr-TR');
+
+        return haystack.includes(query);
+      })
+      .map((article) => ({
+        id: article.id,
+        title: article.title,
+        excerpt: article.description,
+        category: mapToContentCategory(article.category, article.title, article.description),
+        source: article.source.name,
+        publishedAt: new Date(article.publishedAt).toLocaleDateString('tr-TR'),
+      }));
+  }, [articles, searchQuery]);
 
   useEffect(() => {
     if (params.tab === 'saved') {
@@ -151,6 +216,61 @@ export default function Archive() {
         category,
       },
     });
+  };
+
+  const downloadEditionPdf = async (edition: ArchivedEdition) => {
+    if (editionArticles.length === 0) {
+      Alert.alert('Hata', 'Bu gazeteye ait haberler bulunamadi.');
+      return;
+    }
+
+    try {
+      setDownloadingPdf(true);
+      const exportArticles = await Promise.all(editionArticles.map(mapEditionArticleForExport));
+
+      await exportNewspaperPdf({
+        engine: Platform.OS === 'web' ? 'react-pdf' : 'html-css',
+        newspaperName: getEditionName(edition),
+        generatedAt: edition.created_at,
+        shareTitle: `${getEditionName(edition)} - ${edition.edition_date}`,
+        personalization: { preferredCategories },
+        articles: exportArticles,
+      });
+    } catch (error) {
+      console.error('Archive PDF export error:', error);
+      Alert.alert('Hata', 'PDF olusturulurken bir sorun olustu.');
+    } finally {
+      setDownloadingPdf(false);
+    }
+  };
+
+  const downloadEditionHtml = async (edition: ArchivedEdition) => {
+    if (editionArticles.length === 0) {
+      Alert.alert('Hata', 'Bu gazeteye ait haberler bulunamadi.');
+      return;
+    }
+
+    if (Platform.OS !== 'web') {
+      Alert.alert('Uyari', 'Etkilesimli HTML indirme su an web uzerinden destekleniyor.');
+      return;
+    }
+
+    try {
+      setDownloadingHtml(true);
+      const exportArticles = await Promise.all(editionArticles.map(mapEditionArticleForExport));
+
+      await exportInteractiveNewspaperHtml({
+        newspaperName: getEditionName(edition),
+        generatedAt: edition.created_at,
+        personalization: { preferredCategories },
+        articles: exportArticles,
+      });
+    } catch (error) {
+      console.error('Archive HTML export error:', error);
+      Alert.alert('Hata', 'HTML olusturulurken bir sorun olustu.');
+    } finally {
+      setDownloadingHtml(false);
+    }
   };
 
   if (screen === 'search') {
@@ -215,7 +335,7 @@ export default function Archive() {
         </Pressable>
 
         <View style={s(colors).editionHeader}>
-          <Text style={s(colors).editionTitle}>{selectedEdition.edition_date}</Text>
+          <Text style={s(colors).editionTitle}>{getEditionName(selectedEdition)}</Text>
           <Text style={s(colors).editionDate}>{formatDate(selectedEdition.created_at)}</Text>
           {selectedEdition.description && (
             <Text style={s(colors).editionDescription}>{selectedEdition.description}</Text>
@@ -223,15 +343,31 @@ export default function Archive() {
         </View>
 
         <Pressable
-          style={s(colors).downloadButton}
-          onPress={() => {
-            if (userToken) {
-              downloadEditionPdf(selectedEdition, editionArticles, preferredCategories);
-            }
-          }}
+          style={[s(colors).downloadButton, downloadingPdf && { opacity: 0.7 }]}
+          onPress={() => downloadEditionPdf(selectedEdition)}
+          disabled={downloadingPdf || downloadingHtml}
         >
-          <Ionicons name="download-outline" size={20} color={colors.white} />
-          <Text style={s(colors).downloadText}>PDF Olarak Indir</Text>
+          {downloadingPdf ? (
+            <ActivityIndicator color={colors.white} />
+          ) : (
+            <Ionicons name="download-outline" size={20} color={colors.white} />
+          )}
+          <Text style={s(colors).downloadText}>{downloadingPdf ? 'PDF hazirlaniyor...' : 'PDF Olarak Indir'}</Text>
+        </Pressable>
+
+        <Pressable
+          style={[s(colors).htmlDownloadButton, downloadingHtml && { opacity: 0.7 }]}
+          onPress={() => downloadEditionHtml(selectedEdition)}
+          disabled={downloadingPdf || downloadingHtml}
+        >
+          {downloadingHtml ? (
+            <ActivityIndicator color={colors.accent} />
+          ) : (
+            <Ionicons name="code-slash-outline" size={20} color={colors.accent} />
+          )}
+          <Text style={s(colors).htmlDownloadText}>
+            {downloadingHtml ? 'HTML hazirlaniyor...' : 'Etkilesimli HTML Indir'}
+          </Text>
         </Pressable>
 
         {editionArticles.length > 0 && (
@@ -305,7 +441,7 @@ export default function Archive() {
                     <Ionicons name="newspaper-outline" size={24} color={colors.accent} />
                   </View>
                   <View style={s(colors).editionInfo}>
-                    <Text style={s(colors).editionCardTitle}>{edition.edition_date}</Text>
+                    <Text style={s(colors).editionCardTitle}>{getEditionName(edition)}</Text>
                     <Text style={s(colors).editionCardDate}>{formatDate(edition.created_at)}</Text>
                   </View>
                   <Ionicons name="chevron-forward" size={20} color={colors.textMuted} />
@@ -477,6 +613,13 @@ const s = (colors: any) =>
       letterSpacing: 1,
       textTransform: 'uppercase',
     },
+    searchButtonTextDisabled: {
+      color: colors.textMuted,
+      fontSize: 12,
+      fontWeight: '800',
+      letterSpacing: 1,
+      textTransform: 'uppercase',
+    },
     sectionTitle: {
       fontSize: 32,
       color: colors.textPrimary,
@@ -580,6 +723,11 @@ const s = (colors: any) =>
       fontSize: Typography.fontSize.sm,
       color: colors.textMuted,
     },
+    editionDescription: {
+      fontSize: Typography.fontSize.base,
+      color: colors.textSecondary,
+      lineHeight: 22,
+    },
     downloadButton: {
       flexDirection: 'row',
       alignItems: 'center',
@@ -591,6 +739,22 @@ const s = (colors: any) =>
     },
     downloadText: {
       color: colors.white,
+      fontSize: Typography.fontSize.md,
+      fontWeight: Typography.fontWeight.bold,
+    },
+    htmlDownloadButton: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: Spacing.sm,
+      backgroundColor: 'transparent',
+      borderWidth: 1,
+      borderColor: colors.accent,
+      borderRadius: 14,
+      paddingVertical: Spacing.md,
+    },
+    htmlDownloadText: {
+      color: colors.accent,
       fontSize: Typography.fontSize.md,
       fontWeight: Typography.fontWeight.bold,
     },

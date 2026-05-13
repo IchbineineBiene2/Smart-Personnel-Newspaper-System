@@ -1,17 +1,40 @@
-import { ContentCategory } from './content';
+import { Platform } from 'react-native';
 
-const API_BASE = 'http://localhost:3000';
+const API_BASE =
+  Platform.OS === 'android'
+    ? 'http://10.0.2.2:3000'
+    : 'http://localhost:3000';
 
 export interface ArchivedEdition {
   id: number;
   user_id: number;
   edition_date: string;       // YYYY-MM-DD format
   edition_type?: string;       // 'daily', 'weekly' etc
+  title?: string | null;
   description: string | null;
-  selected_articles: number[];
+  selected_articles: string[];
+  articles_snapshot?: ArchivedArticleSnapshot[];
   pdf_url: string | null;
   created_at: string;
   updated_at: string;
+}
+
+export interface ArchivedArticleSnapshot {
+  id: string;
+  title: string;
+  description: string;
+  content?: string;
+  url?: string;
+  imageUrl?: string;
+  publishedAt: string;
+  category?: string;
+  source: {
+    id?: string;
+    name: string;
+    url?: string;
+    type?: 'newsapi' | 'rss' | 'scraper';
+  };
+  language?: string;
 }
 
 // API: Get user's archived editions
@@ -36,9 +59,10 @@ export async function fetchUserEditions(userId: number, token: string): Promise<
 export async function createEdition(
   title: string,
   description: string | null,
-  selectedArticles: number[],
-  token: string
-): Promise<ArchivedEdition | null> {
+  selectedArticles: string[],
+  token: string,
+  articlesSnapshot: ArchivedArticleSnapshot[] = []
+): Promise<{ edition: ArchivedEdition | null; error: string | null }> {
   try {
     const res = await fetch(`${API_BASE}/api/archive/generate`, {
       method: 'POST',
@@ -46,16 +70,28 @@ export async function createEdition(
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${token}`,
       },
-      body: JSON.stringify({ title, description, selectedArticles }),
+      body: JSON.stringify({ title, description, selectedArticles, articlesSnapshot }),
     });
 
-    if (!res.ok) return null;
-    
     const data = await res.json();
-    return data.edition || null;
+
+    if (!res.ok) {
+      return {
+        edition: null,
+        error: data.error || 'Gazete oluşturulamadı'
+      };
+    }
+
+    return {
+      edition: data.edition || null,
+      error: null
+    };
   } catch (err) {
     console.error('[Archive] Error creating edition:', err);
-    return null;
+    return {
+      edition: null,
+      error: err instanceof Error ? err.message : 'Ağ hatası'
+    };
   }
 }
 
