@@ -118,12 +118,18 @@ export async function computeAndSaveEmbeddingsV2(opts: {
   workerId?: number;
   workerCount?: number;
   microBatch?: number;
+  /** Sadece son N günde yayınlanmış makaleleri işle (Mac öncelik tier'ı için) */
+  sinceDays?: number | null;
+  /** Sadece N günden eski makaleleri işle (server arka plan tier'ı için) */
+  olderThanDays?: number | null;
 } = {}): Promise<{ processed: number; failed: number }> {
   const limit = opts.limit ?? 200;
   const onlyMissing = opts.onlyMissing ?? true;
   const workerId = opts.workerId ?? 0;
   const workerCount = Math.max(1, opts.workerCount ?? 1);
   const microBatch = Math.max(1, opts.microBatch ?? 8);
+  const sinceDays = opts.sinceDays ?? null;
+  const olderThanDays = opts.olderThanDays ?? null;
 
   const baseWhere = onlyMissing
     ? 'embedding_v2 IS NULL'
@@ -138,6 +144,18 @@ export async function computeAndSaveEmbeddingsV2(opts: {
     ? `AND (('x' || substr(id, 1, 2))::bit(8)::int % ${workerCount}) = ${workerId}`
     : '';
 
+  // Zaman tier'ı — Mac yeni haberleri, server eskiler için. Aynı anda iki flag verilmez.
+  let timeClause = '';
+  if (sinceDays !== null && olderThanDays !== null) {
+    throw new Error('sinceDays ile olderThanDays birlikte kullanılamaz');
+  }
+  if (sinceDays !== null && sinceDays > 0) {
+    timeClause = `AND published_at >= NOW() - INTERVAL '${sinceDays} days'`;
+  }
+  if (olderThanDays !== null && olderThanDays > 0) {
+    timeClause = `AND published_at < NOW() - INTERVAL '${olderThanDays} days'`;
+  }
+
   const res = await query<{
     id: string;
     title: string | null;
@@ -146,7 +164,7 @@ export async function computeAndSaveEmbeddingsV2(opts: {
   }>(
     `SELECT id, title, description, content
      FROM articles
-     WHERE ${baseWhere} ${shardClause}
+     WHERE ${baseWhere} ${shardClause} ${timeClause}
      ORDER BY published_at DESC NULLS LAST
      LIMIT $1`,
     [limit],
