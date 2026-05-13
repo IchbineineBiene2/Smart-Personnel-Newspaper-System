@@ -15,6 +15,7 @@ import notificationsRouter from './api/notifications.routes';
 import contactsRouter from './api/contacts.routes';
 import articleInteractionsRouter from './api/articleInteractions.routes';
 import aiRouter from './api/ai.routes';
+import ratesRouter from './api/rates.routes';
 import { startScheduler } from './scheduler/newsScheduler';
 import { runMigrations } from './db/migrate';
 
@@ -39,6 +40,7 @@ app.use('/api/proxy', proxyRouter);
 app.use('/api/events', eventsRouter);
 app.use('/api/concerts', concertsRouter);
 app.use('/api/similarity', similarityRouter);
+app.use('/api/rates', ratesRouter);
 
 
 app.get('/health', (_req, res) => {

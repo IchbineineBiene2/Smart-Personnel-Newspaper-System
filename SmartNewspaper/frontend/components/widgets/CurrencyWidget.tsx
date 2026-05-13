@@ -1,9 +1,18 @@
 import { StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '@/hooks/useTheme';
+import { useEffect, useState } from 'react';
 import type { WidgetSize } from './WidgetCard';
 
-const RATES = [
+interface Rate {
+  name: string;
+  value: string;
+  change: string;
+  up: boolean;
+  icon: string;
+}
+
+const DEFAULT_RATES: Rate[] = [
   { name: 'Gram Altın', value: '3.472 ₺', change: '+0.91%', up: true,  icon: 'bar-chart-outline' },
   { name: 'USD/TRY',    value: '38,45',    change: '+0.12%', up: true,  icon: 'logo-usd' },
   { name: 'EUR/TRY',    value: '42,10',    change: '-0.28%', up: false, icon: 'cash-outline' },
@@ -14,6 +23,34 @@ interface Props { size?: WidgetSize }
 
 export function CurrencyWidget({ size = 'sm' }: Props) {
   const { colors } = useTheme();
+  const [rates, setRates] = useState<Rate[]>(DEFAULT_RATES);
+
+  useEffect(() => {
+    const fetchRates = async () => {
+      try {
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 3000);
+        
+        const response = await fetch('http://localhost:3000/api/rates', {
+          signal: controller.signal,
+        });
+        clearTimeout(timeout);
+        
+        if (response.ok) {
+          const data = await response.json();
+          setRates(data);
+        }
+      } catch (error) {
+        console.warn('Could not fetch rates, using default values');
+      }
+    };
+
+    fetchRates();
+    const interval = setInterval(fetchRates, 30000);
+
+    return () => clearInterval(interval);
+  }, []);
+
   const isLarge = size === 'lg';
   const isMd    = size === 'md';
 
@@ -24,7 +61,7 @@ export function CurrencyWidget({ size = 'sm' }: Props) {
 
   return (
     <View style={[styles.list, { gap: isLarge ? 2 : 0 }]}>
-      {RATES.map((r) => (
+      {rates.map((r) => (
         <View
           key={r.name}
           style={[

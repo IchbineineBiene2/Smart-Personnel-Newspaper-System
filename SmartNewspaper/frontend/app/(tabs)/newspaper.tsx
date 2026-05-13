@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useState, useCallback } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -12,6 +12,7 @@ import {
   View,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { useFocusEffect } from '@react-navigation/native';
 
 import { useApiNews } from '@/hooks/useNews';
 import { useBookmarks } from '@/hooks/useBookmarks';
@@ -65,6 +66,15 @@ export default function NewspaperBuilder() {
   const [savedFirst, setSavedFirst] = useState(true);
   const [exporting, setExporting] = useState(false);
   const [exportingHtml, setExportingHtml] = useState(false);
+  const [isInitializing, setIsInitializing] = useState(true);
+
+  useFocusEffect(
+    useCallback(() => {
+      setIsInitializing(true);
+      const timer = setTimeout(() => setIsInitializing(false), 800);
+      return () => clearTimeout(timer);
+    }, [])
+  );
 
   const categories = useMemo(() => {
     const set = new Set<string>();
@@ -210,12 +220,20 @@ export default function NewspaperBuilder() {
   const secondaryArticles = selectedArticles.slice(1);
 
   return (
-    <ScrollView
-      style={[styles.root, { backgroundColor: colors.background }]}
-      contentContainerStyle={[styles.content, isWeb && styles.webContent]}
-      showsVerticalScrollIndicator={false}
-    >
-      <View style={styles.header}>
+    <>
+      {(isInitializing || loading) && (
+        <View style={[styles.fullscreenLoading, { backgroundColor: colors.background }]}>
+          <ActivityIndicator size="large" color={colors.accent} />
+          <Text style={[styles.loadingText, { color: colors.textMuted }]}>Gazete hazırlanıyor...</Text>
+        </View>
+      )}
+      
+      <ScrollView
+        style={[styles.root, { backgroundColor: colors.background }]}
+        contentContainerStyle={[styles.content, isWeb && styles.webContent]}
+        showsVerticalScrollIndicator={false}
+      >
+        <View style={styles.header}>
         <View style={[styles.kicker, { backgroundColor: colors.accent + '14', borderColor: colors.accent + '30' }]}>
           <Ionicons name="newspaper" size={14} color={colors.accent} />
           <Text style={[styles.kickerText, { color: colors.accent }]}>KISISel GAZETE</Text>
@@ -461,7 +479,8 @@ export default function NewspaperBuilder() {
           )}
         </View>
       </View>
-    </ScrollView>
+      </ScrollView>
+    </>
   );
 }
 
@@ -532,4 +551,19 @@ const styles = StyleSheet.create({
   previewCategory: { fontSize: 10, fontWeight: '900', textTransform: 'uppercase' },
   previewTitle: { fontFamily: 'serif', fontSize: 18, lineHeight: 22, fontWeight: '900' },
   previewSummary: { fontSize: 12, lineHeight: 18 },
+  fullscreenLoading: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    zIndex: 9999,
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: 16,
+  },
+  loadingText: {
+    fontSize: 14,
+    fontWeight: '600',
+  },
 });

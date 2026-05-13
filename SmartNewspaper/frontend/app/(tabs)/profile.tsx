@@ -84,6 +84,12 @@ export default function ProfileScreen() {
   const [autoNightMode, setAutoNightMode] = useState(false);
   const [profilePhotoUri, setProfilePhotoUri] = useState<string | null>(null);
   const [photoMenuOpen, setPhotoMenuOpen] = useState(false);
+  const [showPasswordChange, setShowPasswordChange] = useState(false);
+  const [oldPassword, setOldPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [passwordError, setPasswordError] = useState('');
+  const [passwordSuccess, setPasswordSuccess] = useState('');
 
   const headerFade = useRef(new Animated.Value(0)).current;
   const contentFade = useRef(new Animated.Value(0)).current;
@@ -112,6 +118,51 @@ export default function ProfileScreen() {
   const handleLogout = async () => {
     await logoutUser();
     router.replace('/auth/login');
+  };
+
+  const openPhotoPicker = async (source: 'camera' | 'library') => {
+    // TODO: Implement photo picker
+    console.log('Photo picker called:', source);
+  };
+
+  const removeProfilePhoto = async () => {
+    setProfilePhotoUri(null);
+    // TODO: Send update to backend
+  };
+
+  const handleChangePassword = async () => {
+    setPasswordError('');
+    setPasswordSuccess('');
+
+    if (!oldPassword || !newPassword || !confirmPassword) {
+      setPasswordError('Lütfen tüm alanları doldurunuz.');
+      return;
+    }
+
+    if (newPassword !== confirmPassword) {
+      setPasswordError('Yeni şifreler eşleşmiyor.');
+      return;
+    }
+
+    if (newPassword.length < 6) {
+      setPasswordError('Şifre en az 6 karakter olmalıdır.');
+      return;
+    }
+
+    try {
+      // TODO: Call API to change password
+      // const result = await changePassword(oldPassword, newPassword);
+      setPasswordSuccess('Şifre başarıyla değiştirildi!');
+      setOldPassword('');
+      setNewPassword('');
+      setConfirmPassword('');
+      setTimeout(() => {
+        setShowPasswordChange(false);
+        setPasswordSuccess('');
+      }, 2000);
+    } catch (error) {
+      setPasswordError('Şifre değiştirme başarısız oldu. Lütfen tekrar deneyiniz.');
+    }
   };
 
   return (
@@ -775,11 +826,82 @@ export default function ProfileScreen() {
                       styles.securityItem,
                       { backgroundColor: pressed ? colors.surfaceHigh : 'transparent', borderColor: colors.borderSubtle },
                     ]}
+                    onPress={() => {
+                      if (item === 'Şifre Değiştir') {
+                        setShowPasswordChange(!showPasswordChange);
+                      }
+                    }}
                   >
                     <Text style={[styles.securityText, { color: colors.textPrimary }]}>{item}</Text>
                     <Ionicons name="chevron-forward" size={16} color={colors.textMuted} />
                   </Pressable>
                 ))}
+
+                {showPasswordChange && (
+                  <View style={[styles.passwordForm, { backgroundColor: colors.surfaceHigh, borderColor: colors.borderSubtle }]}>
+                    <Text style={[styles.passwordFormTitle, { color: colors.textPrimary }]}>Şifre Değiştir</Text>
+
+                    <Text style={[styles.passwordLabel, { color: colors.textPrimary }]}>Eski Şifre</Text>
+                    <TextInput
+                      style={[styles.passwordInput, { backgroundColor: colors.surface, color: colors.textPrimary, borderColor: colors.borderSubtle }]}
+                      placeholder="Eski şifrenizi girin"
+                      placeholderTextColor={colors.textMuted}
+                      secureTextEntry
+                      value={oldPassword}
+                      onChangeText={setOldPassword}
+                    />
+
+                    <Text style={[styles.passwordLabel, { color: colors.textPrimary, marginTop: 12 }]}>Yeni Şifre</Text>
+                    <TextInput
+                      style={[styles.passwordInput, { backgroundColor: colors.surface, color: colors.textPrimary, borderColor: colors.borderSubtle }]}
+                      placeholder="Yeni şifrenizi girin"
+                      placeholderTextColor={colors.textMuted}
+                      secureTextEntry
+                      value={newPassword}
+                      onChangeText={setNewPassword}
+                    />
+
+                    <Text style={[styles.passwordLabel, { color: colors.textPrimary, marginTop: 12 }]}>Yeni Şifre Tekrar</Text>
+                    <TextInput
+                      style={[styles.passwordInput, { backgroundColor: colors.surface, color: colors.textPrimary, borderColor: colors.borderSubtle }]}
+                      placeholder="Yeni şifrenizi tekrar girin"
+                      placeholderTextColor={colors.textMuted}
+                      secureTextEntry
+                      value={confirmPassword}
+                      onChangeText={setConfirmPassword}
+                    />
+
+                    {passwordError && (
+                      <Text style={[styles.errorText, { color: '#ef4444', marginTop: 10 }]}>{passwordError}</Text>
+                    )}
+
+                    {passwordSuccess && (
+                      <Text style={[styles.successText, { color: '#10b981', marginTop: 10 }]}>{passwordSuccess}</Text>
+                    )}
+
+                    <View style={styles.passwordFormButtons}>
+                      <Pressable
+                        style={[styles.passwordCancelBtn, { borderColor: colors.borderSubtle }]}
+                        onPress={() => {
+                          setShowPasswordChange(false);
+                          setOldPassword('');
+                          setNewPassword('');
+                          setConfirmPassword('');
+                          setPasswordError('');
+                          setPasswordSuccess('');
+                        }}
+                      >
+                        <Text style={[styles.passwordCancelBtnText, { color: colors.textPrimary }]}>İptal</Text>
+                      </Pressable>
+                      <Pressable
+                        style={[styles.passwordChangeBtn, { backgroundColor: colors.accent }]}
+                        onPress={handleChangePassword}
+                      >
+                        <Text style={styles.passwordChangeBtnText}>Şifre Değiştir</Text>
+                      </Pressable>
+                    </View>
+                  </View>
+                )}
               </View>
             </View>
           )}
@@ -848,7 +970,7 @@ const styles = StyleSheet.create({
   avatarImage: { width: '100%' as any, height: '100%' as any },
   avatarEditButton: {
     position: 'absolute',
-    right: -2,
+    left: -2,
     bottom: 12,
     width: 28,
     height: 28,
@@ -861,7 +983,7 @@ const styles = StyleSheet.create({
   photoMenu: {
     position: 'absolute',
     top: 74,
-    left: 46,
+    left: -130,
     width: 126,
     borderRadius: 12,
     borderWidth: 1,
@@ -1119,6 +1241,28 @@ const styles = StyleSheet.create({
     paddingVertical: 14, paddingHorizontal: 10, borderRadius: 10, borderBottomWidth: 1,
   },
   securityText: { fontSize: 14, fontWeight: '600' },
+  passwordForm: {
+    marginTop: 16, padding: 14, borderRadius: 10, borderWidth: 1,
+  },
+  passwordFormTitle: { fontSize: 15, fontWeight: '700', marginBottom: 14 },
+  passwordLabel: { fontSize: 13, fontWeight: '600', marginBottom: 6 },
+  passwordInput: {
+    borderRadius: 8, borderWidth: 1, paddingHorizontal: 12, paddingVertical: 10,
+    fontSize: 14, fontFamily: 'System',
+  },
+  errorText: { fontSize: 12, fontWeight: '600', marginTop: 10 },
+  successText: { fontSize: 12, fontWeight: '600', marginTop: 10 },
+  passwordFormButtons: {
+    flexDirection: 'row', gap: 10, marginTop: 16,
+  },
+  passwordCancelBtn: {
+    flex: 1, paddingVertical: 12, borderRadius: 8, borderWidth: 1, alignItems: 'center',
+  },
+  passwordCancelBtnText: { fontSize: 14, fontWeight: '600' },
+  passwordChangeBtn: {
+    flex: 1, paddingVertical: 12, borderRadius: 8, alignItems: 'center',
+  },
+  passwordChangeBtnText: { fontSize: 14, fontWeight: '600', color: '#fff' },
 
   // Pro
   proBadge: {

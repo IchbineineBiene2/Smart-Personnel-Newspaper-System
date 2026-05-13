@@ -126,16 +126,19 @@ router.get('/:id/full-content', async (req: Request, res: Response) => {
       title: article.title,
       description: article.description,
     });
+    console.log(`[NewsAPI] full-content ${req.params.id}: scraped images count = ${scraped.images?.length ?? 0}`, scraped.images?.slice(0, 2));
     return res.json({
       id: article.id,
       content: scraped.content ?? article.content ?? article.description,
       images: scraped.images,
       fromSource: Boolean(scraped.content),
     });
-  } catch {
+  } catch (err) {
+    console.error('[NewsAPI] full-content scrape error:', err);
     try {
       const article = await getArticleById(req.params.id);
       if (!article) return res.status(404).json({ error: 'Haber bulunamadı' });
+      console.log(`[NewsAPI] full-content ${req.params.id}: fallback to DB imageUrl`);
       return res.json({
         id: article.id,
         content: article.content ?? article.description,

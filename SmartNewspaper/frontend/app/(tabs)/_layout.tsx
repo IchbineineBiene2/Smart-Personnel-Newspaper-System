@@ -13,17 +13,17 @@ import { useNotification } from '@/contexts/NotificationContext';
 import { getToken, logoutUser } from '@/services/auth';
 
 const NAV_ROUTES: { name: string; label: string; icon: string; iconFilled: string }[] = [
-  { name: 'index',    label: 'Ana Sayfa',   icon: 'grid-outline',     iconFilled: 'grid' },
+  { name: 'search',   label: 'Arama',       icon: 'search-outline',   iconFilled: 'search' },
+  { name: 'profile',  label: 'Profil',      icon: 'person-outline',   iconFilled: 'person' },
+  { name: 'notifications', label: 'Bildirimler', icon: 'notifications-outline', iconFilled: 'notifications' },
+  { name: 'index',    label: 'Anasayfa',    icon: 'grid-outline',     iconFilled: 'grid' },
   { name: 'feed',     label: 'Akış',        icon: 'reader-outline',   iconFilled: 'reader' },
   { name: 'explore',  label: 'Keşfet',      icon: 'compass-outline',  iconFilled: 'compass' },
-  { name: 'search',   label: 'Arama',       icon: 'search-outline',   iconFilled: 'search' },
-  { name: 'discover', label: 'Etkinlikler', icon: 'calendar-outline', iconFilled: 'calendar' },
-  { name: 'ai',       label: 'AI Chat',     icon: 'sparkles-outline', iconFilled: 'sparkles' },
   { name: 'newspaper', label: 'Kisisel Gazete', icon: 'newspaper-outline', iconFilled: 'newspaper' },
-  { name: 'messages', label: 'Mesajlar',    icon: 'chatbubble-outline', iconFilled: 'chatbubble' },
-  { name: 'notifications', label: 'Bildirimler', icon: 'notifications-outline', iconFilled: 'notifications' },
+  { name: 'discover', label: 'Ekinlikler',  icon: 'calendar-outline', iconFilled: 'calendar' },
   { name: 'archive',  label: 'Arşiv',       icon: 'archive-outline',  iconFilled: 'archive' },
-  { name: 'profile',  label: 'Profil',      icon: 'person-outline',   iconFilled: 'person' },
+  { name: 'messages', label: 'Mesajlar',    icon: 'chatbubble-outline', iconFilled: 'chatbubble' },
+  { name: 'ai',       label: 'AI Chat',     icon: 'sparkles-outline', iconFilled: 'sparkles' },
 ];
 
 const HIDDEN_ROUTES = ['publisherpage', 'publisherprofile', 'pdfpreview', 'messages/[userId]'];
@@ -214,6 +214,13 @@ function WebSidebarTabBar({
   });
 
   const visibleRoutes = state.routes.filter((r) => !HIDDEN_ROUTES.includes(r.name));
+  
+  // Sort routes according to NAV_ROUTES order
+  const sortedVisibleRoutes = [...visibleRoutes].sort((a, b) => {
+    const aIndex = NAV_ROUTES.findIndex(n => n.name === a.name);
+    const bIndex = NAV_ROUTES.findIndex(n => n.name === b.name);
+    return aIndex - bIndex;
+  });
 
   return (
     <Animated.View
@@ -241,7 +248,7 @@ function WebSidebarTabBar({
 
       {/* Nav */}
       <View style={styles.nav}>
-        {visibleRoutes.map((route) => {
+        {sortedVisibleRoutes.map((route) => {
           const routeIndex = state.routes.findIndex((r) => r.key === route.key);
           const isActive = state.index === routeIndex;
           const navRoute = NAV_ROUTES.find((n) => n.name === route.name);
@@ -278,12 +285,6 @@ function WebSidebarTabBar({
         >
           <Text style={[styles.todayLabel, { color: colors.accent }]}>BUGÜN</Text>
           <Text style={[styles.todayDate, { color: colors.textSecondary }]}>{today}</Text>
-          <View style={styles.todayRow}>
-            <Ionicons name="sparkles" size={11} color={colors.accent} />
-            <Text style={[styles.todayQuote, { color: colors.textSecondary }]}>
-              "AI analize hazır, yeni gelişmeleri keşfedin."
-            </Text>
-          </View>
         </View>
 
         <Pressable
@@ -579,7 +580,7 @@ const styles = StyleSheet.create({
   },
   bottom: {
     gap: 8,
-    paddingTop: 16,
+    paddingTop: 8,
   },
   todayCard: {
     borderRadius: 18,

@@ -42,6 +42,11 @@ const SITE_RULES: SiteRule[] = [
     removeSelectors: ['script', 'style', '.share-area', '.related-content'],
   },
   {
+    domain: 'cnnturk.com',
+    contentSelector: '.news-content, .article-content, .detail-content, .news-text, article',
+    removeSelectors: ['script', 'style', '.share-buttons', '.related-news', '.tags', '.advertisement'],
+  },
+  {
     domain: 'trthaber.com',
     contentSelector: '.news-content, .detail-content, .editor-text, .article-content, .news-text',
     removeSelectors: ['script', 'style', '.news-tags', '.share-buttons', '.related-news'],
@@ -219,6 +224,18 @@ function hasAdLikePattern(value: string): boolean {
     'widget',
     'promo',
     'reklam',
+    'sidebar',
+    'aside',
+    'footer',
+    'header',
+    'nav',
+    'thumb',
+    'thumbnail',
+    'small',
+    'tiny',
+    'button',
+    'badge',
+    'sticker',
   ].some((needle) => v.includes(needle));
 }
 
@@ -291,11 +308,44 @@ function collectContainerImages(
   keywords: Set<string>
 ): ImageCandidate[] {
   const sanitizedRoot = root.clone();
-  sanitizedRoot.find('aside, nav, header, footer, [class*="related"], [class*="recommend"], [class*="teaser"], [class*="promo"], [class*="ad"], [id*="ad"], [class*="sidebar"], [id*="sidebar"], [class*="ticker"], [class*="breadcrumb"]').remove();
+  
+  // Aggressively remove ad/sidebar/related content containers
+  sanitizedRoot.find(
+    'aside, nav, header, footer, ' +
+    '[class*="related"], [class*="recommend"], [class*="teaser"], [class*="promo"], ' +
+    '[class*="ad"], [id*="ad"], ' +
+    '[class*="sidebar"], [id*="sidebar"], ' +
+    '[class*="ticker"], [class*="breadcrumb"], ' +
+    '[class*="widget"], [id*="widget"], ' +
+    '[class*="modal"], [id*="modal"], ' +
+    '[class*="popup"], [id*="popup"], ' +
+    '[class*="banner"], [id*="banner"], ' +
+    '[class*="sponsored"], [class*="sponsor"], ' +
+    '[class*="newsletter"], ' +
+    '[class*="sharing"], ' +
+    '[class*="social"], ' +
+    '.tag-cloud, .tags, .categories, ' +
+    '[data-section="related"], [data-section="recommended"]'
+  ).remove();
 
   const imgs = sanitizedRoot
     .find('img')
-    .map((idx: number, img: any) => pickImageFromElement($, baseUrl, img, keywords, 100 - idx))
+    .map((idx: number, img: any) => {
+      const candidate = pickImageFromElement($, baseUrl, img, keywords, 100 - idx);
+      if (!candidate) return null;
+      
+      // Filter out very small images (likely thumbnails or icons)
+      const urlLower = candidate.url.toLowerCase();
+      const sizeMatch = urlLower.match(/(\d{2,4})x(\d{2,4})/);
+      if (sizeMatch) {
+        const width = parseInt(sizeMatch[1], 10);
+        const height = parseInt(sizeMatch[2], 10);
+        // Reject images smaller than 300x200 (too small for article images)
+        if (width < 300 || height < 200) return null;
+      }
+      
+      return candidate;
+    })
     .get();
 
   const pictureImgs = sanitizedRoot
@@ -309,6 +359,15 @@ function collectContainerImages(
       const resolved = resolveImageUrl(baseUrl, src ?? undefined);
       if (!resolved || !isLikelyArticleImage(resolved)) return null;
       if (hasAdLikePattern(resolved)) return null;
+      
+      // Filter out very small images from picture elements too
+      const sizeMatch = resolved.toLowerCase().match(/(\d{2,4})x(\d{2,4})/);
+      if (sizeMatch) {
+        const width = parseInt(sizeMatch[1], 10);
+        const height = parseInt(sizeMatch[2], 10);
+        if (width < 300 || height < 200) return null;
+      }
+      
       const relevance = scoreImageRelevance(resolved, keywords);
       return { url: resolved, meta: resolved, rank: 70 - idx + relevance * 10 };
     })
@@ -553,7 +612,6 @@ export async function scrapeArticleContent(url: string): Promise<string | null> 
 
 export async function scrapeArticleDetails(url: string, context?: { title?: string; description?: string }): Promise<ScrapedArticleDetails> {
   const rule = findRule(url);
-  if (!rule) return { content: null, images: [] };
 
   try {
     const res = await axios.get(url, {
@@ -573,17 +631,48 @@ export async function scrapeArticleDetails(url: string, context?: { title?: stri
       $('meta[property="twitter:image"]').attr('content') ||
       $('meta[name="twitter:image"]').attr('content');
 
-    // Gereksiz elementleri kaldır
-    (rule.removeSelectors ?? []).forEach((sel) => $(sel).remove());
-    $('aside, nav, header, footer, [class*="related"], [class*="recommend"], [class*="teaser"], [class*="promo"], [class*="ad"], [id*="ad"], [class*="sidebar"], [id*="sidebar"], [class*="ticker"], [class*="breadcrumb"]').remove();
+    // Gereksiz elementleri kaldır - aggressively remove ads, sidebars, and other non-article content
+    (rule?.removeSelectors ?? []).forEach((sel) => $(sel).remove());
+    $(
+      'aside, nav, header, footer, ' +
+      '[class*="related"], [class*="recommend"], [class*="teaser"], [class*="promo"], ' +
+      '[class*="ad"], [id*="ad"], ' +
+      '[class*="sidebar"], [id*="sidebar"], ' +
+      '[class*="ticker"], [class*="breadcrumb"], ' +
+      '[class*="widget"], [id*="widget"], ' +
+      '[class*="modal"], [id*="modal"], ' +
+      '[class*="popup"], [id*="popup"], ' +
+      '[class*="banner"], [id*="banner"], ' +
+      '[class*="sponsored"], [class*="sponsor"], ' +
+      '[class*="newsletter"], ' +
+      '[class*="sharing"], ' +
+      '[class*="social"], ' +
+      '[class*="comments"], ' +
+      '.tag-cloud, .tags, .categories, ' +
+      '[data-section="related"], [data-section="recommended"], ' +
+      '[class*="read-more"], [class*="related-articles"]'
+    ).remove();
 
-    // Ana içeriği çek (tek eleman yerine tüm eşleşmeleri birleştir)
-    const contentNodes = $(rule.contentSelector);
-    const contentEl = contentNodes.length
-      ? contentNodes
-      : $('article, main, [role="main"]').first();
+    // Ana içeriği çek - if no rule, use generic selectors
+    let contentEl;
+    if (rule) {
+      const contentNodes = $(rule.contentSelector);
+      contentEl = contentNodes.length
+        ? contentNodes
+        : $('article, main, [role="main"]').first();
+    } else {
+      // Fallback: use generic article selectors
+      contentEl = $('article, main, [role="main"], [class*="article"], [class*="content"], .news-content, .story-body').first();
+      if (!contentEl.length) {
+        contentEl = $('body');
+      }
+      console.log('[Scraper] Using generic fallback selector for:', url.substring(0, 60));
+    }
 
-    if (!contentEl.length) return { content: null, images: [] };
+    if (!contentEl.length) {
+      console.warn('[Scraper] No content element found for URL:', url);
+      return { content: null, images: [] };
+    }
 
     const keywordText = `${context?.title ?? ''} ${context?.description ?? ''}`;
     const keywords = new Set(tokenize(keywordText));
@@ -604,7 +693,7 @@ export async function scrapeArticleDetails(url: string, context?: { title?: stri
     const text = textBlocks.length ? cleanText(textBlocks.join('\n\n')) : cleanText(contentEl.text());
 
     const containerRoots: any[] = [];
-    contentNodes.each((_, el) => {
+    contentEl.each((_, el) => {
       const candidate = $(el).closest(
         'article, [itemprop="articleBody"], .article, .article-body, .news-content, .content-text, main'
       );
@@ -630,14 +719,18 @@ export async function scrapeArticleDetails(url: string, context?: { title?: stri
 
     scoredCandidates.sort((a, b) => b.rank - a.rank);
 
-    const images = sourceImagePostFilter(url, scoredCandidates, ogCandidate);
+    const images = rule
+      ? sourceImagePostFilter(url, scoredCandidates, ogCandidate)
+      : uniqueImages(scoredCandidates.map((c) => c.url), 10);
+    console.log(`[Scraper] ${url.substring(0, 60)}: collected ${scoredCandidates.length} candidates, filtered to ${images.length} images`);
 
     // Çok kısa teaser metinleri eleyip, kısa haberleri de kaçırmamak için eşik düşük tutulur.
     return {
       content: text.length >= 120 ? text : null,
       images,
     };
-  } catch {
+  } catch (err) {
+    console.error('[Scraper] Error scraping URL:', url, err instanceof Error ? err.message : String(err));
     return { content: null, images: [] };
   }
 }

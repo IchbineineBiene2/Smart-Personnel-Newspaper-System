@@ -132,8 +132,8 @@ async function generateArticleContextualResponse(
  * Smart fallback: Extract relevant content based on question intent
  */
 function generateSmartFallbackResponse(message: string, context: ArticleContext): string {
-  const lowerMessage = message.toLowerCase('tr-TR');
-  const lowerContent = (context.content || '').toLowerCase('tr-TR');
+  const lowerMessage = message.toLowerCase();
+  const lowerContent = (context.content || '').toLowerCase();
   
   // Split content into sentences
   const sentences = (context.content || '')
@@ -155,7 +155,7 @@ function generateSmartFallbackResponse(message: string, context: ArticleContext)
   const relevantSentences = sentences
     .map((sentence) => ({
       text: sentence,
-      score: questionKeywords.filter((kw) => sentence.toLowerCase('tr-TR').includes(kw)).length,
+      score: questionKeywords.filter((kw) => sentence.toLowerCase().includes(kw)).length,
     }))
     .filter((s) => s.score > 0 || sentences.indexOf(s.text) < 3) // Top sentences or keyword matches
     .sort((a, b) => b.score - a.score)
@@ -174,7 +174,7 @@ function generateSmartFallbackResponse(message: string, context: ArticleContext)
  * Generate general conversational responses (no article context)
  */
 async function generateGeneralResponse(message: string, history: ChatMessage[]): Promise<string> {
-  const lowerMessage = message.toLowerCase('tr-TR');
+  const lowerMessage = message.toLowerCase();
 
   // Check for greetings
   if (

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Image,
+  Linking,
   Modal,
   NativeScrollEvent,
   NativeSyntheticEvent,
@@ -680,6 +681,18 @@ export default function NewsDetailPage() {
     }
   };
 
+  const openSourceWebsite = () => {
+    if (sourceUrl) {
+      if (Platform.OS === 'web') {
+        window.open(sourceUrl, '_blank');
+      } else {
+        Linking.openURL(sourceUrl).catch(() => {
+          // Hata durumunda sessiz geç
+        });
+      }
+    }
+  };
+
   const openMessagePanel = () => {
     setMessagePanelVisible(true);
     setSendFeedback(null);
@@ -1127,6 +1140,18 @@ export default function NewsDetailPage() {
           >
             <Ionicons name="share-social-outline" size={16} color={colors.textPrimary} />
             <Text style={[styles(colors).actionButtonLabel, { color: colors.textPrimary }]}>Paylaş</Text>
+          </Pressable>
+
+          <Pressable
+            style={({ pressed }) => [
+              styles(colors).actionButton,
+              { backgroundColor: colors.surfaceInput },
+              pressed && { opacity: 0.7 },
+            ]}
+            onPress={openSourceWebsite}
+          >
+            <Ionicons name="open-outline" size={16} color={colors.textPrimary} />
+            <Text style={[styles(colors).actionButtonLabel, { color: colors.textPrimary }]}>Kaynakta</Text>
           </Pressable>
 
           <Pressable
