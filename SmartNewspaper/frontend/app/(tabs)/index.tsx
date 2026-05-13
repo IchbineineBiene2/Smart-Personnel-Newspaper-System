@@ -24,7 +24,7 @@ import { useTheme } from '@/hooks/useTheme';
 import { usePreferences } from '@/hooks/usePreferences';
 import { proxyImageUrl } from '@/services/newsApi';
 import { WidgetCard, WidgetConfig } from '@/components/widgets/WidgetCard';
-import { NewsWidget } from '@/components/widgets/NewsWidget';
+import { NewsWidget, NewsWidgetMode } from '@/components/widgets/NewsWidget';
 import { CurrencyWidget } from '@/components/widgets/CurrencyWidget';
 import { WeatherWidget } from '@/components/widgets/WeatherWidget';
 import { SportsWidget } from '@/components/widgets/SportsWidget';
@@ -42,9 +42,22 @@ const DEFAULT_WIDGETS: WidgetConfig[] = [
 
 type DashTab = 'foryou' | 'popular' | 'analysis';
 
-function renderWidgetContent(config: WidgetConfig) {
+function renderWidgetContent(
+  config: WidgetConfig,
+  newsMode: NewsWidgetMode,
+  preferredCategories: string[],
+  excludeIds: string[]
+) {
   switch (config.type) {
-    case 'news':     return <NewsWidget size={config.size} />;
+    case 'news':
+      return (
+        <NewsWidget
+          size={config.size}
+          mode={newsMode}
+          preferredCategories={preferredCategories}
+          excludeIds={excludeIds}
+        />
+      );
     case 'currency': return <CurrencyWidget size={config.size} />;
     case 'weather':  return <WeatherWidget size={config.size} />;
     case 'sports':   return <SportsWidget size={config.size} />;
@@ -144,6 +157,14 @@ export default function HomeScreen() {
     { key: 'popular',  label: 'Popüler' },
     { key: 'analysis', label: 'Analiz' },
   ];
+
+  const tabNewsTitles: Record<DashTab, string> = {
+    foryou: 'Sizin İçin',
+    popular: 'Popüler Haberler',
+    analysis: 'Analiz',
+  };
+
+  const featuredIds = [featured?.id, ...highlights.map((item) => item.id)].filter(Boolean) as string[];
 
   const bgColor = colors.background;
 
@@ -366,12 +387,12 @@ export default function HomeScreen() {
             style={[!isWeb && styles.gridCell, getGridCellStyle(widget.size), isWeb && { display: 'flex' } as any] as any}
           >
             <WidgetCard
-              config={widget}
+              config={widget.type === 'news' ? { ...widget, title: tabNewsTitles[activeTab] } : widget}
               isEditing={isEditing}
               onRemove={handleRemoveWidget}
               onResize={handleResizeWidget}
             >
-              {renderWidgetContent(widget)}
+              {renderWidgetContent(widget, activeTab, preferredCategories, featuredIds)}
             </WidgetCard>
           </View>
         ))}

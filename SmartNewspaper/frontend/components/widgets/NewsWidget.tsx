@@ -3,8 +3,9 @@ import { useRouter } from 'expo-router';
 import { useTheme } from '@/hooks/useTheme';
 import { useApiNews } from '@/hooks/useNews';
 import { usePreferences } from '@/hooks/usePreferences';
-import { proxyImageUrl } from '@/services/newsApi';
+import { mapToContentCategory, proxyImageUrl } from '@/services/newsApi';
 import type { WidgetSize } from './WidgetCard';
+import type { ApiArticle } from '@/services/newsApi';
 
 const CATEGORY_COLORS: Record<string, string> = {
   teknoloji: '#5442F5', spor: '#10b981', ekonomi: '#f59e0b',
@@ -12,16 +13,23 @@ const CATEGORY_COLORS: Record<string, string> = {
   kultur: '#ec4899', genel: '#6b7280',
 };
 
-interface Props { size?: WidgetSize }
+export type NewsWidgetMode = 'foryou' | 'popular' | 'analysis';
 
-export function NewsWidget({ size = 'sm' }: Props) {
+interface Props {
+  size?: WidgetSize;
+  mode?: NewsWidgetMode;
+  preferredCategories?: string[];
+  excludeIds?: string[];
+}
+
+export function NewsWidget({ size = 'sm', mode = 'foryou', preferredCategories = [], excludeIds = [] }: Props) {
   const { colors } = useTheme();
   const { preferredNewsLanguages } = usePreferences();
   const { articles, loading } = useApiNews(preferredNewsLanguages);
   const router = useRouter();
 
   const count = size === 'lg' ? 6 : size === 'md' ? 5 : 4;
-  const items = articles.slice(0, count);
+  const items = selectArticlesForMode(articles, mode, preferredCategories, excludeIds).slice(0, count);
 
   const thumbSize = size === 'lg' ? 68 : size === 'md' ? 58 : 50;
   const titleSize = size === 'lg' ? 14 : size === 'md' ? 13 : 12;
@@ -111,6 +119,92 @@ export function NewsWidget({ size = 'sm' }: Props) {
       })}
     </View>
   );
+}
+
+function selectArticlesForMode(
+  articles: ApiArticle[],
+  mode: NewsWidgetMode,
+  preferredCategories: string[],
+  excludeIds: string[]
+): ApiArticle[] {
+  const excluded = new Set(excludeIds);
+  const pool = articles.filter((article) => !excluded.has(article.id));
+
+  if (mode === 'popular') {
+    return [...pool].sort((a, b) => popularityScore(b) - popularityScore(a));
+  }
+
+  if (mode === 'analysis') {
+    return [...pool].sort((a, b) => analysisScore(b) - analysisScore(a));
+  }
+
+  const preferred = normalizeCategorySet(preferredCategories);
+  if (preferred.size === 0) return pool;
+
+  return [...pool].sort((a, b) => {
+    const aPreferred = preferred.has(normalizeDisplayCategory(a));
+    const bPreferred = preferred.has(normalizeDisplayCategory(b));
+    if (aPreferred !== bPreferred) return aPreferred ? -1 : 1;
+    return new Date(b.publishedAt).getTime() - new Date(a.publishedAt).getTime();
+  });
+}
+
+function popularityScore(article: ApiArticle): number {
+  const ageHours = Math.max(0, (Date.now() - new Date(article.publishedAt).getTime()) / 36e5);
+  const title = article.title ?? '';
+  const text = `${title} ${article.description ?? ''}`.toLowerCase();
+  const recency = Math.max(0, 160 - ageHours * 4);
+  const media = article.imageUrl ? 22 : 0;
+  const sourceBoost = article.source?.type === 'rss' ? 12 : article.source?.type === 'newsapi' ? 8 : 4;
+  const impactTerms = ['breaking', 'son dakika', 'champion', 'win', 'election', 'market', 'crisis', 'transfer', 'minister', 'president'];
+  const impact = impactTerms.reduce((score, term) => score + (text.includes(term) ? 12 : 0), 0);
+
+  return recency + media + sourceBoost + impact + stableEngagement(article.id);
+}
+
+function analysisScore(article: ApiArticle): number {
+  const text = `${article.title ?? ''} ${article.description ?? ''} ${article.content ?? ''}`.toLowerCase();
+  const ageHours = Math.max(0, (Date.now() - new Date(article.publishedAt).getTime()) / 36e5);
+  const depth = Math.min(90, text.length / 18);
+  const recency = Math.max(0, 80 - ageHours * 1.5);
+  const analysisTerms = [
+    'why', 'how', 'plan', 'policy', 'economy', 'market', 'election', 'government',
+    'analysis', 'report', 'study', 'risk', 'impact', 'war', 'court', 'budget',
+    'neden', 'nasil', 'politika', 'ekonomi', 'piyasa', 'secim', 'rapor', 'risk', 'etki',
+  ];
+  const context = analysisTerms.reduce((score, term) => score + (text.includes(term) ? 10 : 0), 0);
+  const category = normalizeCategory(article.category);
+  const categoryBoost = ['business', 'economy', 'politics', 'technology', 'science', 'general'].includes(category) ? 20 : 0;
+
+  return depth + recency + context + categoryBoost;
+}
+
+function stableEngagement(input: string): number {
+  let hash = 0;
+  for (let i = 0; i < input.length; i += 1) {
+    hash = (hash * 31 + input.charCodeAt(i)) >>> 0;
+  }
+  return hash % 70;
+}
+
+function normalizeCategorySet(categories: string[]): Set<string> {
+  return new Set(categories.map(normalizeCategory).filter(Boolean));
+}
+
+function normalizeDisplayCategory(article: ApiArticle): string {
+  return normalizeCategory(mapToContentCategory(article.category, article.title, article.description));
+}
+
+function normalizeCategory(category?: string): string {
+  return (category ?? '')
+    .toLowerCase()
+    .replace(/ı/g, 'i')
+    .replace(/ğ/g, 'g')
+    .replace(/ü/g, 'u')
+    .replace(/ş/g, 's')
+    .replace(/ö/g, 'o')
+    .replace(/ç/g, 'c')
+    .trim();
 }
 
 function timeAgo(iso: string): string {
