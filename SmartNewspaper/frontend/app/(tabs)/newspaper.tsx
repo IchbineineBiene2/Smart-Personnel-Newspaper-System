@@ -68,6 +68,7 @@ export default function NewspaperBuilder() {
   const [savedFirst, setSavedFirst] = useState(true);
   const [exporting, setExporting] = useState(false);
   const [exportingHtml, setExportingHtml] = useState(false);
+  const [creating, setCreating] = useState(false);
   const [isInitializing, setIsInitializing] = useState(true);
   const [userToken, setUserToken] = useState<string | null>(null);
 
@@ -170,7 +171,7 @@ export default function NewspaperBuilder() {
     };
   };
 
-  const exportPaper = async () => {
+  const createNewspaper = async () => {
     if (!userToken) {
       Alert.alert('Uyarı', 'Gazete oluşturmak için giriş yapmalısınız.');
       return;
@@ -182,8 +183,7 @@ export default function NewspaperBuilder() {
     }
 
     try {
-      setExporting(true);
-      const pdfArticles = await Promise.all(selectedArticles.map(mapForPdf));
+      setCreating(true);
       
       // Gazeteyi arşive kaydet
       await createEdition(
@@ -192,6 +192,25 @@ export default function NewspaperBuilder() {
         selectedArticles.map((a) => parseInt(a.id, 10)).filter((n) => !isNaN(n)),
         userToken
       );
+
+      Alert.alert('Başarılı', 'Gazete arşivde kaydedildi. Arşiv sayfasından indirebilirsiniz.');
+    } catch (error) {
+      console.error('Newspaper create error:', error);
+      Alert.alert('Hata', 'Gazete oluşturulurken bir sorun oluştu.');
+    } finally {
+      setCreating(false);
+    }
+  };
+
+  const exportPaper = async () => {
+    if (selectedArticles.length === 0) {
+      Alert.alert('Uyarı', 'Gazete indir etmek için haber bulunamadı.');
+      return;
+    }
+
+    try {
+      setExporting(true);
+      const pdfArticles = await Promise.all(selectedArticles.map(mapForPdf));
 
       // PDF indir
       await exportNewspaperPdf({
@@ -204,24 +223,17 @@ export default function NewspaperBuilder() {
         },
         articles: pdfArticles,
       });
-
-      Alert.alert('Başarılı', 'Gazete oluşturuldu ve arşivde kaydedildi.');
     } catch (error) {
       console.error('Newspaper export error:', error);
-      Alert.alert('Hata', 'Gazete oluşturulurken bir sorun oluştu.');
+      Alert.alert('Hata', 'PDF indirilirken bir sorun oluştu.');
     } finally {
       setExporting(false);
     }
   };
 
   const exportInteractiveHtml = async () => {
-    if (!userToken) {
-      Alert.alert('Uyarı', 'Gazete oluşturmak için giriş yapmalısınız.');
-      return;
-    }
-
     if (selectedArticles.length === 0) {
-      Alert.alert('Uyarı', 'Gazete oluşturmak için haber bulunamadı.');
+      Alert.alert('Uyarı', 'Gazete indir etmek için haber bulunamadı.');
       return;
     }
 
@@ -233,14 +245,6 @@ export default function NewspaperBuilder() {
     try {
       setExportingHtml(true);
       const htmlArticles = await Promise.all(selectedArticles.map(mapForPdf));
-      
-      // Gazeteyi arşive kaydet
-      await createEdition(
-        paperName.trim() || 'Smart Newspaper',
-        `${selectedCategories.join(', ')} kategorilerinden seçilmiş ${selectedArticles.length} haber`,
-        selectedArticles.map((a) => parseInt(a.id, 10)).filter((n) => !isNaN(n)),
-        userToken
-      );
 
       // HTML indir
       await exportInteractiveNewspaperHtml({
@@ -251,11 +255,9 @@ export default function NewspaperBuilder() {
         },
         articles: htmlArticles,
       });
-
-      Alert.alert('Başarılı', 'İnteraktif gazete oluşturuldu ve arşivde kaydedildi.');
     } catch (error) {
       console.error('Interactive HTML export error:', error);
-      Alert.alert('Hata', 'HTML gazete oluşturulurken bir sorun oluştu.');
+      Alert.alert('Hata', 'HTML indirilirken bir sorun oluştu.');
     } finally {
       setExportingHtml(false);
     }
@@ -424,7 +426,20 @@ export default function NewspaperBuilder() {
           </View>
 
           <Pressable
-            style={[styles.exportButton, { backgroundColor: colors.accent, opacity: exporting || selectedArticles.length === 0 ? 0.6 : 1 }]}
+            style={[styles.exportButton, { backgroundColor: colors.accent, opacity: creating || selectedArticles.length === 0 ? 0.6 : 1 }]}
+            onPress={createNewspaper}
+            disabled={creating || selectedArticles.length === 0}
+          >
+            {creating ? (
+              <ActivityIndicator color="#fff" />
+            ) : (
+              <Ionicons name="archive-outline" size={20} color="#fff" />
+            )}
+            <Text style={styles.exportText}>{creating ? 'Gazete hazirlaniyor...' : 'Gazete Oluştur'}</Text>
+          </Pressable>
+
+          <Pressable
+            style={[styles.exportButton, { backgroundColor: colors.accent, opacity: exporting || selectedArticles.length === 0 ? 0.6 : 1, marginTop: 8 }]}
             onPress={exportPaper}
             disabled={exporting || selectedArticles.length === 0}
           >
@@ -433,7 +448,7 @@ export default function NewspaperBuilder() {
             ) : (
               <Ionicons name="download-outline" size={20} color="#fff" />
             )}
-            <Text style={styles.exportText}>{exporting ? 'PDF hazirlaniyor...' : 'PDF Olarak Export Et'}</Text>
+            <Text style={styles.exportText}>{exporting ? 'PDF hazirlaniyor...' : 'PDF İndir'}</Text>
           </Pressable>
 
           <Pressable
@@ -443,6 +458,7 @@ export default function NewspaperBuilder() {
               {
                 borderColor: colors.accent,
                 opacity: exportingHtml || selectedArticles.length === 0 ? 0.6 : 1,
+                marginTop: 8,
               },
             ]}
             onPress={exportInteractiveHtml}
@@ -454,7 +470,7 @@ export default function NewspaperBuilder() {
               <Ionicons name="code-slash-outline" size={20} color={colors.accent} />
             )}
             <Text style={[styles.exportText, { color: colors.accent }]}>
-              {exportingHtml ? 'HTML hazirlaniyor...' : 'Etkilesimli HTML Export'}
+              {exportingHtml ? 'HTML hazirlaniyor...' : 'HTML İndir'}
             </Text>
           </Pressable>
         </View>
