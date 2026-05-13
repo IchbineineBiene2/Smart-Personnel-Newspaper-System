@@ -69,6 +69,7 @@ export default function NewspaperBuilder() {
   const [exporting, setExporting] = useState(false);
   const [exportingHtml, setExportingHtml] = useState(false);
   const [isInitializing, setIsInitializing] = useState(true);
+  const [userToken, setUserToken] = useState<string | null>(null);
 
   useFocusEffect(
     useCallback(() => {
@@ -77,6 +78,14 @@ export default function NewspaperBuilder() {
       return () => clearTimeout(timer);
     }, [])
   );
+
+  useEffect(() => {
+    const loadToken = async () => {
+      const token = await getToken();
+      setUserToken(token);
+    };
+    loadToken();
+  }, []);
 
   const categories = useMemo(() => {
     const set = new Set<string>();
@@ -162,14 +171,29 @@ export default function NewspaperBuilder() {
   };
 
   const exportPaper = async () => {
+    if (!userToken) {
+      Alert.alert('Uyarı', 'Gazete oluşturmak için giriş yapmalısınız.');
+      return;
+    }
+
     if (selectedArticles.length === 0) {
-      Alert.alert('Uyari', 'Gazete olusturmak icin haber bulunamadi.');
+      Alert.alert('Uyarı', 'Gazete oluşturmak için haber bulunamadı.');
       return;
     }
 
     try {
       setExporting(true);
       const pdfArticles = await Promise.all(selectedArticles.map(mapForPdf));
+      
+      // Gazeteyi arşive kaydet
+      await createEdition(
+        paperName.trim() || 'Smart Newspaper',
+        `${selectedCategories.join(', ')} kategorilerinden seçilmiş ${selectedArticles.length} haber`,
+        selectedArticles.map((a) => parseInt(a.id, 10)).filter((n) => !isNaN(n)),
+        userToken
+      );
+
+      // PDF indir
       await exportNewspaperPdf({
         engine: Platform.OS === 'web' ? 'react-pdf' : 'html-css',
         newspaperName: paperName.trim() || 'Smart Newspaper',
@@ -180,28 +204,45 @@ export default function NewspaperBuilder() {
         },
         articles: pdfArticles,
       });
+
+      Alert.alert('Başarılı', 'Gazete oluşturuldu ve arşivde kaydedildi.');
     } catch (error) {
       console.error('Newspaper export error:', error);
-      Alert.alert('Hata', 'PDF olusturulurken bir sorun olustu.');
+      Alert.alert('Hata', 'Gazete oluşturulurken bir sorun oluştu.');
     } finally {
       setExporting(false);
     }
   };
 
   const exportInteractiveHtml = async () => {
+    if (!userToken) {
+      Alert.alert('Uyarı', 'Gazete oluşturmak için giriş yapmalısınız.');
+      return;
+    }
+
     if (selectedArticles.length === 0) {
-      Alert.alert('Uyari', 'Gazete olusturmak icin haber bulunamadi.');
+      Alert.alert('Uyarı', 'Gazete oluşturmak için haber bulunamadı.');
       return;
     }
 
     if (Platform.OS !== 'web') {
-      Alert.alert('Uyari', 'Etkilesimli HTML export su an web uzerinden destekleniyor.');
+      Alert.alert('Uyarı', 'Etkileşimli HTML export şu an web üzerinden destekleniyor.');
       return;
     }
 
     try {
       setExportingHtml(true);
       const htmlArticles = await Promise.all(selectedArticles.map(mapForPdf));
+      
+      // Gazeteyi arşive kaydet
+      await createEdition(
+        paperName.trim() || 'Smart Newspaper',
+        `${selectedCategories.join(', ')} kategorilerinden seçilmiş ${selectedArticles.length} haber`,
+        selectedArticles.map((a) => parseInt(a.id, 10)).filter((n) => !isNaN(n)),
+        userToken
+      );
+
+      // HTML indir
       await exportInteractiveNewspaperHtml({
         newspaperName: paperName.trim() || 'Smart Newspaper',
         generatedAt: new Date().toISOString(),
@@ -210,9 +251,11 @@ export default function NewspaperBuilder() {
         },
         articles: htmlArticles,
       });
+
+      Alert.alert('Başarılı', 'İnteraktif gazete oluşturuldu ve arşivde kaydedildi.');
     } catch (error) {
       console.error('Interactive HTML export error:', error);
-      Alert.alert('Hata', 'HTML gazete olusturulurken bir sorun olustu.');
+      Alert.alert('Hata', 'HTML gazete oluşturulurken bir sorun oluştu.');
     } finally {
       setExportingHtml(false);
     }
