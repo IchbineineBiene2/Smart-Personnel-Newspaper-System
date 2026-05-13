@@ -19,37 +19,36 @@ import { useApiNews } from '@/hooks/useNews';
 import { usePreferences } from '@/hooks/usePreferences';
 import { useTheme } from '@/hooks/useTheme';
 import {
-  ARCHIVED_EDITIONS,
-  ArchivedArticle,
+  fetchUserEditions,
+  deleteEdition,
   ArchivedEdition,
-  getEditionArticles,
-  searchArchive,
 } from '@/services/archive';
 import { exportNewspaperPdf } from '@/services/pdf/newspaperPdfExporter';
 import { ApiArticle, mapToContentCategory, proxyImageUrl } from '@/services/newsApi';
+import { getToken, getCurrentUser } from '@/services/auth';
 
 type ScreenState = 'list' | 'detail' | 'search';
 type ArchiveTab = 'editions' | 'saved';
 
 async function downloadEditionPdf(
   edition: ArchivedEdition,
-  articles: ArchivedArticle[],
+  articles: ApiArticle[],
   preferredCategories: string[]
 ) {
   try {
     await exportNewspaperPdf({
       engine: Platform.OS === 'web' ? 'react-pdf' : 'html-css',
       newspaperName: 'Smart Newspaper',
-      generatedAt: edition.generatedAt,
-      shareTitle: edition.title,
+      generatedAt: edition.created_at,
+      shareTitle: edition.edition_date,
       personalization: { preferredCategories },
       articles: articles.map((article) => ({
         id: article.id,
         title: article.title,
-        summary: article.excerpt,
-        content: article.excerpt,
-        category: article.category,
-        source: article.source,
+        summary: article.description,
+        content: article.description,
+        category: mapToContentCategory(article.category, article.title, article.description),
+        source: article.source.name,
         date: article.publishedAt,
         imageUrl: article.imageUrl,
       })),
@@ -71,16 +70,37 @@ export default function Archive() {
   const [activeTab, setActiveTab] = useState<ArchiveTab>(params.tab === 'saved' ? 'saved' : 'editions');
   const [selectedEdition, setSelectedEdition] = useState<ArchivedEdition | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
+  const [userEditions, setUserEditions] = useState<ArchivedEdition[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [userToken, setUserToken] = useState<string | null>(null);
 
+  useEffect(() => {
+    const loadUserData = async () => {
+      try {
+        setLoading(true);
+        const token = await getToken();
+        setUserToken(token);
+        
+        if (token) {
+          const editions = await fetchUserEditions(token);
+          setUserEditions(editions);
+        }
+      } catch (error) {
+        console.error('Failed to load user editions:', error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadUserData();
+  }, []);
+
+  // Get articles for selected edition from news API
   const editionArticles = useMemo(() => {
-    if (!selectedEdition) return [];
-    return getEditionArticles(selectedEdition.id);
-  }, [selectedEdition]);
-
-  const searchResults = useMemo(() => {
-    if (searchQuery.trim().length < 2) return [];
-    return searchArchive(searchQuery.trim());
-  }, [searchQuery]);
+    if (!selectedEdition || !selectedEdition.selected_articles) return [];
+    const selectedIds = selectedEdition.selected_articles.map(String);
+    return articles.filter((article) => selectedIds.includes(article.id));
+  }, [selectedEdition, articles]);
 
   const savedArticles = useMemo(
     () =>
@@ -193,42 +213,45 @@ export default function Archive() {
         </Pressable>
 
         <View style={s(colors).editionHeader}>
-          <Text style={s(colors).editionTitle}>{selectedEdition.title}</Text>
-          <Text style={s(colors).editionDate}>{formatDate(selectedEdition.generatedAt)}</Text>
-          <View style={s(colors).chipGroup}>
-            {selectedEdition.categories.map((cat) => (
-              <View key={cat} style={s(colors).categoryBadge}>
-                <Text style={s(colors).categoryText}>{cat}</Text>
-              </View>
-            ))}
-          </View>
+          <Text style={s(colors).editionTitle}>{selectedEdition.edition_date}</Text>
+          <Text style={s(colors).editionDate}>{formatDate(selectedEdition.created_at)}</Text>
+          {selectedEdition.description && (
+            <Text style={s(colors).editionDescription}>{selectedEdition.description}</Text>
+          )}
         </View>
 
         <Pressable
           style={s(colors).downloadButton}
-          onPress={() => downloadEditionPdf(selectedEdition, editionArticles, preferredCategories)}
+          onPress={() => {
+            if (userToken) {
+              downloadEditionPdf(selectedEdition, editionArticles, preferredCategories);
+            }
+          }}
         >
           <Ionicons name="download-outline" size={20} color={colors.white} />
           <Text style={s(colors).downloadText}>PDF Olarak Indir</Text>
         </Pressable>
 
-        <Text style={s(colors).sectionTitle}>Makaleler ({editionArticles.length})</Text>
-
-        {editionArticles.length === 0 ? (
-          <Text style={s(colors).emptyText}>Bu edisyonda makale bulunamadi.</Text>
-        ) : (
-          editionArticles.map((article) => (
-            <View key={article.id} style={s(colors).card}>
-              <View style={s(colors).cardHeader}>
-                <View style={s(colors).categoryBadge}>
-                  <Text style={s(colors).categoryText}>{article.category}</Text>
-                </View>
-                <Text style={s(colors).cardSource}>{article.source}</Text>
-              </View>
-              <Text style={s(colors).cardTitle}>{article.title}</Text>
-              <Text style={s(colors).cardBody}>{article.excerpt}</Text>
+        {editionArticles.length > 0 && (
+          <>
+            <Text style={s(colors).sectionTitle}>Makaleler ({editionArticles.length})</Text>
+            <View>
+              {editionArticles.slice(0, 3).map((article) => (
+                <Pressable key={article.id} style={s(colors).card} onPress={() => openArticle(article)}>
+                  <View style={s(colors).cardHeader}>
+                    <View style={s(colors).categoryBadge}>
+                      <Text style={s(colors).categoryText}>{article.category}</Text>
+                    </View>
+                    <Text style={s(colors).cardSource}>{article.source.name}</Text>
+                  </View>
+                  <Text style={s(colors).cardTitle}>{article.title}</Text>
+                  <Text style={s(colors).cardBody} numberOfLines={2}>
+                    {article.description}
+                  </Text>
+                </Pressable>
+              ))}
             </View>
-          ))
+          </>
         )}
       </ScrollView>
     );
@@ -254,9 +277,9 @@ export default function Archive() {
       </View>
 
       <View style={s(colors).topActions}>
-        <Pressable style={s(colors).searchButton} onPress={() => setScreen('search')}>
-          <Ionicons name="search-outline" size={18} color={colors.accent} />
-          <Text style={s(colors).searchButtonText}>Arsivde Ara</Text>
+        <Pressable style={s(colors).searchButton} disabled>
+          <Ionicons name="search-outline" size={18} color={colors.textMuted} />
+          <Text style={s(colors).searchButtonTextDisabled}>Arsivde Ara (Yakin Zamanda)</Text>
         </Pressable>
       </View>
 
@@ -265,31 +288,35 @@ export default function Archive() {
           <Text style={s(colors).sectionTitle}>Kisisel Gazeteler</Text>
           <Text style={s(colors).sectionSubtitle}>Daha once olusturulmus kisisel gazeteleriniz</Text>
 
-          {ARCHIVED_EDITIONS.map((edition) => (
-            <Pressable key={edition.id} style={s(colors).editionCard} onPress={() => openEdition(edition)}>
-              <View style={s(colors).editionCardTop}>
-                <View style={s(colors).editionIcon}>
-                  <Ionicons name="newspaper-outline" size={24} color={colors.accent} />
+          {loading ? (
+            <Text style={s(colors).emptyText}>Gazeteler yükleniyor...</Text>
+          ) : userEditions.length === 0 ? (
+            <View style={s(colors).savedEmpty}>
+              <Ionicons name="newspaper-outline" size={48} color={colors.textMuted} />
+              <Text style={s(colors).emptyText}>Henuz gazete olusturulmamis.</Text>
+            </View>
+          ) : (
+            userEditions.map((edition) => (
+              <Pressable key={edition.id} style={s(colors).editionCard} onPress={() => openEdition(edition)}>
+                <View style={s(colors).editionCardTop}>
+                  <View style={s(colors).editionIcon}>
+                    <Ionicons name="newspaper-outline" size={24} color={colors.accent} />
+                  </View>
+                  <View style={s(colors).editionInfo}>
+                    <Text style={s(colors).editionCardTitle}>{edition.edition_date}</Text>
+                    <Text style={s(colors).editionCardDate}>{formatDate(edition.created_at)}</Text>
+                  </View>
+                  <Ionicons name="chevron-forward" size={20} color={colors.textMuted} />
                 </View>
-                <View style={s(colors).editionInfo}>
-                  <Text style={s(colors).editionCardTitle}>{edition.title}</Text>
-                  <Text style={s(colors).editionCardDate}>{formatDate(edition.generatedAt)}</Text>
+                <Text style={s(colors).editionSummary}>{edition.description || 'Kisisel gazete'}</Text>
+                <View style={s(colors).editionFooter}>
+                  <Text style={s(colors).articleCount}>
+                    {edition.selected_articles?.length || 0} makale
+                  </Text>
                 </View>
-                <Ionicons name="chevron-forward" size={20} color={colors.textMuted} />
-              </View>
-              <Text style={s(colors).editionSummary}>{edition.summary}</Text>
-              <View style={s(colors).editionFooter}>
-                <View style={s(colors).chipGroup}>
-                  {edition.categories.map((cat) => (
-                    <View key={cat} style={s(colors).chipSmall}>
-                      <Text style={s(colors).chipSmallText}>{cat}</Text>
-                    </View>
-                  ))}
-                </View>
-                <Text style={s(colors).articleCount}>{edition.articleCount} makale</Text>
-              </View>
-            </Pressable>
-          ))}
+              </Pressable>
+            ))
+          )}
         </>
       ) : (
         <>
