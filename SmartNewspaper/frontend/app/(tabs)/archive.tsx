@@ -79,10 +79,12 @@ export default function Archive() {
       try {
         setLoading(true);
         const token = await getToken();
+        const user = await getCurrentUser();
+        
         setUserToken(token);
         
-        if (token) {
-          const editions = await fetchUserEditions(token);
+        if (token && user) {
+          const editions = await fetchUserEditions(user.userId, token);
           setUserEditions(editions);
         }
       } catch (error) {

@@ -48,11 +48,15 @@ router.post('/generate', async (req: Request, res: Response) => {
       return;
     }
 
+    // Combine title and description or use title as edition date
+    const editionDate = new Date().toISOString().split('T')[0];
+    const fullDescription = [title, description].filter(Boolean).join(' - ');
+
     const result = await dbQuery(
-      `INSERT INTO archive_editions (user_id, edition_date, edition_type, title, description, selected_articles, created_at)
-       VALUES ($1, NOW()::DATE, $2, $3, $4, $5, NOW())
+      `INSERT INTO archive_editions (user_id, edition_date, edition_type, description, selected_articles, created_at)
+       VALUES ($1, $2, $3, $4, $5, NOW())
        RETURNING *`,
-      [req.user.userId, 'daily', title || 'Personalized Edition', description || null, selectedArticles]
+      [req.user.userId, editionDate, 'daily', fullDescription || null, selectedArticles]
     );
 
     res.status(201).json({ edition: result.rows[0] });

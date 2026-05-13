@@ -5,9 +5,8 @@ const API_BASE = 'http://localhost:3000';
 export interface ArchivedEdition {
   id: number;
   user_id: number;
-  title: string;
-  edition_date: string;       // ISO date string (YYYY-MM-DD)
-  edition_type: string;       // 'daily', 'weekly' etc
+  edition_date: string;       // YYYY-MM-DD format
+  edition_type?: string;       // 'daily', 'weekly' etc
   description: string | null;
   selected_articles: number[];
   pdf_url: string | null;
@@ -16,10 +15,11 @@ export interface ArchivedEdition {
 }
 
 // API: Get user's archived editions
-export async function fetchUserEditions(userId: number, token?: string): Promise<ArchivedEdition[]> {
+export async function fetchUserEditions(userId: number, token: string): Promise<ArchivedEdition[]> {
   try {
-    const headers: Record<string, string> = {};
-    if (token) headers['Authorization'] = `Bearer ${token}`;
+    const headers: Record<string, string> = {
+      'Authorization': `Bearer ${token}`,
+    };
 
     const res = await fetch(`${API_BASE}/api/archive/${userId}`, { headers });
     if (!res.ok) return [];
