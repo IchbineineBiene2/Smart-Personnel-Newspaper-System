@@ -1429,8 +1429,19 @@ export async function fetchNewsSources(): Promise<NewsSourceSummary[]> {
   }
 }
 
-export async function fetchSimilarArticlesFromDb(id: string, threshold = 0.82): Promise<any[]> {
-  const res = await fetch(`${API_BASE}/api/similarity/${encodeURIComponent(id)}?threshold=${threshold}`);
+export type SimilarKind = 'duplicate' | 'same_event' | 'related' | 'all';
+
+export async function fetchSimilarArticlesFromDb(
+  id: string,
+  options: { kind?: SimilarKind; limit?: number; threshold?: number } = {},
+): Promise<any[]> {
+  // v2 API: kind ∈ {duplicate, same_event, related, all}. Varsayılan same_event hem 'duplicate'
+  // hem 'same_event' kayıtlarını döner — "aynı haber farklı kaynaklarda" sekmesi için doğru filtre.
+  const kind = options.kind ?? 'same_event';
+  const limit = options.limit ?? 12;
+  const params = new URLSearchParams({ kind, limit: String(limit) });
+  if (options.threshold !== undefined) params.set('threshold', String(options.threshold));
+  const res = await fetch(`${API_BASE}/api/similarity/${encodeURIComponent(id)}?${params}`);
   if (!res.ok) return [];
   const rows = await res.json();
   return rows.map((r: any) => ({
@@ -1443,6 +1454,8 @@ export async function fetchSimilarArticlesFromDb(id: string, threshold = 0.82): 
     category: r.category,
     language: r.language,
     source: { name: r.source_name },
-    similarityScore: r.similarity_score
+    similarityScore: r.similarity_score,
+    kind: r.kind ?? 'same_event',
+    entityOverlap: r.entity_overlap ?? null,
   }));
 }
