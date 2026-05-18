@@ -4,8 +4,100 @@ import { scrapeArticleDetails } from '../collectors/scraper';
 import { query } from '../db';
 import { generateArticleAnalysis } from '../services/articleAnalysis';
 import { runCollection } from '../scheduler/newsScheduler';
+import axios from 'axios';
+import * as cheerio from 'cheerio';
 
 const router = Router();
+
+// In-memory cache for market rates (5 minutes cache expiration)
+let cachedRates: any[] | null = null;
+let lastCacheTime = 0;
+const CACHE_DURATION_MS = 5 * 60 * 1000; // 5 minutes
+
+// GET /api/news/market-rates - Canlı altın & döviz değerlerini getir
+router.get('/market-rates', async (_req: Request, res: Response) => {
+  const now = Date.now();
+  if (cachedRates && (now - lastCacheTime < CACHE_DURATION_MS)) {
+    return res.json({ rates: cachedRates, source: 'cache', timestamp: lastCacheTime });
+  }
+
+  try {
+    const response = await axios.get('https://www.doviz.com/', {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+      },
+      timeout: 5000
+    });
+    const $ = cheerio.load(response.data);
+    
+    const targetKeys: { [key: string]: string } = {
+      'GRAM ALTIN': 'Gram Altın',
+      'DOLAR': 'USD/TRY',
+      'EURO': 'EUR/TRY',
+      'BIST 100': 'BIST 100'
+    };
+    
+    const rates: any[] = [];
+    
+    $('.market-data .item').each((_i, el) => {
+      const rawName = $(el).find('.name').text().trim();
+      if (targetKeys[rawName]) {
+        const name = targetKeys[rawName];
+        let value = $(el).find('.value').text().trim();
+        const changeRateEl = $(el).find('.change-rate');
+        let change = changeRateEl.text().trim();
+        const up = changeRateEl.hasClass('up');
+        
+        if (name === 'Gram Altın' && !value.includes('₺')) {
+          value += ' ₺';
+        }
+        
+        // Clean and format percentage change safely, e.g. %-2,35 to -2.35%
+        let formattedChange = change.replace('%', '').trim();
+        formattedChange = formattedChange.replace('-', '').replace('+', '').trim(); // Remove any existing signs
+        formattedChange = formattedChange.replace(',', '.'); // standard decimal representation
+        formattedChange = (up ? '+' : '-') + formattedChange + '%';
+
+        rates.push({
+          name,
+          value,
+          change: formattedChange,
+          up
+        });
+      }
+    });
+
+    if (rates.length === 0) {
+      throw new Error('No rates scraped from source page');
+    }
+
+    // Sort to maintain standard order
+    const order = ['Gram Altın', 'USD/TRY', 'EUR/TRY', 'BIST 100'];
+    rates.sort((a, b) => order.indexOf(a.name) - order.indexOf(b.name));
+
+    cachedRates = rates;
+    lastCacheTime = now;
+    
+    return res.json({ rates, source: 'network', timestamp: now });
+  } catch (err) {
+    console.error('[NewsAPI] Market rates fetch error:', (err as Error).message);
+    
+    // Fallback to cache if available, even if expired
+    if (cachedRates) {
+      return res.json({ rates: cachedRates, source: 'stale-cache', timestamp: lastCacheTime });
+    }
+
+    // Default rates fallback if everything fails
+    const fallbackRates = [
+      { name: 'Gram Altın', value: '3.472 ₺', change: '+0.91%', up: true },
+      { name: 'USD/TRY',    value: '38,45',    change: '+0.12%', up: true },
+      { name: 'EUR/TRY',    value: '42,10',    change: '-0.28%', up: false },
+      { name: 'BIST 100',   value: '10.412',   change: '+1.42%', up: true },
+    ];
+    return res.json({ rates: fallbackRates, source: 'fallback', timestamp: now });
+  }
+});
+
 
 // GET /api/news/trending - "En çok okunanlar" için son 24 saatteki en güncel/popüler haberler
 // Popülerlik proxy'si: yayın tarihi yakınlığı + içerik zenginliği (image var mı, content uzunluğu)
