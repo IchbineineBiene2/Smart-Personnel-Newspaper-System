@@ -141,20 +141,21 @@ export async function runCollection(includeNewsApi = false): Promise<CollectionR
     const { inserted, skipped } = await upsertArticles(finalArticles);
 
     // Compute embeddings — eski model (geçiş için) + v2 (multilingual-e5-large)
-    if (inserted > 0) {
-      console.log('[Scheduler] Generating embeddings for new articles...');
-      try {
-        const { computeAndSaveEmbeddings } = require('../processors/embedding');
-        await computeAndSaveEmbeddings();
-      } catch(e) {
-        console.error('[Embedding Error]', e);
-      }
-      try {
-        await computeAndSaveEmbeddingsV2({ limit: 200, onlyMissing: true });
-      } catch(e) {
-        console.error('[EmbeddingV2 Error]', e);
-      }
-    }
+    // DISABLED: Connection pool optimization needed - causes timeout on API requests
+    // if (inserted > 0) {
+    //   console.log('[Scheduler] Generating embeddings for new articles...');
+    //   try {
+    //     const { computeAndSaveEmbeddings } = require('../processors/embedding');
+    //     await computeAndSaveEmbeddings();
+    //   } catch(e) {
+    //     console.error('[Embedding Error]', e);
+    //   }
+    //   try {
+    //     await computeAndSaveEmbeddingsV2({ limit: 200, onlyMissing: true });
+    //   } catch(e) {
+    //     console.error('[EmbeddingV2 Error]', e);
+    //   }
+    // }
 
     const duration = Date.now() - startTime;
     console.log(

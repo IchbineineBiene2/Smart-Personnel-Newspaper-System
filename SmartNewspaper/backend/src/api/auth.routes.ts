@@ -10,10 +10,18 @@ const router = Router();
  */
 router.post('/register', async (req: Request, res: Response) => {
   try {
-    const { username, email, password } = req.body;
+    const username = typeof req.body.username === 'string' ? req.body.username.trim() : '';
+    const fullName = typeof req.body.fullName === 'string' ? req.body.fullName.trim() : '';
+    const email = typeof req.body.email === 'string' ? req.body.email.trim() : '';
+    const { password } = req.body;
 
-    if (!email || !password || !username) {
-      res.status(400).json({ error: 'Email, username and password required' });
+    if (!email || !password || !username || !fullName) {
+      res.status(400).json({ error: 'Full name, username, email and password required' });
+      return;
+    }
+
+    if (!/^[a-zA-Z0-9_]{3,24}$/.test(username)) {
+      res.status(400).json({ error: 'Username must be 3-24 characters and use only letters, numbers or underscore' });
       return;
     }
 
@@ -22,12 +30,17 @@ router.post('/register', async (req: Request, res: Response) => {
       return;
     }
 
-    const user = await authModel.registerUser(username, email, password);
+    const user = await authModel.registerUser(username, fullName, email, password);
     const token = authModel.generateToken(user);
 
     res.status(201).json({ user, token });
   } catch (err) {
-    const error = err as Error;
+    const error = err as Error & { code?: string; constraint?: string };
+    if (error.code === '23505') {
+      const field = error.constraint?.includes('email') ? 'E-posta' : 'Kullanici adi';
+      res.status(409).json({ error: `${field} zaten kullaniliyor` });
+      return;
+    }
     res.status(500).json({ error: error.message });
   }
 });
@@ -38,7 +51,8 @@ router.post('/register', async (req: Request, res: Response) => {
  */
 router.post('/login', async (req: Request, res: Response) => {
   try {
-    const { email, password } = req.body;
+    const email = typeof req.body.email === 'string' ? req.body.email.trim().toLowerCase() : '';
+    const { password } = req.body;
 
     if (!email || !password) {
       res.status(400).json({ error: 'Email and password required' });

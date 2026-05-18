@@ -19,10 +19,11 @@ router.get('/search', async (req: Request, res: Response) => {
     }
 
     const result = await dbQuery(
-      `SELECT id, username, email FROM users 
-       WHERE (username ILIKE $1 OR email ILIKE $1)
+      `SELECT id, username, full_name, email FROM users
+       WHERE (username ILIKE $1 OR full_name ILIKE $1 OR email ILIKE $1)
        AND id != $2
        AND status = 'active'
+       AND role = 'user'
        LIMIT $3`,
       [`%${q}%`, req.user?.userId, limit]
     );
@@ -43,7 +44,7 @@ router.get('/profile/:userId', async (req: Request, res: Response) => {
     const { userId } = req.params;
 
     const result = await dbQuery(
-      `SELECT id, username, email, created_at FROM users 
+      `SELECT id, username, full_name, email, created_at, role FROM users
        WHERE id = $1 AND status = 'active'`,
       [userId]
     );
@@ -64,9 +65,42 @@ router.get('/profile/:userId', async (req: Request, res: Response) => {
       [user.username]
     );
 
+    // Get friend count
+    const friendCountResult = await dbQuery(
+      `SELECT COUNT(*) as count FROM friend_requests
+       WHERE ((requester_id = $1 OR recipient_id = $1) AND status = 'accepted')`,
+      [userId]
+    );
+
+    // Get friend status if current user is authenticated
+    let friend_status = 'none'; // 'none', 'friends', 'pending', 'sent'
+    let friend_request_id = null;
+
+    if (req.user && req.user.userId !== parseInt(userId)) {
+      const statusResult = await dbQuery(
+        `SELECT id, requester_id, status FROM friend_requests
+         WHERE (requester_id = $1 AND recipient_id = $2)
+            OR (requester_id = $2 AND recipient_id = $1)`,
+        [req.user.userId, userId]
+      );
+
+      if (statusResult.rows.length > 0) {
+        const request = statusResult.rows[0];
+        friend_request_id = request.id;
+        if (request.status === 'accepted') {
+          friend_status = 'friends';
+        } else if (request.status === 'pending') {
+          friend_status = request.requester_id === req.user.userId ? 'sent' : 'pending';
+        }
+      }
+    }
+
     res.json({ 
       user, 
-      recent_articles: articlesResult.rows 
+      recent_articles: articlesResult.rows,
+      friend_count: parseInt(friendCountResult.rows[0].count),
+      friend_status,
+      friend_request_id
     });
   } catch (err) {
     const error = err as Error;

@@ -13,6 +13,7 @@ export default function RegisterScreen() {
   const elevatedSurface = themeName === 'vincent' ? colors.surface : colors.surfaceHigh;
 
   const [name, setName] = useState('');
+  const [username, setUsername] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -20,8 +21,13 @@ export default function RegisterScreen() {
   const [loading, setLoading] = useState(false);
 
   const handleRegister = async () => {
-    if (!name.trim() || !email.trim() || !password.trim()) {
+    if (!name.trim() || !username.trim() || !email.trim() || !password.trim()) {
       setError('Tüm alanlar zorunludur.');
+      return;
+    }
+
+    if (!/^[a-zA-Z0-9_]{3,24}$/.test(username.trim())) {
+      setError('Kullanici adi 3-24 karakter olmali; sadece harf, rakam ve alt cizgi kullanilabilir.');
       return;
     }
 
@@ -39,8 +45,11 @@ export default function RegisterScreen() {
     setError(null);
 
     try {
-      await registerUser({ name, email, password });
+      await registerUser({ name, username, email, password });
       router.replace('/(tabs)/profile');
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Kayit olusturulamadi.';
+      setError(message);
     } finally {
       setLoading(false);
     }
@@ -57,6 +66,16 @@ export default function RegisterScreen() {
           onChangeText={setName}
           placeholder="Ad Soyad"
           placeholderTextColor={colors.textMuted}
+          style={[styles(colors).input, { backgroundColor: elevatedSurface }]}
+        />
+
+        <TextInput
+          value={username}
+          onChangeText={setUsername}
+          placeholder="Kullanici adi"
+          placeholderTextColor={colors.textMuted}
+          autoCapitalize="none"
+          autoCorrect={false}
           style={[styles(colors).input, { backgroundColor: elevatedSurface }]}
         />
 

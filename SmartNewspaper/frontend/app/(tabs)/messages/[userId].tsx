@@ -321,14 +321,22 @@ export default function MessageDetailScreen() {
         <TouchableOpacity onPress={() => router.back()}>
           <Ionicons name="chevron-back" size={24} color={colors.accent} />
         </TouchableOpacity>
-        <View style={styles.headerInfo}>
+        <TouchableOpacity
+          style={styles.headerInfo}
+          onPress={() =>
+            router.push({
+              pathname: '/profile/[userId]',
+              params: { userId, username },
+            } as any)
+          }
+        >
           <Text style={[styles.headerTitle, { color: colors.textPrimary }]}>
             {username}
           </Text>
           <Text style={[styles.headerSubtitle, { color: colors.textMuted }]}>
             Çevrimiçi
           </Text>
-        </View>
+        </TouchableOpacity>
         <Ionicons name="ellipsis-vertical" size={24} color={colors.textMuted} />
       </View>
 

@@ -5,6 +5,32 @@ import { query as dbQuery } from '../db/index';
 const router = Router();
 router.use(authMiddleware);
 
+async function areUsersFriends(userId: number, otherUserId: number): Promise<boolean> {
+  const result = await dbQuery(
+    `SELECT id FROM friend_requests
+     WHERE ((requester_id = $1 AND recipient_id = $2)
+         OR (requester_id = $2 AND recipient_id = $1))
+       AND status = 'accepted'
+     LIMIT 1`,
+    [userId, otherUserId]
+  );
+
+  return result.rows.length > 0;
+}
+
+async function hasAcceptedConversation(userId: number, otherUserId: number): Promise<boolean> {
+  const result = await dbQuery(
+    `SELECT id FROM messages
+     WHERE ((sender_id = $1 AND recipient_id = $2)
+         OR (sender_id = $2 AND recipient_id = $1))
+       AND request_status = 'accepted'
+     LIMIT 1`,
+    [userId, otherUserId]
+  );
+
+  return result.rows.length > 0;
+}
+
 /**
  * GET /api/messages/conversations
  * Get all conversations for current user
@@ -29,7 +55,11 @@ router.get('/conversations', async (req: Request, res: Response) => {
              ORDER BY m.created_at DESC, m.id DESC
            ) AS row_number
          FROM messages m
-         WHERE m.sender_id = $1 OR m.recipient_id = $1
+         WHERE (m.sender_id = $1 OR m.recipient_id = $1)
+           AND (
+             m.request_status = 'accepted'
+             OR (m.sender_id = $1 AND m.request_status = 'pending')
+           )
        ),
        unread_counts AS (
          SELECT
@@ -37,11 +67,13 @@ router.get('/conversations', async (req: Request, res: Response) => {
            COUNT(*)::int AS unread_count
          FROM messages
          WHERE recipient_id = $1 AND is_read = FALSE
+           AND request_status = 'accepted'
          GROUP BY sender_id
        )
        SELECT
          cm.other_user_id,
          u.username,
+         u.full_name,
          u.email,
          cm.sender_id AS last_sender_id,
          cm.content AS last_message,
@@ -56,6 +88,154 @@ router.get('/conversations', async (req: Request, res: Response) => {
     );
 
     res.json({ conversations: result.rows });
+  } catch (err) {
+    const error = err as Error;
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * GET /api/messages/requests
+ * Get pending message requests for current user
+ */
+router.get('/requests', async (req: Request, res: Response) => {
+  try {
+    if (!req.user) {
+      res.status(401).json({ error: 'Not authenticated' });
+      return;
+    }
+
+    const result = await dbQuery(
+      `WITH request_messages AS (
+         SELECT
+           m.*,
+           m.sender_id AS other_user_id,
+           ROW_NUMBER() OVER (
+             PARTITION BY m.sender_id
+             ORDER BY m.created_at DESC, m.id DESC
+           ) AS row_number,
+           COUNT(*) OVER (PARTITION BY m.sender_id)::int AS message_count
+         FROM messages m
+         WHERE m.recipient_id = $1
+           AND m.request_status = 'pending'
+       )
+       SELECT
+         rm.other_user_id,
+         u.username,
+         u.full_name,
+         u.email,
+         rm.sender_id AS last_sender_id,
+         rm.content AS last_message,
+         rm.created_at AS last_message_at,
+         rm.message_count AS unread_count
+       FROM request_messages rm
+       JOIN users u ON u.id = rm.other_user_id
+       WHERE rm.row_number = 1
+       ORDER BY rm.created_at DESC, rm.id DESC`,
+      [req.user.userId]
+    );
+
+    res.json({ requests: result.rows });
+  } catch (err) {
+    const error = err as Error;
+    res.status(500).json({ error: error.message });
+  }
+});
+
+router.post('/requests/:userId/accept', async (req: Request, res: Response) => {
+  try {
+    if (!req.user) {
+      res.status(401).json({ error: 'Not authenticated' });
+      return;
+    }
+
+    const otherUserId = parseInt(req.params.userId);
+
+    const result = await dbQuery(
+      `UPDATE messages
+       SET request_status = 'accepted',
+           updated_at = NOW()
+       WHERE ((sender_id = $1 AND recipient_id = $2)
+           OR (sender_id = $2 AND recipient_id = $1))
+         AND request_status = 'pending'
+       RETURNING id`,
+      [otherUserId, req.user.userId]
+    );
+
+    if (result.rows.length === 0) {
+      res.status(404).json({ error: 'Message request not found' });
+      return;
+    }
+
+    res.json({ success: true, accepted_count: result.rows.length });
+  } catch (err) {
+    const error = err as Error;
+    res.status(500).json({ error: error.message });
+  }
+});
+
+router.post('/requests/:userId/restrict', async (req: Request, res: Response) => {
+  try {
+    if (!req.user) {
+      res.status(401).json({ error: 'Not authenticated' });
+      return;
+    }
+
+    const otherUserId = parseInt(req.params.userId);
+    const isFriend = await areUsersFriends(req.user.userId, otherUserId);
+
+    if (isFriend) {
+      res.status(400).json({ error: 'Cannot restrict an active friend conversation' });
+      return;
+    }
+
+    const result = await dbQuery(
+      `UPDATE messages
+       SET request_status = 'pending',
+           updated_at = NOW()
+       WHERE ((sender_id = $1 AND recipient_id = $2)
+           OR (sender_id = $2 AND recipient_id = $1))
+         AND request_status = 'accepted'
+       RETURNING id`,
+      [otherUserId, req.user.userId]
+    );
+
+    if (result.rows.length === 0) {
+      res.status(404).json({ error: 'Accepted conversation not found' });
+      return;
+    }
+
+    res.json({ success: true, restricted_count: result.rows.length });
+  } catch (err) {
+    const error = err as Error;
+    res.status(500).json({ error: error.message });
+  }
+});
+
+router.delete('/requests/:userId', async (req: Request, res: Response) => {
+  try {
+    if (!req.user) {
+      res.status(401).json({ error: 'Not authenticated' });
+      return;
+    }
+
+    const otherUserId = parseInt(req.params.userId);
+
+    const result = await dbQuery(
+      `DELETE FROM messages
+       WHERE sender_id = $1
+         AND recipient_id = $2
+         AND request_status = 'pending'
+       RETURNING id`,
+      [otherUserId, req.user.userId]
+    );
+
+    if (result.rows.length === 0) {
+      res.status(404).json({ error: 'Message request not found' });
+      return;
+    }
+
+    res.json({ success: true, deleted_count: result.rows.length });
   } catch (err) {
     const error = err as Error;
     res.status(500).json({ error: error.message });
@@ -103,7 +283,7 @@ router.get('/:userId', async (req: Request, res: Response) => {
       `UPDATE messages 
        SET is_read = TRUE,
            updated_at = NOW()
-       WHERE recipient_id = $1 AND sender_id = $2 AND is_read = FALSE`,
+       WHERE recipient_id = $1 AND sender_id = $2 AND is_read = FALSE AND request_status = 'accepted'`,
       [req.user.userId, userId]
     );
 
@@ -150,11 +330,16 @@ router.post('/send', async (req: Request, res: Response) => {
       return;
     }
 
+    const recipientId = parseInt(recipient_id);
+    const shouldAccept =
+      await areUsersFriends(req.user.userId, recipientId) ||
+      await hasAcceptedConversation(req.user.userId, recipientId);
+
     const result = await dbQuery(
-      `INSERT INTO messages (sender_id, recipient_id, content)
-       VALUES ($1, $2, $3)
+      `INSERT INTO messages (sender_id, recipient_id, content, request_status)
+       VALUES ($1, $2, $3, $4)
        RETURNING *`,
-      [req.user.userId, recipient_id, content]
+      [req.user.userId, recipientId, content, shouldAccept ? 'accepted' : 'pending']
     );
 
     res.status(201).json({ message: result.rows[0] });

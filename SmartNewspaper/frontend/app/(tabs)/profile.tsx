@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
+  ActivityIndicator,
   Alert,
   Animated,
   Image,
@@ -32,6 +33,18 @@ import { ThemeName } from '@/theme/themes';
 const PROFILE_PHOTO_STORAGE_KEY = 'profile-photo-uri';
 
 type ProfileTab = 'general' | 'preferences' | 'security' | 'subscription';
+
+type FriendStatus = 'none' | 'friends' | 'pending' | 'sent';
+
+interface FriendSearchResult {
+  id: number;
+  username: string;
+  full_name?: string;
+  email: string;
+  friend_count?: number;
+  friend_status?: FriendStatus;
+  friend_request_id?: number;
+}
 
 const PROFILE_TABS: { key: ProfileTab; label: string; icon: string }[] = [
   { key: 'general',      label: 'Genel',      icon: 'person-outline' },
@@ -74,8 +87,16 @@ export default function ProfileScreen() {
   const { articles: apiArticles } = useApiNews();
   const { followedIds, notificationEnabledIds, toggleFollow, togglePublisherNotifications } = usePublisherState();
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
+  const [friends, setFriends] = useState<any[]>([]);
   const [activeTab, setActiveTab] = useState<ProfileTab>('general');
   const [showFollowedPublishers, setShowFollowedPublishers] = useState(false);
+  const [showFriends, setShowFriends] = useState(false);
+  const [showFriendSearch, setShowFriendSearch] = useState(false);
+  const [friendSearchQuery, setFriendSearchQuery] = useState('');
+  const [friendSearchResults, setFriendSearchResults] = useState<FriendSearchResult[]>([]);
+  const [friendSearchLoading, setFriendSearchLoading] = useState(false);
+  const [friendActionLoading, setFriendActionLoading] = useState<Record<number, boolean>>({});
+  const [removingFriends, setRemovingFriends] = useState<Record<number, boolean>>({});
   const [showCategorySelector, setShowCategorySelector] = useState(false);
   const [publisherPanelView, setPublisherPanelView] = useState<'followed' | 'other'>('followed');
   const [isEditingGeneral, setIsEditingGeneral] = useState(false);
@@ -93,6 +114,7 @@ export default function ProfileScreen() {
 
   const headerFade = useRef(new Animated.Value(0)).current;
   const contentFade = useRef(new Animated.Value(0)).current;
+  const friendSearchRequestId = useRef(0);
 
   const isWeb = Platform.OS === 'web';
   const bg = colors.background;
@@ -104,10 +126,42 @@ export default function ProfileScreen() {
     .filter((article): article is ApiArticle => Boolean(article))
     .slice(0, 4);
 
+  const getAuthToken = async () => {
+    const authModule = require('@/services/auth');
+    return authModule.getToken?.();
+  };
+
+  const loadFriends = useCallback(async () => {
+    try {
+      const token = await getAuthToken();
+      if (!token) return;
+
+      const response = await fetch('http://localhost:3000/api/friends', {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        setFriends(data.friends || []);
+      }
+    } catch (error) {
+      console.error('Arkadaslar yuklenemedi:', error);
+    }
+  }, []);
+
   useFocusEffect(
     useCallback(() => {
-      getUserProfile().then((profile) => setUserProfile(profile));
-    }, [])
+      const loadProfile = async () => {
+        const profile = await getUserProfile();
+        setUserProfile(profile);
+        if (profile) {
+          loadFriends();
+        }
+      };
+      loadProfile();
+    }, [loadFriends])
   );
 
   useEffect(() => {
@@ -118,6 +172,189 @@ export default function ProfileScreen() {
   const handleLogout = async () => {
     await logoutUser();
     router.replace('/auth/login');
+  };
+
+  const handleCancelGeneral = () => {
+    setEditName(userProfile?.name ?? '');
+    setEditEmail(userProfile?.email ?? '');
+    setIsEditingGeneral(false);
+  };
+
+  const handleSaveGeneral = async () => {
+    const nextName = editName.trim();
+    const nextEmail = editEmail.trim();
+
+    if (!nextName || !nextEmail) {
+      Alert.alert('Hata', 'Ad soyad ve e-posta alanlari bos birakilamaz.');
+      return;
+    }
+
+    const updatedProfile: UserProfile = {
+      ...(userProfile ?? {
+        id: String(Date.now()),
+        createdAt: new Date().toISOString(),
+      }),
+      name: nextName,
+      email: nextEmail,
+    };
+
+    await updateUserProfile(updatedProfile);
+    setUserProfile(updatedProfile);
+    setIsEditingGeneral(false);
+  };
+
+  const searchFriendUsers = async (query: string) => {
+    const requestId = friendSearchRequestId.current + 1;
+    friendSearchRequestId.current = requestId;
+    const trimmed = query.trim();
+
+    if (trimmed.length < 2) {
+      setFriendSearchResults([]);
+      setFriendSearchLoading(false);
+      return;
+    }
+
+    try {
+      setFriendSearchLoading(true);
+      const token = await getAuthToken();
+      if (!token) {
+        setFriendSearchResults([]);
+        return;
+      }
+
+      const response = await fetch(
+        `http://localhost:3000/api/contacts/search?q=${encodeURIComponent(trimmed)}`,
+        {
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        }
+      );
+
+      if (requestId !== friendSearchRequestId.current) return;
+
+      if (response.ok) {
+        const data = await response.json();
+        const usersWithStatus = await Promise.all(
+          (data.users || []).map(async (user: FriendSearchResult) => {
+            try {
+              const profileResponse = await fetch(`http://localhost:3000/api/contacts/profile/${user.id}`, {
+                headers: {
+                  Authorization: `Bearer ${token}`,
+                },
+              });
+
+              if (profileResponse.ok) {
+                const profileData = await profileResponse.json();
+                return {
+                  ...user,
+                  friend_count: profileData.friend_count,
+                  friend_status: profileData.friend_status,
+                  friend_request_id: profileData.friend_request_id,
+                };
+              }
+            } catch (error) {
+              console.error('Arkadaslik durumu alinamadi:', error);
+            }
+
+            return user;
+          })
+        );
+
+        if (requestId === friendSearchRequestId.current) {
+          setFriendSearchResults(usersWithStatus);
+        }
+      } else {
+        setFriendSearchResults([]);
+      }
+    } catch (error) {
+      if (requestId !== friendSearchRequestId.current) return;
+      console.error('Kullanici arama hatasi:', error);
+      setFriendSearchResults([]);
+    } finally {
+      if (requestId === friendSearchRequestId.current) {
+        setFriendSearchLoading(false);
+      }
+    }
+  };
+
+  useEffect(() => {
+    if (!showFriendSearch) {
+      friendSearchRequestId.current += 1;
+      setFriendSearchQuery('');
+      setFriendSearchResults([]);
+      setFriendSearchLoading(false);
+      return;
+    }
+
+    const timeout = setTimeout(() => {
+      searchFriendUsers(friendSearchQuery);
+    }, 250);
+
+    return () => clearTimeout(timeout);
+  }, [friendSearchQuery, showFriendSearch]);
+
+  const handleSendFriendRequest = async (userId: number) => {
+    try {
+      setFriendActionLoading((current) => ({ ...current, [userId]: true }));
+      const token = await getAuthToken();
+
+      const response = await fetch(`http://localhost:3000/api/friends/request/${userId}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+      });
+
+      if (response.ok) {
+        setFriendSearchResults((current) =>
+          current.map((user) =>
+            user.id === userId ? { ...user, friend_status: 'sent' } : user
+          )
+        );
+        Alert.alert('Basarili', 'Arkadaslik istegi gonderildi.');
+      } else {
+        const data = await response.json();
+        Alert.alert('Hata', data.error || 'Arkadaslik istegi gonderilemedi.');
+      }
+    } catch (error) {
+      console.error('Arkadaslik istegi gonderilemedi:', error);
+      Alert.alert('Hata', 'Arkadaslik istegi gonderilemedi.');
+    } finally {
+      setFriendActionLoading((current) => ({ ...current, [userId]: false }));
+    }
+  };
+
+  const handleRemoveFriend = async (friendId: number) => {
+    try {
+      setRemovingFriends((current) => ({ ...current, [friendId]: true }));
+      const token = await getAuthToken();
+
+      const response = await fetch(`http://localhost:3000/api/friends/${friendId}`, {
+        method: 'DELETE',
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+
+      if (response.ok) {
+        setFriends((current) => current.filter((friend) => friend.friend_id !== friendId));
+        setFriendSearchResults((current) =>
+          current.map((user) =>
+            user.id === friendId ? { ...user, friend_status: 'none' } : user
+          )
+        );
+      } else {
+        const data = await response.json();
+        Alert.alert('Hata', data.error || 'Arkadaslik kaldirilamadi.');
+      }
+    } catch (error) {
+      console.error('Arkadaslik kaldirilamadi:', error);
+      Alert.alert('Hata', 'Arkadaslik kaldirilamadi.');
+    } finally {
+      setRemovingFriends((current) => ({ ...current, [friendId]: false }));
+    }
   };
 
   const openPhotoPicker = async (source: 'camera' | 'library') => {
@@ -215,7 +452,7 @@ export default function ProfileScreen() {
               {userProfile?.name ?? 'Ahmet Yüksel'}
             </Text>
             <Text style={[styles.profileHandle, { color: colors.textMuted }]}>
-              @{userProfile?.email?.split('@')[0] ?? 'yukselahmet740'}
+              @{userProfile?.username ?? userProfile?.email?.split('@')[0] ?? 'yukselahmet740'}
             </Text>
             <View style={styles.profileStats}>
               <Pressable
@@ -225,6 +462,7 @@ export default function ProfileScreen() {
                 ]}
                 onPress={() => {
                   setShowFollowedPublishers(true);
+                  setShowFriends(false);
                   setShowCategorySelector(false);
                   setPublisherPanelView('followed');
                   setActiveTab('general');
@@ -239,8 +477,24 @@ export default function ProfileScreen() {
                   { backgroundColor: colors.surfaceHigh, borderColor: colors.borderSubtle, opacity: pressed ? 0.75 : 1 },
                 ]}
                 onPress={() => {
+                  setShowFriends(true);
+                  setShowFollowedPublishers(false);
+                  setShowCategorySelector(false);
+                  setActiveTab('general');
+                }}
+              >
+                <Text style={[styles.statNum, { color: colors.textPrimary }]}>{friends.length}</Text>
+                <Text style={[styles.statLabel, { color: colors.textMuted }]}>ARKADAŞ</Text>
+              </Pressable>
+              <Pressable
+                style={({ pressed }) => [
+                  styles.statBox,
+                  { backgroundColor: colors.surfaceHigh, borderColor: colors.borderSubtle, opacity: pressed ? 0.75 : 1 },
+                ]}
+                onPress={() => {
                   setShowCategorySelector(true);
                   setShowFollowedPublishers(false);
+                  setShowFriends(false);
                   setActiveTab('general');
                 }}
               >
@@ -658,11 +912,164 @@ export default function ProfileScreen() {
                 </View>
               )}
 
+              {showFriends && (
+                <View style={[styles.panelCard, { backgroundColor: colors.surface, borderColor: colors.borderSubtle }]}>
+                  <View style={styles.panelHeaderBetween}>
+                    <View style={styles.panelHeader}>
+                      <Ionicons name="people" size={20} color={colors.accent} />
+                      <Text style={[styles.panelTitle, { color: colors.textPrimary }]}>Arkadaşlar</Text>
+                    </View>
+                    <View style={styles.panelActions}>
+                      <Pressable
+                        style={[styles.addFriendBtn, { backgroundColor: colors.accent, borderColor: colors.accent }]}
+                        onPress={() => setShowFriendSearch((current) => !current)}
+                      >
+                        <Ionicons name={showFriendSearch ? 'search' : 'person-add'} size={15} color="#fff" />
+                        <Text style={styles.addFriendBtnText}>
+                          {showFriendSearch ? 'Ara' : 'Arkadas Ekle'}
+                        </Text>
+                      </Pressable>
+                      <Pressable
+                        style={[styles.iconActionBtn, { backgroundColor: colors.surfaceHigh, borderColor: colors.borderSubtle }]}
+                        onPress={() => {
+                          setShowFriends(false);
+                          setShowFriendSearch(false);
+                        }}
+                      >
+                        <Ionicons name="close" size={16} color={colors.textMuted} />
+                      </Pressable>
+                    </View>
+                  </View>
+
+                  {showFriendSearch && (
+                    <View style={styles.friendSearchBox}>
+                      <View style={[styles.friendSearchInputWrap, { borderColor: colors.borderSubtle, backgroundColor: colors.surfaceHigh }]}>
+                        <Ionicons name="search" size={16} color={colors.textMuted} />
+                        <TextInput
+                          style={[styles.friendSearchInput, { color: colors.textPrimary }]}
+                          placeholder="Kullanici ara..."
+                          placeholderTextColor={colors.textMuted}
+                          value={friendSearchQuery}
+                          onChangeText={setFriendSearchQuery}
+                          autoCapitalize="none"
+                        />
+                      </View>
+
+                      {friendSearchLoading ? (
+                        <ActivityIndicator size="small" color={colors.accent} style={styles.friendSearchLoading} />
+                      ) : friendSearchQuery.trim().length >= 2 ? (
+                        friendSearchResults.length > 0 ? (
+                          <View style={styles.friendSearchResults}>
+                            {friendSearchResults.map((result) => {
+                              const status = result.friend_status ?? 'none';
+                              const isBusy = friendActionLoading[result.id];
+
+                              return (
+                                <View
+                                  key={result.id}
+                                  style={[styles.friendRow, { borderColor: colors.borderSubtle }]}
+                                >
+                                  <View style={[styles.friendAvatar, { backgroundColor: colors.accent + '18' }]}>
+                                    <Ionicons name="person" size={18} color={colors.accent} />
+                                  </View>
+                                  <View style={styles.friendText}>
+                                    <Text style={[styles.friendName, { color: colors.textPrimary }]} numberOfLines={1}>
+                                      {result.full_name || result.username}
+                                    </Text>
+                                    <Text style={[styles.friendEmail, { color: colors.textMuted }]} numberOfLines={1}>
+                                      @{result.username} · {result.email}
+                                    </Text>
+                                  </View>
+                                  {status === 'friends' ? (
+                                    <View style={[styles.friendStatusPill, { backgroundColor: colors.surfaceHigh, borderColor: colors.borderSubtle }]}>
+                                      <Text style={[styles.friendStatusText, { color: colors.textMuted }]}>Arkadas</Text>
+                                    </View>
+                                  ) : status === 'sent' ? (
+                                    <View style={[styles.friendStatusPill, { backgroundColor: colors.surfaceHigh, borderColor: colors.borderSubtle }]}>
+                                      <Text style={[styles.friendStatusText, { color: colors.textMuted }]}>Gonderildi</Text>
+                                    </View>
+                                  ) : status === 'pending' ? (
+                                    <View style={[styles.friendStatusPill, { backgroundColor: colors.surfaceHigh, borderColor: colors.borderSubtle }]}>
+                                      <Text style={[styles.friendStatusText, { color: colors.textMuted }]}>Bekliyor</Text>
+                                    </View>
+                                  ) : (
+                                    <Pressable
+                                      style={[styles.friendAddSmallBtn, { backgroundColor: colors.accent }]}
+                                      onPress={() => handleSendFriendRequest(result.id)}
+                                      disabled={isBusy}
+                                    >
+                                      {isBusy ? (
+                                        <ActivityIndicator size="small" color="#fff" />
+                                      ) : (
+                                        <Text style={styles.friendAddSmallText}>Ekle</Text>
+                                      )}
+                                    </Pressable>
+                                  )}
+                                </View>
+                              );
+                            })}
+                          </View>
+                        ) : (
+                          <Text style={[styles.panelSubtitle, { color: colors.textMuted }]}>
+                            Kullanici bulunamadi.
+                          </Text>
+                        )
+                      ) : (
+                        <Text style={[styles.panelSubtitle, { color: colors.textMuted }]}>
+                          Arkadaslik istegi gondermek icin en az 2 harf yaz.
+                        </Text>
+                      )}
+                    </View>
+                  )}
+
+                  {friends.length === 0 ? (
+                    <Text style={[styles.panelSubtitle, { color: colors.textMuted }]}>
+                      Henüz arkadaşın yok.
+                    </Text>
+                  ) : (
+                    <View style={styles.friendsList}>
+                      {friends.map((friend) => (
+                        <View
+                          key={friend.friend_id}
+                          style={[styles.friendRow, { borderColor: colors.borderSubtle }]}
+                        >
+                          <View style={[styles.friendAvatar, { backgroundColor: colors.accent + '18' }]}>
+                            <Ionicons name="person" size={18} color={colors.accent} />
+                          </View>
+                          <View style={styles.friendText}>
+                            <Text style={[styles.friendName, { color: colors.textPrimary }]} numberOfLines={1}>
+                              {friend.full_name || friend.username}
+                            </Text>
+                            <Text style={[styles.friendEmail, { color: colors.textMuted }]} numberOfLines={1}>
+                              @{friend.username} · {friend.email}
+                            </Text>
+                          </View>
+                          <Pressable
+                            style={[styles.removeFriendBtn, { borderColor: colors.borderSubtle, backgroundColor: colors.surfaceHigh }]}
+                            onPress={() => handleRemoveFriend(friend.friend_id)}
+                            disabled={removingFriends[friend.friend_id]}
+                          >
+                            {removingFriends[friend.friend_id] ? (
+                              <ActivityIndicator size="small" color="#ef4444" />
+                            ) : (
+                              <>
+                                <Ionicons name="person-remove-outline" size={14} color="#ef4444" />
+                                <Text style={styles.removeFriendText}>Cikar</Text>
+                              </>
+                            )}
+                          </Pressable>
+                        </View>
+                      ))}
+                    </View>
+                  )}
+                </View>
+              )}
+
               <View
                 style={[
                   styles.panelCard,
                   { backgroundColor: colors.surface, borderColor: colors.borderSubtle },
-                  (showFollowedPublishers || showCategorySelector) && styles.hiddenPanel,
+                  (showFollowedPublishers || showFriends || showCategorySelector) && styles.hiddenPanel,
                 ]}
               >
                 <View style={styles.panelHeaderBetween}>
@@ -1038,6 +1445,107 @@ const styles = StyleSheet.create({
   followedText: { flex: 1, minWidth: 0 },
   followedName: { fontSize: 14, fontWeight: '800' },
   followedMeta: { fontSize: 11, fontWeight: '600', marginTop: 2 },
+  friendsList: { gap: 10 },
+  panelActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  addFriendBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 9,
+    borderRadius: 10,
+    borderWidth: 1,
+  },
+  addFriendBtnText: {
+    color: '#fff',
+    fontSize: 11,
+    fontWeight: '800',
+  },
+  friendSearchBox: {
+    gap: 10,
+  },
+  friendSearchInputWrap: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    borderWidth: 1,
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+  },
+  friendSearchInput: {
+    flex: 1,
+    fontSize: 14,
+    paddingVertical: 4,
+  },
+  friendSearchLoading: {
+    alignSelf: 'flex-start',
+    marginVertical: 2,
+  },
+  friendSearchResults: {
+    gap: 4,
+  },
+  friendRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+  },
+  friendAvatar: {
+    width: 42,
+    height: 42,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    overflow: 'hidden',
+  },
+  friendText: { flex: 1, minWidth: 0 },
+  friendName: { fontSize: 14, fontWeight: '800' },
+  friendEmail: { fontSize: 11, fontWeight: '600', marginTop: 2 },
+  friendStatusPill: {
+    borderWidth: 1,
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+  },
+  friendStatusText: {
+    fontSize: 11,
+    fontWeight: '800',
+  },
+  friendAddSmallBtn: {
+    minWidth: 54,
+    height: 32,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 12,
+  },
+  friendAddSmallText: {
+    color: '#fff',
+    fontSize: 11,
+    fontWeight: '800',
+  },
+  removeFriendBtn: {
+    minWidth: 72,
+    height: 34,
+    borderRadius: 10,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexDirection: 'row',
+    gap: 5,
+    paddingHorizontal: 10,
+  },
+  removeFriendText: {
+    color: '#ef4444',
+    fontSize: 11,
+    fontWeight: '800',
+  },
   publisherPanelTabs: {
     flexDirection: 'row',
     gap: 8,

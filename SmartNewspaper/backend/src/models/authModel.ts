@@ -5,8 +5,9 @@ import { query as dbQuery } from '../db/index';
 export interface User {
   userId: number;
   username: string;
+  fullName?: string;
   email: string;
-  role: 'admin' | 'editor' | 'user';
+  role: 'admin' | 'editor' | 'user' | 'publisher';
   status: 'active' | 'suspended' | 'deleted';
 }
 
@@ -60,22 +61,27 @@ export function verifyToken(token: string): JWTPayload | null {
  */
 export async function registerUser(
   username: string,
+  fullName: string,
   email: string,
   password: string
 ): Promise<User> {
+  const normalizedEmail = email.trim().toLowerCase();
+  const normalizedUsername = username.trim().toLowerCase();
+  const normalizedFullName = fullName.trim();
   const passwordHash = hashPassword(password);
 
   const result = await dbQuery(
-    `INSERT INTO users (username, email, password_hash, role, status)
-     VALUES ($1, $2, $3, 'user', 'active')
-     RETURNING id, username, email, role, status`,
-    [username, email, passwordHash]
+    `INSERT INTO users (username, full_name, email, password_hash, role, status)
+     VALUES ($1, $2, $3, $4, 'user', 'active')
+     RETURNING id, username, full_name, email, role, status`,
+    [normalizedUsername, normalizedFullName, normalizedEmail, passwordHash]
   );
 
   const user = result.rows[0];
   return {
     userId: user.id,
     username: user.username,
+    fullName: user.full_name,
     email: user.email,
     role: user.role,
     status: user.status,
@@ -86,9 +92,14 @@ export async function registerUser(
  * Login user
  */
 export async function loginUser(email: string, password: string): Promise<User | null> {
+  const identity = email.trim().toLowerCase();
   const result = await dbQuery(
-    `SELECT id, username, email, role, status, password_hash FROM users WHERE email = $1`,
-    [email]
+    `SELECT id, username, full_name, email, role, status, password_hash
+     FROM users
+     WHERE (LOWER(email) = $1 OR LOWER(username) = $1)
+       AND status = 'active'
+       AND role = 'user'`,
+    [identity]
   );
 
   if (result.rows.length === 0) {
@@ -104,6 +115,7 @@ export async function loginUser(email: string, password: string): Promise<User |
   return {
     userId: user.id,
     username: user.username,
+    fullName: user.full_name,
     email: user.email,
     role: user.role,
     status: user.status,
@@ -116,7 +128,7 @@ export async function loginUser(email: string, password: string): Promise<User |
 export async function updateUserRole(userId: number, newRole: string): Promise<User> {
   const result = await dbQuery(
     `UPDATE users SET role = $1 WHERE id = $2
-     RETURNING id, username, email, role, status`,
+     RETURNING id, username, full_name, email, role, status`,
     [newRole, userId]
   );
 
@@ -124,6 +136,7 @@ export async function updateUserRole(userId: number, newRole: string): Promise<U
   return {
     userId: user.id,
     username: user.username,
+    fullName: user.full_name,
     email: user.email,
     role: user.role,
     status: user.status,
@@ -136,7 +149,7 @@ export async function updateUserRole(userId: number, newRole: string): Promise<U
 export async function updateUserStatus(userId: number, newStatus: string): Promise<User> {
   const result = await dbQuery(
     `UPDATE users SET status = $1 WHERE id = $2
-     RETURNING id, username, email, role, status`,
+     RETURNING id, username, full_name, email, role, status`,
     [newStatus, userId]
   );
 
@@ -144,6 +157,7 @@ export async function updateUserStatus(userId: number, newStatus: string): Promi
   return {
     userId: user.id,
     username: user.username,
+    fullName: user.full_name,
     email: user.email,
     role: user.role,
     status: user.status,
@@ -155,7 +169,7 @@ export async function updateUserStatus(userId: number, newStatus: string): Promi
  */
 export async function listUsers(limit: number = 20, offset: number = 0) {
   const result = await dbQuery(
-    `SELECT id, username, email, role, status, created_at FROM users
+    `SELECT id, username, full_name, email, role, status, created_at FROM users
      ORDER BY created_at DESC
      LIMIT $1 OFFSET $2`,
     [limit, offset]

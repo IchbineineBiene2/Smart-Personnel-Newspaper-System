@@ -22,7 +22,7 @@ import { getToken } from '@/services/auth';
 import { getPublisherIdFromSourceName } from '@/services/publisherProfiles';
 import { proxyImageUrl } from '@/services/newsApi';
 
-type NotificationFilter = 'all' | 'messages' | 'upcoming' | 'news' | 'finished' | 'system';
+type NotificationFilter = 'all' | 'upcoming' | 'news' | 'finished' | 'system' | 'friends';
 
 interface ApiNotification {
   id: number;
@@ -30,16 +30,10 @@ interface ApiNotification {
   title: string;
   content: string;
   related_article_id?: string | null;
+  related_user_id?: number | null;
+  friend_request_id?: number | null;
   is_read: boolean;
   created_at: string;
-}
-
-interface Conversation {
-  other_user_id: number;
-  username: string;
-  last_message?: string;
-  last_message_at: string;
-  unread_count: number;
 }
 
 interface FeedNotification {
@@ -56,11 +50,14 @@ interface FeedNotification {
   publisherId?: string;
   onPress?: () => void;
   apiId?: number;
+  isFriendRequest?: boolean;
+  friendRequestId?: number;
+  userId?: number;
 }
 
 const FILTERS: { key: NotificationFilter; label: string; icon: string }[] = [
   { key: 'all', label: 'Tümü', icon: 'albums-outline' },
-  { key: 'messages', label: 'Mesajlar', icon: 'chatbubble-outline' },
+  { key: 'friends', label: 'Arkadaşlık', icon: 'people-outline' },
   { key: 'upcoming', label: 'Yaklaşan', icon: 'calendar-outline' },
   { key: 'news', label: 'Yeni Haber', icon: 'newspaper-outline' },
   { key: 'finished', label: 'Bitenler', icon: 'checkmark-done-outline' },
@@ -96,11 +93,11 @@ export default function NotificationsScreen() {
   const { concerts } = useConcerts();
 
   const [apiNotifications, setApiNotifications] = useState<ApiNotification[]>([]);
-  const [conversations, setConversations] = useState<Conversation[]>([]);
   const [authToken, setAuthToken] = useState('');
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [activeFilter, setActiveFilter] = useState<NotificationFilter>('all');
+  const [handlingFriendRequest, setHandlingFriendRequest] = useState<Record<number, boolean>>({});
 
   const loadRemoteData = useCallback(async (tokenOverride?: string) => {
     const token = tokenOverride || authToken;
@@ -108,24 +105,15 @@ export default function NotificationsScreen() {
 
     try {
       setLoading(true);
-      const [notificationsResponse, conversationsResponse] = await Promise.all([
-        fetch('http://localhost:3000/api/notifications?limit=50', {
-          headers: { Authorization: `Bearer ${token}` },
-        }),
-        fetch('http://localhost:3000/api/messages/conversations', {
-          headers: { Authorization: `Bearer ${token}` },
-        }),
-      ]);
+      const notificationsResponse = await fetch('http://localhost:3000/api/notifications?limit=50', {
+        headers: { Authorization: `Bearer ${token}` },
+      });
 
       if (notificationsResponse.ok) {
         const data = await notificationsResponse.json();
         setApiNotifications(data.notifications || []);
       }
 
-      if (conversationsResponse.ok) {
-        const data = await conversationsResponse.json();
-        setConversations(data.conversations || []);
-      }
     } catch (error) {
       console.error('Bildirim verileri yüklenemedi:', error);
     } finally {
@@ -191,48 +179,86 @@ export default function NotificationsScreen() {
     }
   };
 
+  const handleAcceptFriendRequest = async (requestId: number, notificationId: number) => {
+    if (!authToken) return;
+
+    try {
+      setHandlingFriendRequest((current) => ({ ...current, [requestId]: true }));
+      const response = await fetch(`http://localhost:3000/api/friends/accept/${requestId}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${authToken}`,
+        },
+      });
+
+      if (response.ok) {
+        // Delete the notification after accepting
+        await deleteNotification(notificationId);
+      } else {
+        console.error('Arkadaş isteği kabul edilemedi');
+      }
+    } catch (error) {
+      console.error('Arkadaş isteğini kabul ederken hata:', error);
+    } finally {
+      setHandlingFriendRequest((current) => ({ ...current, [requestId]: false }));
+    }
+  };
+
+  const handleRejectFriendRequest = async (requestId: number, notificationId: number) => {
+    if (!authToken) return;
+
+    try {
+      setHandlingFriendRequest((current) => ({ ...current, [requestId]: true }));
+      const response = await fetch(`http://localhost:3000/api/friends/reject/${requestId}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${authToken}`,
+        },
+      });
+
+      if (response.ok) {
+        // Delete the notification after rejecting
+        await deleteNotification(notificationId);
+      } else {
+        console.error('Arkadaş isteği reddedilemedi');
+      }
+    } catch (error) {
+      console.error('Arkadaş isteğini reddederken hata:', error);
+    } finally {
+      setHandlingFriendRequest((current) => ({ ...current, [requestId]: false }));
+    }
+  };
+
   const feedItems = useMemo<FeedNotification[]>(() => {
     const now = Date.now();
     const twoDays = 2 * 24 * 60 * 60 * 1000;
 
-    const systemItems: FeedNotification[] = apiNotifications.map((item) => ({
+    const systemItems: FeedNotification[] = apiNotifications
+      .filter((item) => item.type !== 'message')
+      .map((item) => ({
       id: `api-${item.id}`,
-      filter: item.type === 'message' ? 'messages' : item.type === 'news' ? 'news' : 'system',
-      icon: item.type === 'message' ? 'chatbubble' : item.type === 'news' ? 'newspaper' : 'notifications',
-      accent: item.type === 'message' ? '#10b981' : item.type === 'news' ? '#3b82f6' : colors.accent,
+      filter: item.type === 'friend_request' ? 'friends' : item.type === 'news' ? 'news' : 'system',
+      icon: item.type === 'friend_request' ? 'person-add' : item.type === 'news' ? 'newspaper' : 'notifications',
+      accent: item.type === 'friend_request' ? '#e67e22' : item.type === 'news' ? '#3b82f6' : colors.accent,
       title: item.title,
       content: item.content,
       createdAt: item.created_at,
       unread: !item.is_read,
       badge: item.is_read ? undefined : 'Okunmadı',
       apiId: item.id,
+      isFriendRequest: item.type === 'friend_request',
+      friendRequestId: item.type === 'friend_request' ? item.friend_request_id || undefined : undefined,
+      userId: item.related_user_id || undefined,
       onPress: () => {
         if (!item.is_read) markAsRead(item.id);
         if (item.related_article_id) {
           router.push({ pathname: '/news/[id]', params: { id: item.related_article_id } });
         }
       },
-    }));
-
-    const messageItems: FeedNotification[] = conversations
-      .filter((conversation) => conversation.unread_count > 0)
-      .map((conversation) => ({
-        id: `message-${conversation.other_user_id}`,
-        filter: 'messages',
-        icon: 'chatbubble-ellipses',
-        accent: '#10b981',
-        title: `${conversation.username} yeni mesaj gönderdi`,
-        content: conversation.last_message || `${conversation.unread_count} okunmamış mesajın var.`,
-        createdAt: conversation.last_message_at,
-        unread: true,
-        badge: `${conversation.unread_count} yeni`,
-        onPress: () => {
-          router.push({
-            pathname: '/messages/[userId]',
-            params: { userId: String(conversation.other_user_id), username: conversation.username },
-          });
-        },
       }));
+
 
     const mixedEvents = [
       ...events.map((event) => ({
@@ -320,15 +346,14 @@ export default function NotificationsScreen() {
         onPress: () => router.push(`/publisherprofile?id=${getPublisherIdFromSourceName(article.source.name)}` as any),
       }));
 
-    return [...messageItems, ...upcomingItems, ...newsItems, ...finishedItems, ...systemItems]
+    return [...upcomingItems, ...newsItems, ...finishedItems, ...systemItems]
       .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-  }, [apiNotifications, articles, colors.accent, conversations, concerts, events, followedIds, notificationEnabledIds, router]);
+  }, [apiNotifications, articles, colors.accent, concerts, events, followedIds, notificationEnabledIds, router]);
 
   const filteredItems = activeFilter === 'all'
     ? feedItems
     : feedItems.filter((item) => item.filter === activeFilter);
 
-  const unreadMessages = conversations.reduce((total, item) => total + (item.unread_count || 0), 0);
   const upcomingCount = feedItems.filter((item) => item.filter === 'upcoming').length;
   const finishedCount = feedItems.filter((item) => item.filter === 'finished').length;
   const latestNewsCount = feedItems.filter((item) => item.filter === 'news').length;
@@ -339,7 +364,7 @@ export default function NotificationsScreen() {
         <View>
           <Text style={[styles.title, { color: colors.textPrimary }]}>Bildirim Merkezi</Text>
           <Text style={[styles.subtitle, { color: colors.textMuted }]}>
-            Mesajlar, etkinlikler ve yeni haberler tek yerde.
+            Etkinlikler, arkadaslik ve yeni haberler tek yerde.
           </Text>
         </View>
         <TouchableOpacity
@@ -354,7 +379,6 @@ export default function NotificationsScreen() {
       </View>
 
       <View style={styles.summaryGrid}>
-        <SummaryCard label="Okunmamış Mesaj" value={unreadMessages} icon="chatbubble" accent="#10b981" colors={colors} />
         <SummaryCard label="Yaklaşan Etkinlik" value={upcomingCount} icon="calendar" accent="#8b5cf6" colors={colors} />
         <SummaryCard label="Yeni Haber" value={latestNewsCount} icon="newspaper" accent="#3b82f6" colors={colors} />
         <SummaryCard label="Yeni Biten" value={finishedCount} icon="checkmark-done" accent="#f59e0b" colors={colors} />
@@ -386,54 +410,120 @@ export default function NotificationsScreen() {
     </View>
   );
 
-  const renderNotification = ({ item }: { item: FeedNotification }) => (
-    <TouchableOpacity
-      style={[
-        styles.notificationItem,
-        {
-          backgroundColor: item.unread ? item.accent + '10' : colors.surface,
-          borderColor: item.unread ? item.accent + '45' : colors.borderSubtle,
-        },
-      ]}
-      onPress={item.onPress}
-      activeOpacity={0.8}
-    >
-      {item.imageUrl ? (
-        <Image source={{ uri: item.imageUrl }} style={styles.notificationImage} resizeMode="cover" />
-      ) : (
-        <View style={[styles.iconContainer, { backgroundColor: item.accent + '18' }]}>
-          <Ionicons name={item.icon as any} size={18} color={item.accent} />
-        </View>
-      )}
+  const renderNotification = ({ item }: { item: FeedNotification }) => {
+    if (item.isFriendRequest) {
+      const canHandleRequest = Boolean(item.friendRequestId && item.apiId);
+      const isHandling = item.friendRequestId ? handlingFriendRequest[item.friendRequestId] : false;
+      return (
+        <View
+          style={[
+            styles.notificationItem,
+            {
+              backgroundColor: item.unread ? item.accent + '10' : colors.surface,
+              borderColor: item.unread ? item.accent + '45' : colors.borderSubtle,
+            },
+          ]}
+        >
+          <View style={[styles.iconContainer, { backgroundColor: item.accent + '18' }]}>
+            <Ionicons name={item.icon as any} size={18} color={item.accent} />
+          </View>
 
-      <View style={styles.notificationContent}>
-        <View style={styles.notificationTitleRow}>
-          <Text style={[styles.notificationTitle, { color: colors.textPrimary }]} numberOfLines={1}>
-            {item.title}
-          </Text>
-          {item.badge ? (
-            <Text style={[styles.badge, { color: item.accent, backgroundColor: item.accent + '14' }]}>
-              {item.badge}
+          <View style={styles.notificationContent}>
+            <View style={styles.notificationTitleRow}>
+              <Text style={[styles.notificationTitle, { color: colors.textPrimary }]} numberOfLines={1}>
+                {item.title}
+              </Text>
+              {item.badge ? (
+                <Text style={[styles.badge, { color: item.accent, backgroundColor: item.accent + '14' }]}>
+                  {item.badge}
+                </Text>
+              ) : null}
+            </View>
+            <Text style={[styles.notificationText, { color: colors.textMuted }]} numberOfLines={2}>
+              {item.content}
             </Text>
-          ) : null}
-        </View>
-        <Text style={[styles.notificationText, { color: colors.textMuted }]} numberOfLines={2}>
-          {item.content}
-        </Text>
-        <Text style={[styles.notificationTime, { color: colors.textMuted }]}>
-          {formatTime(item.createdAt)}
-        </Text>
-      </View>
+            <Text style={[styles.notificationTime, { color: colors.textMuted }]}>
+              {formatTime(item.createdAt)}
+            </Text>
+          </View>
 
-      {item.apiId ? (
-        <TouchableOpacity style={styles.deleteButton} onPress={() => deleteNotification(item.apiId!)}>
-          <Ionicons name="close" size={16} color={colors.textMuted} />
-        </TouchableOpacity>
-      ) : (
-        <Ionicons name="chevron-forward" size={16} color={colors.textMuted} />
-      )}
-    </TouchableOpacity>
-  );
+          <View style={styles.friendRequestActions}>
+            <TouchableOpacity
+              style={[styles.actionButton, { backgroundColor: '#10b981', opacity: canHandleRequest ? 1 : 0.5 }]}
+              onPress={() => handleAcceptFriendRequest(item.friendRequestId!, item.apiId!)}
+              disabled={isHandling || !canHandleRequest}
+            >
+              {isHandling ? (
+                <ActivityIndicator size="small" color="#fff" />
+              ) : (
+                <Ionicons name="checkmark" size={14} color="#fff" />
+              )}
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.actionButton, { backgroundColor: '#ef4444', opacity: canHandleRequest ? 1 : 0.5 }]}
+              onPress={() => handleRejectFriendRequest(item.friendRequestId!, item.apiId!)}
+              disabled={isHandling || !canHandleRequest}
+            >
+              {isHandling ? (
+                <ActivityIndicator size="small" color="#fff" />
+              ) : (
+                <Ionicons name="close" size={14} color="#fff" />
+              )}
+            </TouchableOpacity>
+          </View>
+        </View>
+      );
+    }
+
+    return (
+      <TouchableOpacity
+        style={[
+          styles.notificationItem,
+          {
+            backgroundColor: item.unread ? item.accent + '10' : colors.surface,
+            borderColor: item.unread ? item.accent + '45' : colors.borderSubtle,
+          },
+        ]}
+        onPress={item.onPress}
+        activeOpacity={0.8}
+      >
+        {item.imageUrl ? (
+          <Image source={{ uri: item.imageUrl }} style={styles.notificationImage} resizeMode="cover" />
+        ) : (
+          <View style={[styles.iconContainer, { backgroundColor: item.accent + '18' }]}>
+            <Ionicons name={item.icon as any} size={18} color={item.accent} />
+          </View>
+        )}
+
+        <View style={styles.notificationContent}>
+          <View style={styles.notificationTitleRow}>
+            <Text style={[styles.notificationTitle, { color: colors.textPrimary }]} numberOfLines={1}>
+              {item.title}
+            </Text>
+            {item.badge ? (
+              <Text style={[styles.badge, { color: item.accent, backgroundColor: item.accent + '14' }]}>
+                {item.badge}
+              </Text>
+            ) : null}
+          </View>
+          <Text style={[styles.notificationText, { color: colors.textMuted }]} numberOfLines={2}>
+            {item.content}
+          </Text>
+          <Text style={[styles.notificationTime, { color: colors.textMuted }]}>
+            {formatTime(item.createdAt)}
+          </Text>
+        </View>
+
+        {item.apiId ? (
+          <TouchableOpacity style={styles.deleteButton} onPress={() => deleteNotification(item.apiId!)}>
+            <Ionicons name="close" size={16} color={colors.textMuted} />
+          </TouchableOpacity>
+        ) : (
+          <Ionicons name="chevron-forward" size={16} color={colors.textMuted} />
+        )}
+      </TouchableOpacity>
+    );
+  };
 
   if ((loading || newsLoading) && feedItems.length === 0) {
     return (
@@ -642,6 +732,18 @@ const styles = StyleSheet.create({
   },
   deleteButton: {
     padding: 6,
+  },
+  friendRequestActions: {
+    flexDirection: 'row',
+    gap: 8,
+    marginLeft: 8,
+  },
+  actionButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   emptyState: {
     alignItems: 'center',

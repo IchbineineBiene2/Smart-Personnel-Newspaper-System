@@ -80,6 +80,31 @@ export async function upsertArticle(article: Article): Promise<void> {
       Boolean(article.content && article.content.length > 200),
     ]
   );
+
+  await ensurePublisherSystemUser(article.source.name);
+}
+
+async function ensurePublisherSystemUser(sourceName: string): Promise<void> {
+  const trimmed = sourceName.trim();
+  if (!trimmed) return;
+
+  await query(
+    `INSERT INTO users (username, email, password_hash, role, status)
+     VALUES (
+       $1,
+       CONCAT(
+         LOWER(REGEXP_REPLACE($1, '[^a-zA-Z0-9]+', '-', 'g')),
+         '-',
+         SUBSTRING(MD5($1) FROM 1 FOR 10),
+         '@publisher.local'
+       ),
+       'system-managed-publisher',
+       'publisher',
+       'active'
+     )
+     ON CONFLICT (username) DO NOTHING`,
+    [trimmed]
+  );
 }
 
 /** Birden fazla makaleyi tek transaction içinde toplu ekler */
