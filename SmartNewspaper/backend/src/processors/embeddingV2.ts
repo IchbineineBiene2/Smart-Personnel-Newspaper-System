@@ -1,11 +1,16 @@
 /**
- * Embedding v2 — multilingual-e5-large (1024-dim).
+ * Embedding v2 — multilingual-e5-base (768-dim).
  *
  * MiniLM-L12'den (384-dim, sadece title+description) farkları:
- *  - Daha güçlü çok-dilli retrieval modeli; Türkçe MTEB skorları belirgin yüksek
+ *  - Çok-dilli retrieval modeli; Türkçe MTEB skorları yüksek
  *  - Girdiye `content`'in ilk 1500 karakteri dahil → aynı olayı farklı sözcüklerle
  *    anlatan kaynaklar artık vektör uzayında yakınlaşır
  *  - E5 protokolüne uygun "passage: " prefix'i kullanılır
+ *
+ * Model seçimi: e5-large (1024-dim, ~2.2GB) sunucuda OOM'a yol açıyordu.
+ * Fixture bench'inde base, large ile aynı ayrım kalitesini gösterdi
+ * (medyan gap 0.159 vs 0.177, ikisi de 0 misclassified) ve unrelated max
+ * skor 0.769 → 0.78 same_event eşiği güvende.
  *
  * Girdi hash'i `embedding_v2_input_hash` kolonunda saklanır; aynı içerikte
  * yeniden embed maliyetini önler.
@@ -16,7 +21,7 @@ import { pipeline } from '@xenova/transformers';
 import { query } from '../db';
 import { extractEntities } from './entityExtractor';
 
-const MODEL_ID = 'Xenova/multilingual-e5-large';
+const MODEL_ID = 'Xenova/multilingual-e5-base';
 
 let extractor: any = null;
 let loading: Promise<any> | null = null;
