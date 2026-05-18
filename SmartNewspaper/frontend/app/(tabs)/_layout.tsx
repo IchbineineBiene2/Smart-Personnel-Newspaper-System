@@ -11,6 +11,7 @@ import AppHeader from '@/components/AppHeader';
 import { NewsNotificationToast } from '@/components/NewsNotificationToast';
 import { useNotification } from '@/contexts/NotificationContext';
 import { getToken, logoutUser } from '@/services/auth';
+import { useLiveAlerts } from '@/hooks/useLiveAlerts';
 
 const NAV_ROUTES: { name: string; label: string; icon: string; iconFilled: string }[] = [
   { name: 'search',   label: 'Arama',       icon: 'search-outline',   iconFilled: 'search' },
@@ -312,6 +313,9 @@ export default function TabLayout() {
   const insets = useSafeAreaInsets();
   const isWeb = Platform.OS === 'web';
   const pageBackground = themeName === 'vincent' ? colors.surface : colors.background;
+
+  // Mount live background market and breaking news alerts globally
+  useLiveAlerts();
 
   return (
     <View style={{ flex: 1 }}>

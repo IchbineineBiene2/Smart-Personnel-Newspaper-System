@@ -371,6 +371,8 @@ export default function NewsDetailPage() {
   const commentSectionRef = useRef<View | null>(null);
   const commentInputRef = useRef<TextInput | null>(null);
   const [commentSectionY, setCommentSectionY] = useState(0);
+  const relatedScrollRef = useRef<ScrollView | null>(null);
+  const [relatedScrollX, setRelatedScrollX] = useState(0);
   const params = useLocalSearchParams<{
     id?: string;
     title?: string;
@@ -931,6 +933,12 @@ export default function NewsDetailPage() {
     const bounded = Math.max(0, Math.min(index, secondHalfImages.length - 1));
     rightCarouselRef.current.scrollTo({ x: bounded * rightSlotWidth, animated: true });
     setRightCarouselIndex(bounded);
+  };
+
+  const scrollRelated = (direction: 'left' | 'right') => {
+    if (!relatedScrollRef.current) return;
+    const targetX = direction === 'left' ? Math.max(0, relatedScrollX - 696) : relatedScrollX + 696;
+    relatedScrollRef.current.scrollTo({ x: targetX, animated: true });
   };
 
   const leftImageHeight = leftSlotHeight > 18 ? leftSlotHeight - 18 : leftSlotHeight;
@@ -1721,11 +1729,42 @@ export default function NewsDetailPage() {
 
       {generalRelatedArticles.length > 0 && (
         <View style={styles(colors).relatedSection}>
-          <View style={styles(colors).relatedHeader}>
-            <View style={[styles(colors).relatedDot, { backgroundColor: colors.accent }]} />
-            <Text style={styles(colors).relatedTitle}>Benzer Haberler</Text>
+          <View style={[styles(colors).relatedHeader, { justifyContent: 'space-between' }]}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.sm }}>
+              <View style={[styles(colors).relatedDot, { backgroundColor: colors.accent }]} />
+              <Text style={styles(colors).relatedTitle}>Benzer Haberler</Text>
+            </View>
+            {isWeb && (
+              <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center' }}>
+                <Pressable
+                  style={({ pressed }) => [
+                    styles(colors).scrollNavBtn,
+                    pressed && { opacity: 0.7 }
+                  ]}
+                  onPress={() => scrollRelated('left')}
+                >
+                  <Ionicons name="chevron-back" size={16} color={colors.textPrimary} />
+                </Pressable>
+                <Pressable
+                  style={({ pressed }) => [
+                    styles(colors).scrollNavBtn,
+                    pressed && { opacity: 0.7 }
+                  ]}
+                  onPress={() => scrollRelated('right')}
+                >
+                  <Ionicons name="chevron-forward" size={16} color={colors.textPrimary} />
+                </Pressable>
+              </View>
+            )}
           </View>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles(colors).relatedList}>
+          <ScrollView
+            ref={relatedScrollRef}
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles(colors).relatedList}
+            onScroll={(event) => setRelatedScrollX(event.nativeEvent.contentOffset.x)}
+            scrollEventThrottle={16}
+          >
             {generalRelatedArticles.map((item) => (
               <RelatedArticleCard
                 key={`related-${item.id}`}
@@ -2354,6 +2393,17 @@ const styles = (colors: any) =>
       textTransform: 'uppercase' as const,
       letterSpacing: 0.8,
       color: colors.textPrimary,
+    },
+    scrollNavBtn: {
+      width: 32,
+      height: 32,
+      borderRadius: 16,
+      backgroundColor: colors.surfaceInput,
+      borderWidth: 1,
+      borderColor: colors.borderSubtle,
+      alignItems: 'center',
+      justifyContent: 'center',
+      cursor: 'pointer' as any,
     },
     relatedList: {
       gap: Spacing.sm,
