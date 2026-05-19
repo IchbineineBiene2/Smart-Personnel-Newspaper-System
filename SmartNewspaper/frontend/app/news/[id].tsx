@@ -18,6 +18,7 @@ import {
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 
+import { requireAuth } from '@/contexts/AuthGate';
 import { Radius, Spacing, Typography } from '@/constants/theme';
 import { useApiNews } from '@/hooks/useNews';
 import { useBookmarks } from '@/hooks/useBookmarks';
@@ -757,7 +758,8 @@ export default function NewsDetailPage() {
     }
   };
 
-  const openMessagePanel = () => {
+  const openMessagePanel = async () => {
+    if (!(await requireAuth('mesaj göndermek'))) return;
     setMessagePanelVisible(true);
     setSendFeedback(null);
   };
@@ -878,21 +880,16 @@ export default function NewsDetailPage() {
 
   const isSaved = savedIds.includes(params.id || '');
 
-  const handleToggleSave = () => {
-    if (params.id) {
-      toggleSaved(params.id);
-    }
+  const handleToggleSave = async () => {
+    if (!params.id) return;
+    if (!(await requireAuth('haberi kaydetmek'))) return;
+    toggleSaved(params.id);
   };
 
   const handleToggleLike = async () => {
     if (!params.id || likeLoading) return;
-
+    if (!(await requireAuth('beğeni'))) return;
     setLikeError(null);
-    if (!messageToken) {
-      setLikeError('Beğenmek için giriş yapmalısınız.');
-      setTimeout(() => setLikeError(null), 3000);
-      return;
-    }
 
     const previousLiked = likedByMe;
     const previousCount = likesCount;
@@ -922,6 +919,7 @@ export default function NewsDetailPage() {
 
   const handleSubmitComment = async () => {
     if (!params.id || !commentText.trim()) return;
+    if (!(await requireAuth('yorum yapmak'))) return;
 
     try {
       setCommentSubmitting(true);
