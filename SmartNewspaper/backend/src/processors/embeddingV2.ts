@@ -123,25 +123,37 @@ export async function computeAndSaveEmbeddingsV2(opts: {
   workerId?: number;
   workerCount?: number;
   microBatch?: number;
+  /** Sadece son N günde yayınlanmış makaleleri işle (öncelik tier'ı için) */
+  sinceDays?: number | null;
+  /** Sadece N günden eski makaleleri işle (arka plan tier'ı için) */
+  olderThanDays?: number | null;
 } = {}): Promise<{ processed: number; failed: number }> {
   const limit = opts.limit ?? 200;
   const onlyMissing = opts.onlyMissing ?? true;
   const workerId = opts.workerId ?? 0;
   const workerCount = Math.max(1, opts.workerCount ?? 1);
   const microBatch = Math.max(1, opts.microBatch ?? 8);
+  const sinceDays = opts.sinceDays ?? null;
+  const olderThanDays = opts.olderThanDays ?? null;
 
   const baseWhere = onlyMissing
     ? 'embedding_v2 IS NULL'
     : `(embedding_v2 IS NULL OR embedding_v2_input_hash IS NULL)`;
 
-  // Deterministik sharding: id zaten URL'in MD5'i (hex 32 char).
-  // İlk 2 hex char'ı (0..255) alıp workerCount'a mod alıyoruz — 256 farklı değer üzerinden mod
-  // <=256 worker için iyi dengeli dağılım sağlar.
-  // ('x' || hex)::bit(8) hex'i 4-bit sola kaydırarak parse ediyor; bu yüzden bit(8) yerine
-  // tam 2 char ile kullanıyoruz: 'xab'::bit(8) → 0xAB.
   const shardClause = workerCount > 1
     ? `AND (('x' || substr(id, 1, 2))::bit(8)::int % ${workerCount}) = ${workerId}`
     : '';
+
+  // Zaman tier'ı — yeni haberlere öncelik için recent / arka plan için old
+  if (sinceDays !== null && olderThanDays !== null) {
+    throw new Error('sinceDays ile olderThanDays birlikte kullanılamaz');
+  }
+  let timeClause = '';
+  if (sinceDays !== null && sinceDays > 0) {
+    timeClause = `AND published_at >= NOW() - INTERVAL '${sinceDays} days'`;
+  } else if (olderThanDays !== null && olderThanDays > 0) {
+    timeClause = `AND published_at < NOW() - INTERVAL '${olderThanDays} days'`;
+  }
 
   const res = await query<{
     id: string;
@@ -151,7 +163,7 @@ export async function computeAndSaveEmbeddingsV2(opts: {
   }>(
     `SELECT id, title, description, content
      FROM articles
-     WHERE ${baseWhere} ${shardClause}
+     WHERE ${baseWhere} ${shardClause} ${timeClause}
      ORDER BY published_at DESC NULLS LAST
      LIMIT $1`,
     [limit],

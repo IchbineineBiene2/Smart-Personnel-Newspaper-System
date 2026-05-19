@@ -23,6 +23,8 @@ interface Args {
   maxBatches: number | null;
   workerId: number;
   workerCount: number;
+  sinceDays: number | null;
+  olderThanDays: number | null;
 }
 
 function parseArgs(): Args {
@@ -42,15 +44,28 @@ function parseArgs(): Args {
     maxBatches: value('--max-batches') ? Number(value('--max-batches')) : null,
     workerId: Number(value('--worker-id') ?? 0),
     workerCount: Number(value('--worker-count') ?? 1),
+    sinceDays: value('--since-days') ? Number(value('--since-days')) : null,
+    olderThanDays: value('--older-than-days') ? Number(value('--older-than-days')) : null,
   };
 }
 
-async function getMissingCount(workerId: number, workerCount: number): Promise<number> {
+async function getMissingCount(
+  workerId: number,
+  workerCount: number,
+  sinceDays: number | null,
+  olderThanDays: number | null,
+): Promise<number> {
   const shardClause = workerCount > 1
     ? `AND (('x' || substr(id, 1, 2))::bit(8)::int % ${workerCount}) = ${workerId}`
     : '';
+  let timeClause = '';
+  if (sinceDays !== null && sinceDays > 0) {
+    timeClause = `AND published_at >= NOW() - INTERVAL '${sinceDays} days'`;
+  } else if (olderThanDays !== null && olderThanDays > 0) {
+    timeClause = `AND published_at < NOW() - INTERVAL '${olderThanDays} days'`;
+  }
   const r = await query<{ count: string }>(
-    `SELECT COUNT(*)::text AS count FROM articles WHERE embedding_v2 IS NULL ${shardClause}`,
+    `SELECT COUNT(*)::text AS count FROM articles WHERE embedding_v2 IS NULL ${shardClause} ${timeClause}`,
   );
   return Number(r.rows[0].count);
 }
@@ -83,7 +98,7 @@ async function main() {
   const args = parseArgs();
   await testConnection();
 
-  const missing = await getMissingCount(args.workerId, args.workerCount);
+  const missing = await getMissingCount(args.workerId, args.workerCount, args.sinceDays, args.olderThanDays);
   const tag = args.workerCount > 1 ? `w${args.workerId}/${args.workerCount}` : 'single';
   console.log(`[Backfill ${tag}] Bu shard'da eksik makale: ${missing}`);
 
@@ -133,6 +148,8 @@ async function main() {
         workerId: args.workerId,
         workerCount: args.workerCount,
         microBatch: args.microBatch,
+        sinceDays: args.sinceDays,
+        olderThanDays: args.olderThanDays,
       });
       if (processed === 0 && failed === 0) {
         console.log('[Backfill] Bu pencerede daha fazla eksik yok, çıkıyorum.');

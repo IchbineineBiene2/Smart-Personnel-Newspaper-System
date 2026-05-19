@@ -1429,8 +1429,12 @@ export async function fetchNewsSources(): Promise<NewsSourceSummary[]> {
   }
 }
 
-export async function fetchSimilarArticlesFromDb(id: string, threshold = 0.82): Promise<any[]> {
-  const res = await fetch(`${API_BASE}/api/similarity/${encodeURIComponent(id)}?threshold=${threshold}`);
+export async function fetchSimilarArticlesFromDb(id: string, threshold = 0.78): Promise<any[]> {
+  // kind=all → duplicate + same_event + related hepsi döner; bu sayede aynı olayı
+  // farklı sözcüklerle anlatan kaynaklar da görünür ("ilgili haberler" zenginleşir).
+  // threshold 0.78 = V2 same_event sınırı; daha düşürürsek gürültü artar.
+  const url = `${API_BASE}/api/similarity/${encodeURIComponent(id)}?threshold=${threshold}&kind=all&limit=20`;
+  const res = await fetch(url);
   if (!res.ok) return [];
   const rows = await res.json();
   return rows.map((r: any) => ({
