@@ -88,6 +88,8 @@ async function ensurePublisherSystemUser(sourceName: string): Promise<void> {
   const trimmed = sourceName.trim();
   if (!trimmed) return;
 
+  // Explicit ::text cast on every $1 — different functions (LOWER/REGEXP_REPLACE/MD5)
+  // make Postgres' type inference inconsistent and the INSERT errors out.
   await query(
     `INSERT INTO users (username, email, password_hash, role, status)
      VALUES (
@@ -137,40 +139,85 @@ export async function getArticles(params: {
   category?: string;
   language?: string;
   source?: string;
+  /** Multi-value filters (mutually exclusive ile single-value: array verilirse override). */
+  categories?: string[];
+  languages?: string[];
+  sources?: string[];
+  mutedSources?: string[];
   limit?: number;
   offset?: number;
 }): Promise<{ total: number; articles: Article[] }> {
-  const { category, language, source, limit = 50, offset = 0 } = params;
+  const {
+    category,
+    language,
+    source,
+    categories,
+    languages,
+    sources,
+    mutedSources,
+    limit = 50,
+    offset = 0,
+  } = params;
 
   const conditions: string[] = [];
   const values: unknown[] = [];
   let idx = 1;
 
-  if (category) { conditions.push(`category = $${idx++}`); values.push(category); }
-  if (language) { conditions.push(`language = $${idx++}`); values.push(language); }
-  if (source)   { conditions.push(`source_name ILIKE $${idx++}`); values.push(`%${source}%`); }
+  // categories: array override > single value
+  if (Array.isArray(categories) && categories.length > 0) {
+    conditions.push(`category = ANY($${idx++})`);
+    values.push(categories);
+  } else if (category) {
+    conditions.push(`category = $${idx++}`);
+    values.push(category);
+  }
+
+  // languages: array override > single value
+  const hasLanguagesArray = Array.isArray(languages) && languages.length > 0;
+  if (hasLanguagesArray) {
+    conditions.push(`language = ANY($${idx++})`);
+    values.push(languages);
+  } else if (language) {
+    conditions.push(`language = $${idx++}`);
+    values.push(language);
+  }
+
+  if (Array.isArray(sources) && sources.length > 0) {
+    conditions.push(`source_name = ANY($${idx++})`);
+    values.push(sources);
+  } else if (source) {
+    conditions.push(`source_name ILIKE $${idx++}`);
+    values.push(`%${source}%`);
+  }
+
+  if (Array.isArray(mutedSources) && mutedSources.length > 0) {
+    conditions.push(`source_name <> ALL($${idx++})`);
+    values.push(mutedSources);
+  }
+
   conditions.push(`published_at <= NOW() + INTERVAL '5 minutes'`);
 
   const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
 
   const countResult = await query<{ count: string }>(
     `SELECT COUNT(*) AS count FROM articles ${where}`,
-    values
+    values,
   );
   const total = parseInt(countResult.rows[0].count, 10);
 
-  // Dil filtresi yoksa dengeli interleave (tr/en/de)
+  // Tek dil yoksa (ne single language ne 1-elemanlı languages array), dengeli interleave (tr/en/de)
+  const singleLang = language || (hasLanguagesArray && languages!.length === 1);
   let rows: ArticleRow[];
-  if (!language) {
+  if (!singleLang) {
     const langResult = await query<ArticleRow>(
       `SELECT * FROM articles ${where} ORDER BY published_at DESC LIMIT $${idx} OFFSET $${idx + 1}`,
-      [...values, limit * 3, offset]
+      [...values, limit * 3, offset],
     );
     rows = interleaveByLanguage(langResult.rows, limit, offset);
   } else {
     const result = await query<ArticleRow>(
       `SELECT * FROM articles ${where} ORDER BY published_at DESC LIMIT $${idx} OFFSET $${idx + 1}`,
-      [...values, limit, offset]
+      [...values, limit, offset],
     );
     rows = result.rows;
   }

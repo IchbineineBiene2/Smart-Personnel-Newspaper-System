@@ -23,13 +23,16 @@ import { useApiNews } from '@/hooks/useNews';
 import { useBookmarks } from '@/hooks/useBookmarks';
 import { useTheme } from '@/hooks/useTheme';
 import {
+  ApiArticle,
   ArticleAiAnalysis,
   fetchArticleAiAnalysis,
+  fetchArticleById,
   fetchArticleFullContent,
   fetchSimilarArticlesFromDb,
   mapToContentCategory,
   proxyPageUrl,
   proxyImageUrl,
+  recordArticleView,
 } from '@/services/newsApi';
 import { getPublisherIdFromSourceName } from '@/services/publisherProfiles';
 import {
@@ -411,6 +414,8 @@ export default function NewsDetailPage() {
   const commentSectionRef = useRef<View | null>(null);
   const commentInputRef = useRef<TextInput | null>(null);
   const [commentSectionY, setCommentSectionY] = useState(0);
+  const relatedScrollRef = useRef<ScrollView | null>(null);
+  const [relatedScrollX, setRelatedScrollX] = useState(0);
   const params = useLocalSearchParams<{
     id?: string;
     title?: string;
@@ -463,9 +468,66 @@ export default function NewsDetailPage() {
     loadInteractions();
   }, [params.id]);
 
-  const articleFromCache = articles.find((item: { id: string }) => item.id === params.id);
+  // Read history tracking — kullanıcı bu makaleyi açtığında server'a haber ver.
+  // Mount'ta initial view, unmount'ta final dwell_ms gönderir. UPSERT en uzun değeri tutar.
+  useEffect(() => {
+    if (!params.id || !messageToken) return;
+    const t0 = Date.now();
+    let firstReported = false;
 
-  if (params.id && !params.title && !articleFromCache && loading) {
+    // Bounce-savar: en az 1.5 saniye sayfada kal, sonra "okudu" olarak işaretle.
+    const initialTimer = setTimeout(() => {
+      firstReported = true;
+      void recordArticleView(params.id!, messageToken, { dwellMs: 0, sourceCtx: 'detail' });
+    }, 1500);
+
+    return () => {
+      clearTimeout(initialTimer);
+      if (firstReported) {
+        const dwell = Date.now() - t0;
+        void recordArticleView(params.id!, messageToken, { dwellMs: dwell, sourceCtx: 'detail' });
+      }
+    };
+  }, [params.id, messageToken]);
+
+  // Home feed önbelleği — kullanıcı feed'den geldiyse burada bulunur.
+  const cacheHit = articles.find((item: { id: string }) => item.id === params.id);
+
+  // "Aynı haber, farklı kaynaklar" widget'ından gelen tıklamalarda hedef makale
+  // home feed'de olmayabilir ve URL'de title vs taşınmaz → API'den çek.
+  const [remoteArticle, setRemoteArticle] = useState<ApiArticle | null>(null);
+  const [remoteLoading, setRemoteLoading] = useState(false);
+  const [remoteError, setRemoteError] = useState(false);
+
+  useEffect(() => {
+    if (!params.id) return;
+    if (cacheHit || params.title) {
+      // Önbellekte ya da URL'de yeterli veri var — remote fetch gereksiz.
+      setRemoteArticle(null);
+      setRemoteError(false);
+      return;
+    }
+    let active = true;
+    setRemoteLoading(true);
+    setRemoteError(false);
+    fetchArticleById(params.id)
+      .then((a) => {
+        if (active) setRemoteArticle(a);
+      })
+      .catch(() => {
+        if (active) setRemoteError(true);
+      })
+      .finally(() => {
+        if (active) setRemoteLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [params.id, cacheHit, params.title]);
+
+  const articleFromCache = cacheHit ?? remoteArticle;
+
+  if (params.id && !params.title && !articleFromCache && (loading || remoteLoading)) {
     return (
       <View style={styles(colors).centerWrap}>
         <ActivityIndicator color={colors.accent} />
@@ -478,7 +540,9 @@ export default function NewsDetailPage() {
     return (
       <View style={styles(colors).centerWrap}>
         <Text style={styles(colors).errorTitle}>Haber açılamadı</Text>
-        <Text style={styles(colors).statusText}>Haber verisi bulunamadı.</Text>
+        <Text style={styles(colors).statusText}>
+          {remoteError ? 'Sunucudan bu haber çekilemedi.' : 'Haber verisi bulunamadı.'}
+        </Text>
       </View>
     );
   }
@@ -993,6 +1057,12 @@ export default function NewsDetailPage() {
     const bounded = Math.max(0, Math.min(index, secondHalfImages.length - 1));
     rightCarouselRef.current.scrollTo({ x: bounded * rightSlotWidth, animated: true });
     setRightCarouselIndex(bounded);
+  };
+
+  const scrollRelated = (direction: 'left' | 'right') => {
+    if (!relatedScrollRef.current) return;
+    const targetX = direction === 'left' ? Math.max(0, relatedScrollX - 696) : relatedScrollX + 696;
+    relatedScrollRef.current.scrollTo({ x: targetX, animated: true });
   };
 
   const leftImageHeight = leftSlotHeight > 18 ? leftSlotHeight - 18 : leftSlotHeight;
@@ -1858,11 +1928,42 @@ export default function NewsDetailPage() {
 
       {generalRelatedArticles.length > 0 && (
         <View style={styles(colors).relatedSection}>
-          <View style={styles(colors).relatedHeader}>
-            <View style={[styles(colors).relatedDot, { backgroundColor: colors.accent }]} />
-            <Text style={styles(colors).relatedTitle}>Benzer Haberler</Text>
+          <View style={[styles(colors).relatedHeader, { justifyContent: 'space-between' }]}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.sm }}>
+              <View style={[styles(colors).relatedDot, { backgroundColor: colors.accent }]} />
+              <Text style={styles(colors).relatedTitle}>Benzer Haberler</Text>
+            </View>
+            {isWeb && (
+              <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center' }}>
+                <Pressable
+                  style={({ pressed }) => [
+                    styles(colors).scrollNavBtn,
+                    pressed && { opacity: 0.7 }
+                  ]}
+                  onPress={() => scrollRelated('left')}
+                >
+                  <Ionicons name="chevron-back" size={16} color={colors.textPrimary} />
+                </Pressable>
+                <Pressable
+                  style={({ pressed }) => [
+                    styles(colors).scrollNavBtn,
+                    pressed && { opacity: 0.7 }
+                  ]}
+                  onPress={() => scrollRelated('right')}
+                >
+                  <Ionicons name="chevron-forward" size={16} color={colors.textPrimary} />
+                </Pressable>
+              </View>
+            )}
           </View>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles(colors).relatedList}>
+          <ScrollView
+            ref={relatedScrollRef}
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles(colors).relatedList}
+            onScroll={(event) => setRelatedScrollX(event.nativeEvent.contentOffset.x)}
+            scrollEventThrottle={16}
+          >
             {generalRelatedArticles.map((item) => (
               <RelatedArticleCard
                 key={`related-${item.id}`}
@@ -2513,6 +2614,17 @@ const styles = (colors: any) =>
       textTransform: 'uppercase' as const,
       letterSpacing: 0.8,
       color: colors.textPrimary,
+    },
+    scrollNavBtn: {
+      width: 32,
+      height: 32,
+      borderRadius: 16,
+      backgroundColor: colors.surfaceInput,
+      borderWidth: 1,
+      borderColor: colors.borderSubtle,
+      alignItems: 'center',
+      justifyContent: 'center',
+      cursor: 'pointer' as any,
     },
     relatedList: {
       gap: Spacing.sm,
