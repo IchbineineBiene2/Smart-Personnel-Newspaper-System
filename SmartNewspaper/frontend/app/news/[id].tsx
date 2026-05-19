@@ -31,6 +31,7 @@ import {
   fetchSimilarArticlesFromDb,
   mapToContentCategory,
   proxyImageUrl,
+  recordArticleView,
 } from '@/services/newsApi';
 import { getPublisherIdFromSourceName } from '@/services/publisherProfiles';
 import {
@@ -425,6 +426,28 @@ export default function NewsDetailPage() {
   useEffect(() => {
     loadInteractions();
   }, [params.id]);
+
+  // Read history tracking — kullanıcı bu makaleyi açtığında server'a haber ver.
+  // Mount'ta initial view, unmount'ta final dwell_ms gönderir. UPSERT en uzun değeri tutar.
+  useEffect(() => {
+    if (!params.id || !messageToken) return;
+    const t0 = Date.now();
+    let firstReported = false;
+
+    // Bounce-savar: en az 1.5 saniye sayfada kal, sonra "okudu" olarak işaretle.
+    const initialTimer = setTimeout(() => {
+      firstReported = true;
+      void recordArticleView(params.id!, messageToken, { dwellMs: 0, sourceCtx: 'detail' });
+    }, 1500);
+
+    return () => {
+      clearTimeout(initialTimer);
+      if (firstReported) {
+        const dwell = Date.now() - t0;
+        void recordArticleView(params.id!, messageToken, { dwellMs: dwell, sourceCtx: 'detail' });
+      }
+    };
+  }, [params.id, messageToken]);
 
   // Home feed önbelleği — kullanıcı feed'den geldiyse burada bulunur.
   const cacheHit = articles.find((item: { id: string }) => item.id === params.id);
