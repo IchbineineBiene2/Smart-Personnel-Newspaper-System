@@ -183,6 +183,7 @@ export default function FeedScreen() {
         summary: item.article.description,
         imageUrl: item.article.imageUrl,
         source: item.article.source.name,
+        url: item.article.url,
         publishedAt: item.article.publishedAt,
         category: item.category,
       },

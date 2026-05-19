@@ -165,6 +165,7 @@ export default function ExploreScreen() {
         summary: a.description,
         imageUrl: a.imageUrl ?? '',
         source: a.source.name,
+        url: a.url,
         publishedAt: a.publishedAt,
         category: cat,
       },

@@ -179,7 +179,7 @@ function renderPreviewCard(article: NewspaperPreparedArticle, isLead = false): s
 
 function renderDetailArticle(article: NewspaperPreparedArticle, index: number, total: number): string {
   const safeTitle = escapeHtml(article.title);
-  const safeContent = escapeHtml(article.content || article.summary);
+  const safeContent = escapeHtml(article.content);
   const safeSource = escapeHtml(article.source);
   const safeDate = escapeHtml(article.date);
 

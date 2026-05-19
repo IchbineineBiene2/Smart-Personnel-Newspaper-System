@@ -402,6 +402,7 @@ export default function PublisherProfilePage() {
               summary: item.summary,
               imageUrl: item.imageUrl,
               source: item.sourceName,
+              url: item.url,
               publishedAt: item.publishedAt,
               category: item.category,
             },

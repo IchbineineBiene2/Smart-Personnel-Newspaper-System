@@ -5,6 +5,7 @@ import {
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   View,
   Image,
   Platform,
@@ -20,7 +21,7 @@ import { ConcertTicketModal } from '@/components/ConcertTicketModal';
 import type { ConcertEvent } from '@/hooks/useConcerts';
 
 type FilterCat = EventCategory | 'tumu';
-type ViewFilter = 'week' | 'calendar';
+type ViewFilter = 'today' | 'week' | 'month' | 'calendar';
 
 const CATEGORY_FILTERS: { key: FilterCat; label: string; icon: string }[] = [
   { key: 'tumu',      label: 'Tümü',      icon: 'apps-outline' },
@@ -70,8 +71,24 @@ export default function DiscoverTab() {
   const { concerts, loading: concertsLoading } = useConcerts();
   const [filterCat, setFilterCat] = useState<FilterCat>('tumu');
   const [viewFilter, setViewFilter] = useState<ViewFilter>('week');
+  const [calendarStart, setCalendarStart] = useState(toDateInputValue(new Date()));
+  const [calendarEnd, setCalendarEnd] = useState(toDateInputValue(addDays(new Date(), 30)));
+  const [appliedCalendarStart, setAppliedCalendarStart] = useState(toDateInputValue(new Date()));
+  const [appliedCalendarEnd, setAppliedCalendarEnd] = useState(toDateInputValue(addDays(new Date(), 30)));
   const [selectedConcert, setSelectedConcert] = useState<ConcertEvent | null>(null);
   const [showModal, setShowModal] = useState(false);
+  const [calendarError, setCalendarError] = useState<string>('');
+  const [categoryNotifications, setCategoryNotifications] = useState<Record<FilterCat, boolean>>({
+    tumu: false,
+    akademik: true,
+    sosyal: true,
+    konser: true,
+    tiyatro: true,
+    'stand-up': true,
+    'son-tarih': true,
+    sinav: true,
+    genel: true,
+  });
 
   const headerFade = useRef(new Animated.Value(0)).current;
   const listFade = useRef(new Animated.Value(0)).current;
@@ -86,6 +103,27 @@ export default function DiscoverTab() {
     ]).start();
   }, []);
 
+  const handleApplyCalendarDates = () => {
+    const startFallback = startOfDay(new Date());
+    const endFallback = endOfDay(addDays(new Date(), 30));
+    let start = parseDateInput(calendarStart, startFallback);
+    let end = parseDateInput(calendarEnd, endFallback, true);
+    
+    if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) {
+      setCalendarError('Geçersiz tarih formatı. YYYY-AA-GG formatını kullanın.');
+      return;
+    }
+
+    if (start.getTime() > end.getTime()) {
+      setCalendarError('Başlangıç tarihi bitiş tarihinden sonra olamaz.');
+      return;
+    }
+
+    setAppliedCalendarStart(calendarStart);
+    setAppliedCalendarEnd(calendarEnd);
+    setCalendarError('');
+  };
+
   const filteredEvents = filterCat === 'tumu'
     ? events
     : events.filter((e) => e.category === filterCat);
@@ -97,17 +135,37 @@ export default function DiscoverTab() {
       ? concerts.filter((c) => c.category === filterCat)
       : [];
 
-  const sevenDaysFromNow = new Date();
-  sevenDaysFromNow.setDate(sevenDaysFromNow.getDate() + 7);
+  const getDateRange = (): { start: Date; end: Date } => {
+    const today = new Date();
+    if (viewFilter === 'today') {
+      return { start: startOfDay(today), end: endOfDay(today) };
+    }
+    if (viewFilter === 'week') {
+      return { start: startOfDay(today), end: endOfDay(addDays(today, 7)) };
+    }
+    if (viewFilter === 'month') {
+      return { start: startOfDay(today), end: endOfMonth(today) };
+    }
+
+    const startFallback = startOfDay(today);
+    const endFallback = endOfDay(addDays(today, 30));
+    let start = parseDateInput(appliedCalendarStart, startFallback);
+    let end = parseDateInput(appliedCalendarEnd, endFallback, true);
+    if (start.getTime() > end.getTime()) {
+      [start, end] = [startOfDay(end), endOfDay(start)];
+    }
+    return { start, end };
+  };
+
+  const selectedRange = getDateRange();
 
   const allItems = [
     ...filteredEvents.map((e) => ({ ...e, _type: 'event' as const })),
     ...filteredConcerts.map((c) => ({ ...c, _type: 'concert' as const })),
   ]
     .filter((item) => {
-      if (viewFilter !== 'week') return true;
       const itemDate = new Date(item.date);
-      return itemDate >= new Date() && itemDate <= sevenDaysFromNow;
+      return itemDate >= selectedRange.start && itemDate <= selectedRange.end;
     })
     .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
 
@@ -147,11 +205,33 @@ export default function DiscoverTab() {
         </View>
         <View style={styles.viewFilters}>
           <Pressable
-            style={[styles.viewBtn, viewFilter === 'week' && { backgroundColor: colors.accent }]}
+            style={[styles.viewBtn, viewFilter === 'today' && { backgroundColor: colors.accent }, { backgroundColor: viewFilter === 'today' ? colors.accent : colors.surface, borderColor: colors.borderSubtle, borderWidth: 1 }]}
+            onPress={() => setViewFilter('today')}
+          >
+            <Text style={[styles.viewBtnText, { color: viewFilter === 'today' ? '#fff' : colors.textMuted }]}>
+              Bugün
+            </Text>
+          </Pressable>
+          <Pressable
+            style={[
+              styles.viewBtn,
+              {
+                backgroundColor: viewFilter === 'week' ? colors.accent : colors.surface,
+                borderColor: viewFilter === 'week' ? colors.accent : colors.borderSubtle,
+              },
+            ]}
             onPress={() => setViewFilter('week')}
           >
             <Text style={[styles.viewBtnText, { color: viewFilter === 'week' ? '#fff' : colors.textMuted }]}>
               Bu Hafta
+            </Text>
+          </Pressable>
+          <Pressable
+            style={[styles.viewBtn, viewFilter === 'month' && { backgroundColor: colors.accent }, { backgroundColor: viewFilter === 'month' ? colors.accent : colors.surface, borderColor: colors.borderSubtle, borderWidth: 1 }]}
+            onPress={() => setViewFilter('month')}
+          >
+            <Text style={[styles.viewBtnText, { color: viewFilter === 'month' ? '#fff' : colors.textMuted }]}>
+              Bu Ay
             </Text>
           </Pressable>
           <Pressable
@@ -170,57 +250,170 @@ export default function DiscoverTab() {
         {isWeb ? (
           <View style={styles.filterRowWeb}>
             {CATEGORY_FILTERS.map((f) => (
-              <Pressable
-                key={f.key}
-                style={[
-                  styles.filterChip,
-                  {
-                    backgroundColor: filterCat === f.key ? colors.accent : colors.surface,
-                    borderColor: filterCat === f.key ? colors.accent : colors.borderSubtle,
-                  },
-                ]}
-                onPress={() => setFilterCat(f.key)}
-              >
-                <Ionicons
-                  name={f.icon as any}
-                  size={13}
-                  color={filterCat === f.key ? '#fff' : colors.textMuted}
-                />
-                <Text style={[styles.filterChipText, { color: filterCat === f.key ? '#fff' : colors.textMuted }]}>
-                  {f.label}
-                </Text>
-              </Pressable>
+              <View key={f.key} style={styles.categoryChipContainer}>
+                <Pressable
+                  style={[
+                    styles.filterChip,
+                    {
+                      backgroundColor: filterCat === f.key ? colors.accent : colors.surface,
+                      borderColor: filterCat === f.key ? colors.accent : colors.borderSubtle,
+                    },
+                  ]}
+                  onPress={() => setFilterCat(f.key)}
+                >
+                  <Ionicons
+                    name={f.icon as any}
+                    size={13}
+                    color={filterCat === f.key ? '#fff' : colors.textMuted}
+                  />
+                  <Text style={[styles.filterChipText, { color: filterCat === f.key ? '#fff' : colors.textMuted }]}>
+                    {f.label}
+                  </Text>
+                </Pressable>
+              </View>
             ))}
           </View>
         ) : (
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filterRow}>
             {CATEGORY_FILTERS.map((f) => (
-              <Pressable
-                key={f.key}
-                style={[
-                  styles.filterChip,
-                  {
-                    backgroundColor: filterCat === f.key ? colors.accent : colors.surface,
-                    borderColor: filterCat === f.key ? colors.accent : colors.borderSubtle,
-                  },
-                ]}
-                onPress={() => setFilterCat(f.key)}
-              >
-                <Ionicons
-                  name={f.icon as any}
-                  size={13}
-                  color={filterCat === f.key ? '#fff' : colors.textMuted}
-                />
-                <Text style={[styles.filterChipText, { color: filterCat === f.key ? '#fff' : colors.textMuted }]}>
-                  {f.label}
-                </Text>
-              </Pressable>
+              <View key={f.key} style={styles.categoryChipContainer}>
+                <Pressable
+                  style={[
+                    styles.filterChip,
+                    {
+                      backgroundColor: filterCat === f.key ? colors.accent : colors.surface,
+                      borderColor: filterCat === f.key ? colors.accent : colors.borderSubtle,
+                    },
+                  ]}
+                  onPress={() => setFilterCat(f.key)}
+                >
+                  <Ionicons
+                    name={f.icon as any}
+                    size={13}
+                    color={filterCat === f.key ? '#fff' : colors.textMuted}
+                  />
+                  <Text style={[styles.filterChipText, { color: filterCat === f.key ? '#fff' : colors.textMuted }]}>
+                    {f.label}
+                  </Text>
+                </Pressable>
+              </View>
             ))}
           </ScrollView>
         )}
       </Animated.View>
 
       {/* ── Event List ── */}
+      {viewFilter === 'calendar' && (
+        <Animated.View
+          style={[
+            styles.calendarPanel,
+            { opacity: headerFade, backgroundColor: colors.surface, borderColor: colors.borderSubtle },
+          ]}
+        >
+          <View style={styles.calendarPanelHeader}>
+            <View style={{ flex: 1 }}>
+              <Text style={[styles.calendarPanelTitle, { color: colors.textPrimary }]}>Takvim Aralığı</Text>
+              <Text style={[styles.calendarPanelHint, { color: colors.textMuted }]}>
+                Tarih aralığını ve yukarıdaki kategoriyi seçerek etkinlikleri filtreleyin.
+              </Text>
+            </View>
+            <Ionicons name="calendar-outline" size={20} color={colors.accent} />
+          </View>
+
+          <View style={styles.dateInputRow}>
+            <View style={styles.dateInputGroup}>
+              <Text style={[styles.dateInputLabel, { color: colors.textMuted }]}>Başlangıç</Text>
+              <TextInput
+                value={calendarStart}
+                onChangeText={(val) => {
+                  setCalendarStart(val);
+                  setCalendarError('');
+                }}
+                placeholder="YYYY-AA-GG"
+                placeholderTextColor={colors.textMuted}
+                style={[
+                  styles.dateInput,
+                  { 
+                    color: colors.textPrimary, 
+                    borderColor: calendarError ? '#ef4444' : colors.borderSubtle, 
+                    backgroundColor: colors.surfaceHigh,
+                    borderWidth: calendarError ? 2 : 1,
+                  },
+                ]}
+                autoCapitalize="none"
+              />
+            </View>
+            <View style={styles.dateInputGroup}>
+              <Text style={[styles.dateInputLabel, { color: colors.textMuted }]}>Bitiş</Text>
+              <TextInput
+                value={calendarEnd}
+                onChangeText={(val) => {
+                  setCalendarEnd(val);
+                  setCalendarError('');
+                }}
+                placeholder="YYYY-AA-GG"
+                placeholderTextColor={colors.textMuted}
+                style={[
+                  styles.dateInput,
+                  { 
+                    color: colors.textPrimary, 
+                    borderColor: calendarError ? '#ef4444' : colors.borderSubtle, 
+                    backgroundColor: colors.surfaceHigh,
+                    borderWidth: calendarError ? 2 : 1,
+                  },
+                ]}
+                autoCapitalize="none"
+              />
+            </View>
+          </View>
+
+          {calendarError && (
+            <View style={[styles.errorMessage, { backgroundColor: 'rgba(239, 68, 68, 0.1)' }]}>
+              <Ionicons name="alert-circle-outline" size={14} color="#ef4444" />
+              <Text style={[styles.errorText, { color: '#ef4444' }]}>{calendarError}</Text>
+            </View>
+          )}
+
+          <View style={styles.quickRangeRow}>
+            {[
+              ['Bugün', 0],
+              ['7 Gün', 7],
+              ['30 Gün', 30],
+            ].map(([label, days]) => (
+              <Pressable
+                key={String(label)}
+                style={[styles.quickRangeBtn, { backgroundColor: colors.surfaceHigh, borderColor: colors.borderSubtle }]}
+                onPress={() => {
+                  const now = new Date();
+                  setCalendarStart(toDateInputValue(now));
+                  setCalendarEnd(toDateInputValue(addDays(now, Number(days))));
+                  setCalendarError('');
+                }}
+              >
+                <Text style={[styles.quickRangeText, { color: colors.textPrimary }]}>{label}</Text>
+              </Pressable>
+            ))}
+          </View>
+
+          <Pressable
+            style={[styles.applyButton, { backgroundColor: colors.accent }]}
+            onPress={handleApplyCalendarDates}
+          >
+            <Ionicons name="checkmark-circle-outline" size={16} color="#fff" />
+            <Text style={styles.applyButtonText}>Tarihleri Onayla</Text>
+          </Pressable>
+
+          {appliedCalendarStart !== toDateInputValue(new Date()) && (
+            <View style={[styles.appliedInfo, { backgroundColor: `${colors.accent}15`, borderColor: colors.accent }]}>
+              <Ionicons name="checkmark" size={14} color={colors.accent} />
+              <Text style={[styles.appliedInfoText, { color: colors.accent }]}>
+                Filtre uygulandı: {appliedCalendarStart} ile {appliedCalendarEnd}
+              </Text>
+            </View>
+          )}
+        </Animated.View>
+      )}
+
       <Animated.View style={[styles.list, { opacity: listFade }]}>
         {(eventsLoading || concertsLoading) && allItems.length === 0 && (
           <View style={styles.loadingRow}>
@@ -309,6 +502,41 @@ export default function DiscoverTab() {
   );
 }
 
+function toDateInputValue(date: Date): string {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, '0');
+  const d = String(date.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+}
+
+function startOfDay(date: Date): Date {
+  const copy = new Date(date);
+  copy.setHours(0, 0, 0, 0);
+  return copy;
+}
+
+function endOfDay(date: Date): Date {
+  const copy = new Date(date);
+  copy.setHours(23, 59, 59, 999);
+  return copy;
+}
+
+function addDays(date: Date, days: number): Date {
+  const copy = new Date(date);
+  copy.setDate(copy.getDate() + days);
+  return copy;
+}
+
+function endOfMonth(date: Date): Date {
+  return endOfDay(new Date(date.getFullYear(), date.getMonth() + 1, 0));
+}
+
+function parseDateInput(value: string, fallback: Date, end = false): Date {
+  const parsed = new Date(`${value}T${end ? '23:59:59.999' : '00:00:00.000'}`);
+  if (Number.isNaN(parsed.getTime())) return fallback;
+  return parsed;
+}
+
 function EventSquareCard({
   item,
   imageUrl,
@@ -380,8 +608,8 @@ const styles = StyleSheet.create({
   },
   pageTitle: { fontSize: 34, fontWeight: '900', letterSpacing: -0.5 },
   pageSubtitle: { fontSize: 13, fontStyle: 'italic', marginTop: 4, fontWeight: '500' },
-  viewFilters: { flexDirection: 'row', gap: 8 },
-  viewBtn: { paddingHorizontal: 16, paddingVertical: 8, borderRadius: 12 },
+  viewFilters: { flexDirection: 'row', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end' },
+  viewBtn: { paddingHorizontal: 16, paddingVertical: 8, borderRadius: 12, borderWidth: 1 },
   viewBtnText: { fontSize: 12, fontWeight: '700' },
 
   // Filters
@@ -399,6 +627,99 @@ const styles = StyleSheet.create({
     borderRadius: 20, borderWidth: 1,
   },
   filterChipText: { fontSize: 11, fontWeight: '700' },
+
+  // Calendar Range
+  calendarPanel: {
+    borderWidth: 1,
+    borderRadius: 18,
+    padding: 16,
+    gap: 14,
+  },
+  calendarPanelHeader: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
+  calendarPanelTitle: { fontSize: 16, fontWeight: '900' },
+  calendarPanelHint: { fontSize: 12, lineHeight: 17, marginTop: 4, fontWeight: '500' },
+  dateInputRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 10,
+  },
+  dateInputGroup: {
+    flex: 1,
+    minWidth: 150,
+    gap: 6,
+  },
+  dateInputLabel: { fontSize: 11, fontWeight: '800', textTransform: 'uppercase', letterSpacing: 0.6 },
+  dateInput: {
+    borderWidth: 1,
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  quickRangeRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  quickRangeBtn: {
+    borderWidth: 1,
+    borderRadius: 999,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+  },
+  quickRangeText: { fontSize: 11, fontWeight: '800' },
+  
+  // Apply Button
+  applyButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: 14,
+    marginTop: 4,
+  },
+  applyButtonText: { 
+    fontSize: 13, 
+    fontWeight: '900',
+    color: '#fff',
+    letterSpacing: 0.4,
+  },
+
+  // Error and Applied Info
+  errorMessage: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: 12,
+  },
+  errorText: {
+    fontSize: 12,
+    fontWeight: '600',
+    flex: 1,
+  },
+  appliedInfo: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: 12,
+    borderWidth: 1,
+  },
+  appliedInfoText: {
+    fontSize: 12,
+    fontWeight: '600',
+  },
 
   // List
   list: { gap: 12 },

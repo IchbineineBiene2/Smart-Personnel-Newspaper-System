@@ -4,10 +4,13 @@ import {
   FlatList,
   Image,
   RefreshControl,
+  ScrollView,
   StyleSheet,
   Text,
   TouchableOpacity,
   View,
+  Platform,
+  Pressable,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
@@ -21,8 +24,11 @@ import { useConcerts } from '@/hooks/useConcerts';
 import { getToken } from '@/services/auth';
 import { getPublisherIdFromSourceName } from '@/services/publisherProfiles';
 import { proxyImageUrl } from '@/services/newsApi';
+import { EventCategory, EVENT_CATEGORY_LABELS, EVENT_CATEGORY_COLORS } from '@/services/eventsApi';
 
-type NotificationFilter = 'all' | 'upcoming' | 'news' | 'finished' | 'system' | 'friends';
+type NotificationTab = 'all' | 'friends' | 'comments' | 'news' | 'events';
+type NewsCategory = string;
+type EventCategoryType = EventCategory;
 
 interface ApiNotification {
   id: number;
@@ -38,7 +44,7 @@ interface ApiNotification {
 
 interface FeedNotification {
   id: string;
-  filter: NotificationFilter;
+  tab: NotificationTab;
   icon: string;
   accent: string;
   title: string;
@@ -55,13 +61,34 @@ interface FeedNotification {
   userId?: number;
 }
 
-const FILTERS: { key: NotificationFilter; label: string; icon: string }[] = [
+const TABS: { key: NotificationTab; label: string; icon: string }[] = [
   { key: 'all', label: 'Tümü', icon: 'albums-outline' },
   { key: 'friends', label: 'Arkadaşlık', icon: 'people-outline' },
-  { key: 'upcoming', label: 'Yaklaşan', icon: 'calendar-outline' },
+  { key: 'comments', label: 'Yorumlar', icon: 'chatbubble-outline' },
   { key: 'news', label: 'Yeni Haber', icon: 'newspaper-outline' },
-  { key: 'finished', label: 'Bitenler', icon: 'checkmark-done-outline' },
-  { key: 'system', label: 'Sistem', icon: 'notifications-outline' },
+  { key: 'events', label: 'Etkinlikler', icon: 'calendar-outline' },
+];
+
+const NEWS_CATEGORIES = [
+  'Teknoloji',
+  'Spor',
+  'Sağlık',
+  'Siyaset',
+  'Eğitim',
+  'Eğlence',
+  'Işletme',
+  'Diğer',
+];
+
+const EVENT_CATEGORIES: EventCategoryType[] = [
+  'akademik',
+  'sosyal',
+  'konser',
+  'tiyatro',
+  'stand-up',
+  'son-tarih',
+  'sinav',
+  'genel',
 ];
 
 function formatTime(value: string) {
@@ -73,15 +100,6 @@ function formatTime(value: string) {
   const hours = Math.floor(minutes / 60);
   if (hours < 24) return `${hours} saat önce`;
   return date.toLocaleDateString('tr-TR', { day: 'numeric', month: 'short' });
-}
-
-function formatEventDate(value: string) {
-  return new Date(value).toLocaleString('tr-TR', {
-    day: 'numeric',
-    month: 'short',
-    hour: '2-digit',
-    minute: '2-digit',
-  });
 }
 
 export default function NotificationsScreen() {
@@ -96,8 +114,18 @@ export default function NotificationsScreen() {
   const [authToken, setAuthToken] = useState('');
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
-  const [activeFilter, setActiveFilter] = useState<NotificationFilter>('all');
+  const [activeTab, setActiveTab] = useState<NotificationTab>('all');
   const [handlingFriendRequest, setHandlingFriendRequest] = useState<Record<number, boolean>>({});
+  
+  // News tab state (multi-select)
+  const [selectedNewsCategories, setSelectedNewsCategories] = useState<Set<NewsCategory>>(
+    new Set(NEWS_CATEGORIES)
+  );
+  
+  // Events tab state (multi-select)
+  const [selectedEventCategories, setSelectedEventCategories] = useState<Set<EventCategoryType>>(
+    new Set(EVENT_CATEGORIES)
+  );
 
   const loadRemoteData = useCallback(async (tokenOverride?: string) => {
     const token = tokenOverride || authToken;
@@ -113,7 +141,6 @@ export default function NotificationsScreen() {
         const data = await notificationsResponse.json();
         setApiNotifications(data.notifications || []);
       }
-
     } catch (error) {
       console.error('Bildirim verileri yüklenemedi:', error);
     } finally {
@@ -193,13 +220,10 @@ export default function NotificationsScreen() {
       });
 
       if (response.ok) {
-        // Delete the notification after accepting
         await deleteNotification(notificationId);
-      } else {
-        console.error('Arkadaş isteği kabul edilemedi');
       }
     } catch (error) {
-      console.error('Arkadaş isteğini kabul ederken hata:', error);
+      console.error('Arkadaş isteği kabul edilemedi:', error);
     } finally {
       setHandlingFriendRequest((current) => ({ ...current, [requestId]: false }));
     }
@@ -219,108 +243,50 @@ export default function NotificationsScreen() {
       });
 
       if (response.ok) {
-        // Delete the notification after rejecting
         await deleteNotification(notificationId);
-      } else {
-        console.error('Arkadaş isteği reddedilemedi');
       }
     } catch (error) {
-      console.error('Arkadaş isteğini reddederken hata:', error);
+      console.error('Arkadaş isteği reddedilemedi:', error);
     } finally {
       setHandlingFriendRequest((current) => ({ ...current, [requestId]: false }));
     }
   };
 
+  // Prepare feed items for all tabs
   const feedItems = useMemo<FeedNotification[]>(() => {
-    const now = Date.now();
-    const twoDays = 2 * 24 * 60 * 60 * 1000;
-
-    const systemItems: FeedNotification[] = apiNotifications
-      .filter((item) => item.type !== 'message')
+    const friendNotifications: FeedNotification[] = apiNotifications
+      .filter((item) => item.type === 'friend_request')
       .map((item) => ({
-      id: `api-${item.id}`,
-      filter: item.type === 'friend_request' ? 'friends' : item.type === 'news' ? 'news' : 'system',
-      icon: item.type === 'friend_request' ? 'person-add' : item.type === 'news' ? 'newspaper' : 'notifications',
-      accent: item.type === 'friend_request' ? '#e67e22' : item.type === 'news' ? '#3b82f6' : colors.accent,
-      title: item.title,
-      content: item.content,
-      createdAt: item.created_at,
-      unread: !item.is_read,
-      badge: item.is_read ? undefined : 'Okunmadı',
-      apiId: item.id,
-      isFriendRequest: item.type === 'friend_request',
-      friendRequestId: item.type === 'friend_request' ? item.friend_request_id || undefined : undefined,
-      userId: item.related_user_id || undefined,
-      onPress: () => {
-        if (!item.is_read) markAsRead(item.id);
-        if (item.related_article_id) {
-          router.push({ pathname: '/news/[id]', params: { id: item.related_article_id } });
-        }
-      },
+        id: `api-${item.id}`,
+        tab: 'friends',
+        icon: 'person-add',
+        accent: '#e67e22',
+        title: 'Arkadaş İsteği',
+        content: item.content,
+        createdAt: item.created_at,
+        unread: !item.is_read,
+        badge: item.is_read ? undefined : 'Okunmadı',
+        apiId: item.id,
+        isFriendRequest: true,
+        friendRequestId: item.friend_request_id || undefined,
+        userId: item.related_user_id || undefined,
       }));
 
-
-    const mixedEvents = [
-      ...events.map((event) => ({
-        id: event.id,
-        title: event.title,
-        date: event.date,
-        location: event.location,
-        type: 'event' as const,
-      })),
-      ...concerts.map((concert) => ({
-        id: concert.id,
-        title: concert.title,
-        date: concert.date,
-        location: concert.venue || concert.location,
-        type: 'concert' as const,
-      })),
-    ];
-
-    const upcomingItems: FeedNotification[] = mixedEvents
-      .filter((event) => new Date(event.date).getTime() >= now)
-      .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
-      .slice(0, 5)
-      .map((event) => ({
-        id: `upcoming-${event.id}`,
-        filter: 'upcoming',
-        icon: 'calendar',
-        accent: '#8b5cf6',
-        title: `Yaklaşan etkinlik: ${event.title}`,
-        content: `${formatEventDate(event.date)}${event.location ? ` • ${event.location}` : ''}`,
-        createdAt: event.date,
-        badge: 'Yaklaşan',
+    const commentNotifications: FeedNotification[] = apiNotifications
+      .filter((item) => ['comment_like', 'comment_reply'].includes(item.type))
+      .map((item) => ({
+        id: `api-${item.id}`,
+        tab: 'comments',
+        icon: item.type === 'comment_like' ? 'heart' : 'chatbubble',
+        accent: item.type === 'comment_like' ? '#ef4444' : '#8b5cf6',
+        title: item.type === 'comment_like' ? 'Yorum Beğeni' : 'Yorum Yanıtı',
+        content: item.content,
+        createdAt: item.created_at,
+        unread: !item.is_read,
+        badge: item.is_read ? undefined : 'Okunmadı',
+        apiId: item.id,
         onPress: () => {
-          if (event.type === 'event') {
-            router.push({ pathname: '/events/[id]', params: { id: event.id } });
-          } else {
-            router.push({ pathname: '/events/[id]', params: { id: event.id, type: 'concert' } });
-          }
-        },
-      }));
-
-    const finishedItems: FeedNotification[] = mixedEvents
-      .filter((event) => {
-        const date = new Date(event.date).getTime();
-        return date < now && now - date <= twoDays;
-      })
-      .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
-      .slice(0, 4)
-      .map((event) => ({
-        id: `finished-${event.id}`,
-        filter: 'finished',
-        icon: 'checkmark-done',
-        accent: '#f59e0b',
-        title: `Yeni biten etkinlik: ${event.title}`,
-        content: `${formatEventDate(event.date)} tarihinde sona erdi.`,
-        createdAt: event.date,
-        badge: 'Bitti',
-        onPress: () => {
-          if (event.type === 'event') {
-            router.push({ pathname: '/events/[id]', params: { id: event.id } });
-          } else {
-            router.push({ pathname: '/events/[id]', params: { id: event.id, type: 'concert' } });
-          }
+          if (!item.is_read) markAsRead(item.id);
         },
       }));
 
@@ -328,13 +294,17 @@ export default function NotificationsScreen() {
       notificationEnabledIds.filter((id) => followedIds.includes(id))
     );
 
-    const newsItems: FeedNotification[] = articles
-      .filter((article) => enabledPublisherIds.has(getPublisherIdFromSourceName(article.source.name)))
+    const newsNotifs: FeedNotification[] = articles
+      .filter((article) => {
+        const pubId = getPublisherIdFromSourceName(article.source.name);
+        const category = article.category || 'Diğer';
+        return enabledPublisherIds.has(pubId) && selectedNewsCategories.has(category);
+      })
       .sort((a, b) => new Date(b.publishedAt).getTime() - new Date(a.publishedAt).getTime())
-      .slice(0, 12)
+      .slice(0, 20)
       .map((article) => ({
         id: `news-${article.id}`,
-        filter: 'news',
+        tab: 'news',
         icon: 'newspaper',
         accent: '#3b82f6',
         title: article.source.name,
@@ -346,17 +316,55 @@ export default function NotificationsScreen() {
         onPress: () => router.push(`/publisherprofile?id=${getPublisherIdFromSourceName(article.source.name)}` as any),
       }));
 
-    return [...upcomingItems, ...newsItems, ...finishedItems, ...systemItems]
-      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-  }, [apiNotifications, articles, colors.accent, concerts, events, followedIds, notificationEnabledIds, router]);
+    const eventNotifs: FeedNotification[] = [
+      ...events
+        .filter((e) => selectedEventCategories.has(e.category as EventCategoryType))
+        .map((event) => ({
+          id: `event-${event.id}`,
+          tab: 'events',
+          icon: 'calendar',
+          accent: EVENT_CATEGORY_COLORS[event.category as EventCategoryType] || '#8b5cf6',
+          title: event.title,
+          content: `${event.location || 'Belirtilmedi'} • ${event.date}`,
+          createdAt: event.date,
+          badge: EVENT_CATEGORY_LABELS[event.category as EventCategoryType] || event.category,
+          imageUrl: event.imageUrl,
+          onPress: () => router.push({ pathname: '/events/[id]', params: { id: event.id } }),
+        })),
+      ...concerts
+        .filter((c) => selectedEventCategories.has(c.category as EventCategoryType))
+        .map((concert) => ({
+          id: `concert-${concert.id}`,
+          tab: 'events',
+          icon: 'musical-notes',
+          accent: '#f59e0b',
+          title: concert.title,
+          content: `${concert.venue || 'Belirtilmedi'} • ${concert.date}`,
+          createdAt: concert.date,
+          badge: EVENT_CATEGORY_LABELS[concert.category as EventCategoryType] || concert.category,
+          imageUrl: concert.imageUrl,
+          onPress: () => router.push({ pathname: '/events/[id]', params: { id: concert.id, type: 'concert' } }),
+        })),
+    ];
 
-  const filteredItems = activeFilter === 'all'
-    ? feedItems
-    : feedItems.filter((item) => item.filter === activeFilter);
+    return [
+      ...friendNotifications,
+      ...commentNotifications,
+      ...newsNotifs,
+      ...eventNotifs,
+    ].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  }, [apiNotifications, articles, concerts, events, followedIds, notificationEnabledIds, selectedNewsCategories, selectedEventCategories, router]);
 
-  const upcomingCount = feedItems.filter((item) => item.filter === 'upcoming').length;
-  const finishedCount = feedItems.filter((item) => item.filter === 'finished').length;
-  const latestNewsCount = feedItems.filter((item) => item.filter === 'news').length;
+  const filteredItems = useMemo(() => {
+    if (activeTab === 'all') return feedItems;
+    if (activeTab === 'news') {
+      return feedItems.filter((item) => item.tab === 'news');
+    }
+    if (activeTab === 'events') {
+      return feedItems.filter((item) => item.tab === 'events');
+    }
+    return feedItems.filter((item) => item.tab === activeTab);
+  }, [feedItems, activeTab]);
 
   const renderHeader = () => (
     <View style={styles.headerBlock}>
@@ -364,7 +372,7 @@ export default function NotificationsScreen() {
         <View>
           <Text style={[styles.title, { color: colors.textPrimary }]}>Bildirim Merkezi</Text>
           <Text style={[styles.subtitle, { color: colors.textMuted }]}>
-            Etkinlikler, arkadaslik ve yeni haberler tek yerde.
+            Tüm bildirimler tek yerde.
           </Text>
         </View>
         <TouchableOpacity
@@ -378,35 +386,112 @@ export default function NotificationsScreen() {
         </TouchableOpacity>
       </View>
 
-      <View style={styles.summaryGrid}>
-        <SummaryCard label="Yaklaşan Etkinlik" value={upcomingCount} icon="calendar" accent="#8b5cf6" colors={colors} />
-        <SummaryCard label="Yeni Haber" value={latestNewsCount} icon="newspaper" accent="#3b82f6" colors={colors} />
-        <SummaryCard label="Yeni Biten" value={finishedCount} icon="checkmark-done" accent="#f59e0b" colors={colors} />
-      </View>
-
-      <View style={styles.filterRow}>
-        {FILTERS.map((filter) => {
-          const selected = activeFilter === filter.key;
+      {/* Tab Selector */}
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        contentContainerStyle={styles.tabRow}
+        scrollEventThrottle={16}
+      >
+        {TABS.map((tab) => {
+          const selected = activeTab === tab.key;
           return (
             <TouchableOpacity
-              key={filter.key}
+              key={tab.key}
               style={[
-                styles.filterChip,
+                styles.tabChip,
                 {
                   backgroundColor: selected ? colors.accent : colors.surface,
                   borderColor: selected ? colors.accent : colors.borderSubtle,
                 },
               ]}
-              onPress={() => setActiveFilter(filter.key)}
+              onPress={() => setActiveTab(tab.key)}
             >
-              <Ionicons name={filter.icon as any} size={13} color={selected ? '#fff' : colors.textMuted} />
-              <Text style={[styles.filterText, { color: selected ? '#fff' : colors.textMuted }]}>
-                {filter.label}
+              <Ionicons name={tab.icon as any} size={13} color={selected ? '#fff' : colors.textMuted} />
+              <Text style={[styles.tabText, { color: selected ? '#fff' : colors.textMuted }]}>
+                {tab.label}
               </Text>
             </TouchableOpacity>
           );
         })}
-      </View>
+      </ScrollView>
+
+      {/* News Tab Category Filter */}
+      {activeTab === 'news' && (
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.categoryRow}
+        >
+          {NEWS_CATEGORIES.map((cat) => {
+            const selected = selectedNewsCategories.has(cat);
+            return (
+              <Pressable
+                key={cat}
+                style={[
+                  styles.categoryChip,
+                  {
+                    backgroundColor: selected ? colors.accent : colors.surface,
+                    borderColor: selected ? colors.accent : colors.borderSubtle,
+                  },
+                ]}
+                onPress={() => {
+                  const newSet = new Set(selectedNewsCategories);
+                  if (newSet.has(cat)) {
+                    newSet.delete(cat);
+                  } else {
+                    newSet.add(cat);
+                  }
+                  setSelectedNewsCategories(newSet);
+                }}
+              >
+                <Text style={[styles.categoryChipText, { color: selected ? '#fff' : colors.textMuted }]}>
+                  {cat}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </ScrollView>
+      )}
+
+      {/* Events Tab Category Filter */}
+      {activeTab === 'events' && (
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.categoryRow}
+        >
+          {EVENT_CATEGORIES.map((cat) => {
+            const selected = selectedEventCategories.has(cat);
+            const label = EVENT_CATEGORY_LABELS[cat] || cat;
+            return (
+              <Pressable
+                key={cat}
+                style={[
+                  styles.categoryChip,
+                  {
+                    backgroundColor: selected ? colors.accent : colors.surface,
+                    borderColor: selected ? colors.accent : colors.borderSubtle,
+                  },
+                ]}
+                onPress={() => {
+                  const newSet = new Set(selectedEventCategories);
+                  if (newSet.has(cat)) {
+                    newSet.delete(cat);
+                  } else {
+                    newSet.add(cat);
+                  }
+                  setSelectedEventCategories(newSet);
+                }}
+              >
+                <Text style={[styles.categoryChipText, { color: selected ? '#fff' : colors.textMuted }]}>
+                  {label}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </ScrollView>
+      )}
     </View>
   );
 
@@ -561,30 +646,6 @@ export default function NotificationsScreen() {
   );
 }
 
-function SummaryCard({
-  label,
-  value,
-  icon,
-  accent,
-  colors,
-}: {
-  label: string;
-  value: number;
-  icon: string;
-  accent: string;
-  colors: any;
-}) {
-  return (
-    <View style={[styles.summaryCard, { backgroundColor: colors.surface, borderColor: colors.borderSubtle }]}>
-      <View style={[styles.summaryIcon, { backgroundColor: accent + '18' }]}>
-        <Ionicons name={icon as any} size={16} color={accent} />
-      </View>
-      <Text style={[styles.summaryValue, { color: colors.textPrimary }]}>{value}</Text>
-      <Text style={[styles.summaryLabel, { color: colors.textMuted }]}>{label}</Text>
-    </View>
-  );
-}
-
 const styles = StyleSheet.create({
   container: {
     flex: 1,
@@ -603,7 +664,7 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   headerBlock: {
-    gap: 18,
+    gap: 14,
     marginBottom: 6,
   },
   headerTop: {
@@ -630,42 +691,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  summaryGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 10,
-  },
-  summaryCard: {
-    flex: 1,
-    minWidth: 150,
-    borderRadius: 14,
-    borderWidth: 1,
-    padding: 14,
-    gap: 6,
-  },
-  summaryIcon: {
-    width: 32,
-    height: 32,
-    borderRadius: 10,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  summaryValue: {
-    fontSize: 24,
-    fontWeight: '900',
-  },
-  summaryLabel: {
-    fontSize: 11,
-    fontWeight: '800',
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
-  },
-  filterRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
+  tabRow: {
     gap: 8,
+    paddingBottom: 4,
   },
-  filterChip: {
+  tabChip: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
@@ -674,9 +704,24 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     borderWidth: 1,
   },
-  filterText: {
+  tabText: {
     fontSize: 11,
     fontWeight: '800',
+  },
+  categoryRow: {
+    gap: 12,
+    paddingBottom: 8,
+    paddingTop: 4,
+  },
+  categoryChip: {
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 12,
+    borderWidth: 1,
+  },
+  categoryChipText: {
+    fontSize: 12,
+    fontWeight: '700',
   },
   notificationItem: {
     flexDirection: 'row',

@@ -22,7 +22,7 @@ function shortDate(value: string): string {
 }
 
 function paragraphs(article: NewspaperPreparedArticle, max = 8): string[] {
-  const raw = article.content || article.summary || '';
+  const raw = article.content || '';
   return raw
     .split(/\n+/)
     .map((item) => item.trim())

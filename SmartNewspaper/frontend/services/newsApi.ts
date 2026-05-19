@@ -1357,6 +1357,11 @@ export function proxyImageUrl(url?: string): string | undefined {
   return `${API_BASE}/api/proxy/image?url=${encodeURIComponent(upgraded)}`;
 }
 
+export function proxyPageUrl(url?: string): string | undefined {
+  if (!url) return undefined;
+  return `${API_BASE}/api/proxy/page?url=${encodeURIComponent(url)}`;
+}
+
 export async function fetchArticles(params: FetchNewsParams = {}): Promise<ApiArticle[]> {
   const query = new URLSearchParams();
   if (params.language) query.set('language', params.language);
@@ -1377,10 +1382,10 @@ export async function fetchArticleById(id: string): Promise<ApiArticle> {
   return (await res.json()) as ApiArticle;
 }
 
-export async function fetchArticleFullContent(id: string): Promise<{ content: string; images?: string[]; fromSource: boolean }> {
+export async function fetchArticleFullContent(id: string): Promise<{ content: string | null; images?: string[]; fromSource: boolean; available?: boolean }> {
   const res = await fetch(`${API_BASE}/api/news/${encodeURIComponent(id)}/full-content`);
   if (!res.ok) throw new Error(`API hatası: ${res.status}`);
-  return (await res.json()) as { content: string; images?: string[]; fromSource: boolean };
+  return (await res.json()) as { content: string | null; images?: string[]; fromSource: boolean; available?: boolean };
 }
 
 export async function fetchArticleAiAnalysis(id: string): Promise<ArticleAiAnalysis> {

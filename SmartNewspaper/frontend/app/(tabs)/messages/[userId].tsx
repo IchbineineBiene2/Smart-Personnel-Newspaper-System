@@ -29,6 +29,7 @@ interface SharedArticle {
   summary?: string;
   imageUrl?: string;
   source?: string;
+  url?: string;
   publishedAt?: string;
   category?: string;
 }
@@ -162,6 +163,7 @@ export default function MessageDetailScreen() {
           summary: sharedArticle.summary,
           imageUrl: sharedArticle.imageUrl,
           source: sharedArticle.source,
+          url: sharedArticle.url,
           publishedAt: sharedArticle.publishedAt,
           category: sharedArticle.category,
         },

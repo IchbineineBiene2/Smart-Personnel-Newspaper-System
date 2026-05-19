@@ -1,7 +1,7 @@
 -- Migration 007: Etkinlik ve duyuru seed verisi
 -- eventsData.ts'deki hardcoded verileri DB'ye aktarır.
 
-INSERT INTO events (id, title, summary, description, event_date, location, category, is_important, created_at)
+INSERT INTO events (id, title, summary, description, event_date, location, category, is_important, image_url, created_at)
 VALUES
   (
     'a1b2c3d4-e5f6-7890-abcd-ef1234567801',
@@ -12,6 +12,7 @@ VALUES
     'İstanbul Kongre Merkezi, Salon A',
     'akademik',
     TRUE,
+    'https://images.unsplash.com/photo-1517245386807-bb43f82c33c4?w=900&h=900&fit=crop',
     '2026-03-20T09:00:00+03:00'
   ),
   (
@@ -23,6 +24,7 @@ VALUES
     'Tüm Kampüs Binaları',
     'sinav',
     TRUE,
+    'https://images.unsplash.com/photo-1434030216411-0b793f4b4173?w=900&h=900&fit=crop',
     '2026-03-22T10:00:00+03:00'
   ),
   (
@@ -34,6 +36,7 @@ VALUES
     'Online Başvuru Portalı',
     'son-tarih',
     TRUE,
+    'https://images.unsplash.com/photo-1506784983877-45594efa4cbe?w=900&h=900&fit=crop',
     '2026-03-15T08:00:00+03:00'
   ),
   (
@@ -45,6 +48,7 @@ VALUES
     'Merkez Kampüs Açık Alanı',
     'sosyal',
     FALSE,
+    'https://images.unsplash.com/photo-1492684223066-81342ee5ff30?w=900&h=900&fit=crop',
     '2026-03-18T11:00:00+03:00'
   ),
   (
@@ -56,6 +60,7 @@ VALUES
     'Online (Zoom)',
     'akademik',
     FALSE,
+    'https://images.unsplash.com/photo-1517245386807-bb43f82c33c4?w=900&h=900&fit=crop',
     '2026-03-25T09:00:00+03:00'
   ),
   (
@@ -67,6 +72,7 @@ VALUES
     'İstanbul Marriott Oteli',
     'sosyal',
     FALSE,
+    'https://images.unsplash.com/photo-1492684223066-81342ee5ff30?w=900&h=900&fit=crop',
     '2026-03-10T12:00:00+03:00'
   ),
   (
@@ -78,6 +84,7 @@ VALUES
     'Online Sistem',
     'son-tarih',
     TRUE,
+    'https://images.unsplash.com/photo-1506784983877-45594efa4cbe?w=900&h=900&fit=crop',
     '2026-03-01T08:00:00+03:00'
   ),
   (
@@ -89,6 +96,7 @@ VALUES
     'Konferans Salonu B-101',
     'akademik',
     FALSE,
+    'https://images.unsplash.com/photo-1517245386807-bb43f82c33c4?w=900&h=900&fit=crop',
     '2026-03-28T10:00:00+03:00'
   ),
   (
@@ -100,6 +108,7 @@ VALUES
     'Sınav Salonları (TBA)',
     'sinav',
     TRUE,
+    'https://images.unsplash.com/photo-1434030216411-0b793f4b4173?w=900&h=900&fit=crop',
     '2026-03-05T09:00:00+03:00'
   ),
   (
@@ -111,6 +120,7 @@ VALUES
     'Fuar Alanı, Bina D',
     'sosyal',
     TRUE,
+    'https://images.unsplash.com/photo-1492684223066-81342ee5ff30?w=900&h=900&fit=crop',
     '2026-03-12T11:00:00+03:00'
   )
 ON CONFLICT (id) DO NOTHING;

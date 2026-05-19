@@ -32,7 +32,7 @@ export function renderInteractiveNewspaperHtml(input: NewspaperTemplateInput): s
     id: article.id,
     title: article.title,
     summary: article.summary,
-    content: article.content || article.summary,
+    content: article.content,
     category: article.categoryDisplayName,
     source: article.source,
     date: article.date,
@@ -111,7 +111,7 @@ export function renderInteractiveNewspaperHtml(input: NewspaperTemplateInput): s
       function openArticle(id) {
         const article = articles.find((item) => item.id === id);
         if (!article) return;
-        const paragraphs = String(article.content || article.summary || '').split(/\\n+/).filter(Boolean).map((p) => '<p>' + escapeText(p) + '</p>').join('');
+        const paragraphs = String(article.content || '').split(/\\n+/).filter(Boolean).map((p) => '<p>' + escapeText(p) + '</p>').join('');
         modalContent.innerHTML =
           (article.imageUrl ? '<img src="' + article.imageUrl + '" alt="">' : '') +
           '<div class="dialog-body"><span class="category">' + escapeText(article.category) + '</span>' +

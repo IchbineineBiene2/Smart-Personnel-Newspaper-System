@@ -157,6 +157,42 @@ function cleanText(text: string): string {
     .trim();
 }
 
+export function isLikelyArticleContent(text: string | null | undefined): boolean {
+  if (!text) return false;
+
+  const cleaned = cleanText(text);
+  if (cleaned.length < 120) return false;
+
+  const codeSignals = [
+    /\bimport\s+[\w*{]/,
+    /\bexport\s+(default\s+)?(function|const|class)\b/,
+    /\b(function|const|let|var)\s+[a-z_$][\w$]*\s*[=(]/,
+    /=>\s*[{(]/,
+    /\b(document|window)\.[a-z]/,
+    /\baddEventListener\s*\(/,
+    /\bgetElementById\s*\(/,
+    /<\/?[a-z][\s\S]*?>/i,
+    /\bclass(Name)?=/,
+    /\bstroke-dash(array|offset)\b/,
+    /\bxmlns=/,
+    /\bprops:\s*{/,
+  ].filter((pattern) => pattern.test(cleaned)).length;
+
+  const punctuationChars = (cleaned.match(/[{}[\];=<>]/g) ?? []).length;
+  const punctuationDensity = punctuationChars / Math.max(cleaned.length, 1);
+  const words = cleaned.split(/\s+/).filter(Boolean);
+  const proseWords = words.filter((word) => /[a-zA-ZğüşıöçĞÜŞİÖÇäöüßÄÖÜ]{3,}/.test(word)).length;
+  const sentenceCount = (cleaned.match(/[.!?](\s|$)/g) ?? []).length;
+
+  if (codeSignals >= 2) return false;
+  if (codeSignals >= 1 && punctuationDensity > 0.025) return false;
+  if (punctuationDensity > 0.055) return false;
+  if (words.length >= 30 && proseWords / words.length < 0.62) return false;
+  if (cleaned.length > 240 && sentenceCount < 2) return false;
+
+  return true;
+}
+
 function resolveImageUrl(baseUrl: string, src?: string): string | null {
   if (!src) return null;
   const trimmed = src.trim();
@@ -422,6 +458,54 @@ function extractJsonLdImages($: ReturnType<typeof cheerio.load>, baseUrl: string
   });
 
   return results.filter(Boolean) as string[];
+}
+
+function extractJsonLdArticleBodies($: ReturnType<typeof cheerio.load>): string[] {
+  const results: string[] = [];
+
+  $('script[type="application/ld+json"]').each((_, el) => {
+    const raw = $(el).text();
+    if (!raw) return;
+
+    try {
+      const parsed = JSON.parse(raw);
+      const queue: unknown[] = Array.isArray(parsed) ? [...parsed] : [parsed];
+
+      while (queue.length) {
+        const node = queue.shift();
+        if (!node || typeof node !== 'object') continue;
+
+        const obj = node as Record<string, unknown>;
+        ['articleBody', 'description'].forEach((key) => {
+          const value = obj[key];
+          if (typeof value === 'string') {
+            const cleaned = cleanText(value);
+            if (cleaned.length >= 120) results.push(cleaned);
+          }
+        });
+
+        Object.values(obj).forEach((val) => {
+          if (val && typeof val === 'object') queue.push(val);
+        });
+      }
+    } catch {
+      // Ignore malformed JSON-LD blocks.
+    }
+  });
+
+  return results;
+}
+
+function pickBestArticleText(candidates: string[]): string | null {
+  const unique = [...new Set(candidates.map(cleanText).filter(Boolean))];
+  const valid = unique.filter(isLikelyArticleContent);
+  if (!valid.length) return null;
+
+  return valid.sort((a, b) => {
+    const aParagraphs = a.split(/\n\n+/).length;
+    const bParagraphs = b.split(/\n\n+/).length;
+    return bParagraphs * 120 + b.length - (aParagraphs * 120 + a.length);
+  })[0];
 }
 
 function uniqueImages(urls: Array<string | null | undefined>, maxCount = 12): string[] {
@@ -691,6 +775,7 @@ export async function scrapeArticleDetails(url: string, context?: { title?: stri
 
     const textBlocks = [...headingBlocks, ...paragraphs];
     const text = textBlocks.length ? cleanText(textBlocks.join('\n\n')) : cleanText(contentEl.text());
+    const jsonLdTexts = extractJsonLdArticleBodies($);
 
     const containerRoots: any[] = [];
     contentEl.each((_, el) => {
@@ -725,8 +810,14 @@ export async function scrapeArticleDetails(url: string, context?: { title?: stri
     console.log(`[Scraper] ${url.substring(0, 60)}: collected ${scoredCandidates.length} candidates, filtered to ${images.length} images`);
 
     // Çok kısa teaser metinleri eleyip, kısa haberleri de kaçırmamak için eşik düşük tutulur.
+    const safeText = pickBestArticleText([text, ...jsonLdTexts]);
+
+    if (text && !safeText) {
+      console.warn('[Scraper] Rejected non-article content for URL:', url);
+    }
+
     return {
-      content: text.length >= 120 ? text : null,
+      content: safeText,
       images,
     };
   } catch (err) {

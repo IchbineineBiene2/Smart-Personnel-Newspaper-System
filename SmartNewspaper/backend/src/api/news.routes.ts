@@ -1,6 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { getArticles, getArticleById } from '../db/articleRepository';
-import { scrapeArticleDetails } from '../collectors/scraper';
+import { isLikelyArticleContent, scrapeArticleDetails } from '../collectors/scraper';
 import { query } from '../db';
 import { generateArticleAnalysis } from '../services/articleAnalysis';
 import { runCollection } from '../scheduler/newsScheduler';
@@ -127,11 +127,17 @@ router.get('/:id/full-content', async (req: Request, res: Response) => {
       description: article.description,
     });
     console.log(`[NewsAPI] full-content ${req.params.id}: scraped images count = ${scraped.images?.length ?? 0}`, scraped.images?.slice(0, 2));
+    const fallbackContent = isLikelyArticleContent(article.content)
+      ? article.content
+      : null;
+    const content = scraped.content ?? fallbackContent;
+
     return res.json({
       id: article.id,
-      content: scraped.content ?? article.content ?? article.description,
+      content,
       images: scraped.images,
       fromSource: Boolean(scraped.content),
+      available: Boolean(content),
     });
   } catch (err) {
     console.error('[NewsAPI] full-content scrape error:', err);
@@ -141,9 +147,10 @@ router.get('/:id/full-content', async (req: Request, res: Response) => {
       console.log(`[NewsAPI] full-content ${req.params.id}: fallback to DB imageUrl`);
       return res.json({
         id: article.id,
-        content: article.content ?? article.description,
+        content: isLikelyArticleContent(article.content) ? article.content : null,
         images: article.imageUrl ? [article.imageUrl] : [],
         fromSource: false,
+        available: isLikelyArticleContent(article.content),
       });
     } catch {
       return res.status(500).json({ error: 'İçerik alınamadı' });
