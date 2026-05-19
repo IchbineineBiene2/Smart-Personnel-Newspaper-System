@@ -25,7 +25,7 @@ import { usePublisherState } from '@/hooks/usePublisherState';
 import { useTheme } from '@/hooks/useTheme';
 import { useLanguage, LANGUAGE_LABELS, LANGUAGES } from '@/hooks/useLanguage';
 import { UserProfile, getUserProfile, logoutUser, updateUserProfile } from '@/services/auth';
-import { CATEGORIES } from '@/services/content';
+import { CATEGORIES, NEWSPAPERS } from '@/services/content';
 import { buildPublisherDataset } from '@/services/publisherProfiles';
 import { ApiArticle, mapToContentCategory, proxyImageUrl } from '@/services/newsApi';
 import { ThemeName } from '@/theme/themes';
@@ -80,8 +80,12 @@ export default function ProfileScreen() {
   const {
     preferredCategories,
     preferredNewsLanguages,
+    preferredNewspapers,
+    mutedNewspapers,
     toggleCategory,
     toggleNewsLanguage,
+    toggleNewspaper,
+    toggleMutedNewspaper,
   } = usePreferences();
   const { savedIds } = useBookmarks();
   const { articles: apiArticles } = useApiNews();
@@ -655,6 +659,102 @@ export default function ProfileScreen() {
                         <Text style={[styles.langText, { color: selected ? '#fff' : colors.textMuted }]}>
                           {item.label}
                         </Text>
+                      </Pressable>
+                    );
+                  })}
+                </View>
+              </View>
+
+              {/* Kategori Seçimi — Tercihler sekmesinin altında her zaman görünür */}
+              <View style={[styles.panelCard, { backgroundColor: colors.surface, borderColor: colors.borderSubtle }]}>
+                <View style={styles.panelHeader}>
+                  <Ionicons name="albums-outline" size={20} color={colors.accent} />
+                  <Text style={[styles.panelTitle, { color: colors.textPrimary }]}>İlgi Kategorileri</Text>
+                </View>
+                <Text style={[styles.panelSubtitle, { color: colors.textMuted }]}>
+                  Bu kategorideki haberler akışında öne çıkar. Değişiklikler anında kaydedilir.
+                </Text>
+                <View style={styles.langRow}>
+                  {CATEGORIES.map((category) => {
+                    const selected = preferredCategories.includes(category);
+                    return (
+                      <Pressable
+                        key={category}
+                        onPress={() => toggleCategory(category)}
+                        style={[
+                          styles.langBtn,
+                          {
+                            backgroundColor: selected ? colors.accent : colors.surfaceHigh,
+                            borderColor: selected ? colors.accent : colors.borderSubtle,
+                          },
+                        ]}
+                      >
+                        <Text style={[styles.langText, { color: selected ? '#fff' : colors.textMuted }]}>{category}</Text>
+                      </Pressable>
+                    );
+                  })}
+                </View>
+              </View>
+
+              {/* Favori Kaynaklar */}
+              <View style={[styles.panelCard, { backgroundColor: colors.surface, borderColor: colors.borderSubtle }]}>
+                <View style={styles.panelHeader}>
+                  <Ionicons name="star-outline" size={20} color={colors.accent} />
+                  <Text style={[styles.panelTitle, { color: colors.textPrimary }]}>Favori Kaynaklar</Text>
+                </View>
+                <Text style={[styles.panelSubtitle, { color: colors.textMuted }]}>
+                  Bu kaynaklar feed üstünde öne çıkar. Hiç seçmezsen tüm kaynaklardan haber gelir.
+                </Text>
+                <View style={styles.langRow}>
+                  {NEWSPAPERS.map((src) => {
+                    const selected = preferredNewspapers.includes(src);
+                    const muted = mutedNewspapers?.includes(src);
+                    return (
+                      <Pressable
+                        key={src}
+                        onPress={() => toggleNewspaper(src)}
+                        disabled={muted}
+                        style={[
+                          styles.langBtn,
+                          {
+                            backgroundColor: selected ? colors.accent : colors.surfaceHigh,
+                            borderColor: selected ? colors.accent : colors.borderSubtle,
+                            opacity: muted ? 0.4 : 1,
+                          },
+                        ]}
+                      >
+                        <Text style={[styles.langText, { color: selected ? '#fff' : colors.textMuted }]}>{src}</Text>
+                      </Pressable>
+                    );
+                  })}
+                </View>
+              </View>
+
+              {/* Susturulan Kaynaklar */}
+              <View style={[styles.panelCard, { backgroundColor: colors.surface, borderColor: colors.borderSubtle }]}>
+                <View style={styles.panelHeader}>
+                  <Ionicons name="volume-mute-outline" size={20} color={colors.accent} />
+                  <Text style={[styles.panelTitle, { color: colors.textPrimary }]}>Susturulan Kaynaklar</Text>
+                </View>
+                <Text style={[styles.panelSubtitle, { color: colors.textMuted }]}>
+                  Seçilen kaynaklar feed'inde hiç görünmez. İstediğinde geri açabilirsin.
+                </Text>
+                <View style={styles.langRow}>
+                  {NEWSPAPERS.map((src) => {
+                    const muted = mutedNewspapers?.includes(src);
+                    return (
+                      <Pressable
+                        key={src}
+                        onPress={() => toggleMutedNewspaper?.(src)}
+                        style={[
+                          styles.langBtn,
+                          {
+                            backgroundColor: muted ? colors.error : colors.surfaceHigh,
+                            borderColor: muted ? colors.error : colors.borderSubtle,
+                          },
+                        ]}
+                      >
+                        <Text style={[styles.langText, { color: muted ? '#fff' : colors.textMuted }]}>{src}</Text>
                       </Pressable>
                     );
                   })}
