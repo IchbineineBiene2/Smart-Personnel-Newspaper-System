@@ -23,8 +23,10 @@ import { useApiNews } from '@/hooks/useNews';
 import { useBookmarks } from '@/hooks/useBookmarks';
 import { useTheme } from '@/hooks/useTheme';
 import {
+  ApiArticle,
   ArticleAiAnalysis,
   fetchArticleAiAnalysis,
+  fetchArticleById,
   fetchArticleFullContent,
   fetchSimilarArticlesFromDb,
   mapToContentCategory,
@@ -424,9 +426,44 @@ export default function NewsDetailPage() {
     loadInteractions();
   }, [params.id]);
 
-  const articleFromCache = articles.find((item: { id: string }) => item.id === params.id);
+  // Home feed önbelleği — kullanıcı feed'den geldiyse burada bulunur.
+  const cacheHit = articles.find((item: { id: string }) => item.id === params.id);
 
-  if (params.id && !params.title && !articleFromCache && loading) {
+  // "Aynı haber, farklı kaynaklar" widget'ından gelen tıklamalarda hedef makale
+  // home feed'de olmayabilir ve URL'de title vs taşınmaz → API'den çek.
+  const [remoteArticle, setRemoteArticle] = useState<ApiArticle | null>(null);
+  const [remoteLoading, setRemoteLoading] = useState(false);
+  const [remoteError, setRemoteError] = useState(false);
+
+  useEffect(() => {
+    if (!params.id) return;
+    if (cacheHit || params.title) {
+      // Önbellekte ya da URL'de yeterli veri var — remote fetch gereksiz.
+      setRemoteArticle(null);
+      setRemoteError(false);
+      return;
+    }
+    let active = true;
+    setRemoteLoading(true);
+    setRemoteError(false);
+    fetchArticleById(params.id)
+      .then((a) => {
+        if (active) setRemoteArticle(a);
+      })
+      .catch(() => {
+        if (active) setRemoteError(true);
+      })
+      .finally(() => {
+        if (active) setRemoteLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [params.id, cacheHit, params.title]);
+
+  const articleFromCache = cacheHit ?? remoteArticle;
+
+  if (params.id && !params.title && !articleFromCache && (loading || remoteLoading)) {
     return (
       <View style={styles(colors).centerWrap}>
         <ActivityIndicator color={colors.accent} />
@@ -439,7 +476,9 @@ export default function NewsDetailPage() {
     return (
       <View style={styles(colors).centerWrap}>
         <Text style={styles(colors).errorTitle}>Haber açılamadı</Text>
-        <Text style={styles(colors).statusText}>Haber verisi bulunamadı.</Text>
+        <Text style={styles(colors).statusText}>
+          {remoteError ? 'Sunucudan bu haber çekilemedi.' : 'Haber verisi bulunamadı.'}
+        </Text>
       </View>
     );
   }
