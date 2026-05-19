@@ -23,6 +23,85 @@ type UserPrefs = {
 const prefsCache = new Map<number, { prefs: UserPrefs; ts: number }>();
 const PREFS_TTL_MS = 30 * 1000;
 
+/**
+ * Maximal Marginal Relevance (MMR) re-rank.
+ *
+ * Input: cosine-ordered candidates, each with `interest_score` (sim to user)
+ *        and `embedding_text` (pgvector text form '[0.1, ...]').
+ * Output: top-K diversified picks.
+ *
+ * pick_i+1 = argmax_{c ∉ S}  λ * sim(c, user)  -  (1-λ) * max_{p ∈ S} sim(c, p)
+ *
+ * λ ≈ 0.7 → biraz çeşitlilik, çoğunlukla alaka. Aynı haber/duplicate'ları
+ * topun başına yığmaktan kaçınmak için iyi default.
+ */
+function parsePgVector(text: string): Float32Array {
+  // pgvector text form: "[0.1,0.2,...]" — basit parse
+  const trimmed = text.replace(/[\[\]\s]/g, '');
+  const parts = trimmed.split(',');
+  const arr = new Float32Array(parts.length);
+  for (let i = 0; i < parts.length; i++) arr[i] = parseFloat(parts[i]);
+  return arr;
+}
+
+function cosineNorm(a: Float32Array, b: Float32Array): number {
+  let dot = 0, na = 0, nb = 0;
+  const n = Math.min(a.length, b.length);
+  for (let i = 0; i < n; i++) {
+    dot += a[i] * b[i];
+    na += a[i] * a[i];
+    nb += b[i] * b[i];
+  }
+  return dot / (Math.sqrt(na) * Math.sqrt(nb) + 1e-9);
+}
+
+function mmrRerank<T extends { interest_score: number; embedding_text: string; source_name?: string }>(
+  candidates: T[],
+  k: number,
+  lambda: number,
+): T[] {
+  const vecs: Float32Array[] = candidates.map((c) => parsePgVector(c.embedding_text));
+  const picked: number[] = [];
+  const remaining = new Set<number>(candidates.map((_, i) => i));
+
+  // İlk pick — en yüksek interest_score
+  let bestIdx = -1;
+  let bestScore = -Infinity;
+  for (const i of remaining) {
+    if (candidates[i].interest_score > bestScore) {
+      bestScore = candidates[i].interest_score;
+      bestIdx = i;
+    }
+  }
+  if (bestIdx < 0) return [];
+  picked.push(bestIdx);
+  remaining.delete(bestIdx);
+
+  // Geri kalan k-1 pick
+  while (picked.length < k && remaining.size > 0) {
+    let bestI = -1;
+    let bestMmr = -Infinity;
+    for (const i of remaining) {
+      // max similarity to any already-picked
+      let maxSim = -Infinity;
+      for (const p of picked) {
+        const s = cosineNorm(vecs[i], vecs[p]);
+        if (s > maxSim) maxSim = s;
+      }
+      const mmr = lambda * candidates[i].interest_score - (1 - lambda) * maxSim;
+      if (mmr > bestMmr) {
+        bestMmr = mmr;
+        bestI = i;
+      }
+    }
+    if (bestI < 0) break;
+    picked.push(bestI);
+    remaining.delete(bestI);
+  }
+
+  return picked.map((i) => candidates[i]);
+}
+
 async function loadUserPrefs(userId: number): Promise<UserPrefs | null> {
   const cached = prefsCache.get(userId);
   if (cached && Date.now() - cached.ts < PREFS_TTL_MS) return cached.prefs;
@@ -252,12 +331,16 @@ router.get('/for-you', authMiddleware, async (req: Request, res: Response) => {
       });
     }
 
-    // Personalized: cosine similarity sort
-    // pgvector cosine distance: vector <=> vector → 0=identical, 2=opposite
-    // score = 1 - distance
+    // Personalized: cosine similarity sort, then MMR re-rank for diversity.
+    // ?mmr=0 ile devre dışı bırakılabilir (default açık).
+    const mmrEnabled = String(req.query.mmr ?? '1') !== '0';
+    // MMR için top-N kandidat çek (limit'in 3 katı, max 90); cosine'a göre sırala.
+    const candidateLimit = mmrEnabled ? Math.min(limit * 3, 90) : limit;
+
     const personalized = await query<any>(
       `SELECT id, title, description, content, url, image_url, published_at,
               category, language, source_name, source_url,
+              embedding_v2::text AS embedding_text,
               (1 - (embedding_v2 <=> $1::vector)) AS interest_score
          FROM articles
         WHERE published_at >= NOW() - INTERVAL '${lookbackDays} days'
@@ -265,18 +348,88 @@ router.get('/for-you', authMiddleware, async (req: Request, res: Response) => {
           ${muted.length ? `AND source_name <> ALL($3)` : ''}
         ORDER BY embedding_v2 <=> $1::vector
         LIMIT $2`,
-      muted.length ? [interest.vector, limit, muted] : [interest.vector, limit],
+      muted.length ? [interest.vector, candidateLimit, muted] : [interest.vector, candidateLimit],
     );
+
+    let ranked = personalized.rows as Array<any>;
+    if (mmrEnabled && ranked.length > limit) {
+      ranked = mmrRerank(ranked, limit, /*lambda*/ 0.7);
+    } else {
+      ranked = ranked.slice(0, limit);
+    }
+    // embedding_text alanını response'tan at — gereksiz payload
+    for (const r of ranked) delete r.embedding_text;
 
     return res.json({
       cold: false,
       sampleCount: interest.sampleCount,
       freshness: interest.freshness,
-      articles: personalized.rows,
+      mmr: mmrEnabled,
+      articles: ranked,
     });
   } catch (err) {
     console.error('[NewsAPI] for-you hatası:', err);
     return res.status(500).json({ error: 'For-you feed alınamadı' });
+  }
+});
+
+// (route stays above the /:id catch-all routes so it isn't shadowed)
+// POST /api/news/:id/view - Bir makalenin görüntülendiğini kaydet.
+// Body: { dwellMs?: number, scrollPct?: number (0-100), sourceCtx?: 'feed'|'similar'|'search'|... }
+// Aynı (user, article) çifti için UPSERT — yeniden açılırsa viewed_at güncellenir,
+// dwellMs/scrollPct verildiyse mevcut değerle MAX alınır (sayfada en uzun kalma).
+router.post('/:id/view', authMiddleware, async (req: Request, res: Response) => {
+  try {
+    if (!req.user) return res.status(401).json({ error: 'auth required' });
+    const articleId = req.params.id;
+    const dwellMs = Number.isFinite(Number(req.body?.dwellMs)) ? Math.max(0, Math.floor(Number(req.body.dwellMs))) : null;
+    const scrollPct = Number.isFinite(Number(req.body?.scrollPct))
+      ? Math.max(0, Math.min(100, Math.floor(Number(req.body.scrollPct))))
+      : null;
+    const sourceCtx = typeof req.body?.sourceCtx === 'string' ? req.body.sourceCtx.slice(0, 50) : null;
+
+    const r = await query(
+      `INSERT INTO article_views (user_id, article_id, viewed_at, dwell_ms, scroll_pct, source_ctx)
+       VALUES ($1, $2, NOW(), $3, $4, $5)
+       ON CONFLICT (user_id, article_id) DO UPDATE
+         SET viewed_at  = NOW(),
+             dwell_ms   = GREATEST(COALESCE(article_views.dwell_ms, 0), COALESCE(EXCLUDED.dwell_ms, 0)),
+             scroll_pct = GREATEST(COALESCE(article_views.scroll_pct, 0), COALESCE(EXCLUDED.scroll_pct, 0)),
+             source_ctx = COALESCE(EXCLUDED.source_ctx, article_views.source_ctx)
+       RETURNING id`,
+      [req.user.userId, articleId, dwellMs, scrollPct, sourceCtx],
+    );
+
+    // user.last_seen_at de güncelle (cheap, single row)
+    void query(`UPDATE users SET last_seen_at = NOW() WHERE id = $1`, [req.user.userId]).catch(() => {});
+
+    return res.json({ ok: true, viewId: r.rows[0]?.id });
+  } catch (err) {
+    console.error('[NewsAPI] view kaydı hatası:', err);
+    return res.status(500).json({ error: 'View kaydedilemedi' });
+  }
+});
+
+// GET /api/news/recent-views - Kullanıcının son okuduğu makaleler ("kaldığın yerden")
+router.get('/recent-views', authMiddleware, async (req: Request, res: Response) => {
+  try {
+    if (!req.user) return res.status(401).json({ error: 'auth required' });
+    const limit = Math.min(Math.max(Number(req.query.limit ?? 10), 1), 50);
+    const r = await query<any>(
+      `SELECT a.id, a.title, a.description, a.url, a.image_url, a.published_at,
+              a.category, a.language, a.source_name, a.source_url,
+              v.viewed_at, v.dwell_ms, v.scroll_pct
+         FROM article_views v
+         JOIN articles a ON a.id = v.article_id
+        WHERE v.user_id = $1
+        ORDER BY v.viewed_at DESC
+        LIMIT $2`,
+      [req.user.userId, limit],
+    );
+    return res.json({ articles: r.rows });
+  } catch (err) {
+    console.error('[NewsAPI] recent-views hatası:', err);
+    return res.status(500).json({ error: 'Görüntülenen haberler alınamadı' });
   }
 });
 

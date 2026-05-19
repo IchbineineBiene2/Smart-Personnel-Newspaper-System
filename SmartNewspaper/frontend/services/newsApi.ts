@@ -1386,6 +1386,46 @@ export async function fetchArticles(
  * Embedding-bazlı "Sizin İçin" feed. Auth gerekli.
  * cold=true dönerse kullanıcının henüz like/view'i yok → trending fallback.
  */
+/**
+ * Bir makalenin görüntülendiğini server'a bildir. Auth gerekli (token yoksa no-op).
+ * Idempotent — UPSERT'tir; dwellMs ve scrollPct daha büyükle değiştirilir.
+ *
+ * Fire-and-forget: çağırırken `await` etme; UI'yi tutma.
+ */
+export async function recordArticleView(
+  articleId: string,
+  token: string | null,
+  opts: { dwellMs?: number; scrollPct?: number; sourceCtx?: string } = {},
+): Promise<void> {
+  if (!token) return;
+  try {
+    await fetch(`${API_BASE}/api/news/${encodeURIComponent(articleId)}/view`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify(opts),
+    });
+  } catch {
+    // best-effort; analitik kaybı OK
+  }
+}
+
+export async function fetchRecentViews(token: string, limit = 10): Promise<any[]> {
+  if (!token) return [];
+  try {
+    const res = await fetch(`${API_BASE}/api/news/recent-views?limit=${limit}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!res.ok) return [];
+    const data = await res.json();
+    return data.articles ?? [];
+  } catch {
+    return [];
+  }
+}
+
 export interface ForYouResponse {
   cold: boolean;
   sampleCount: number;
