@@ -1,16 +1,17 @@
 import { Link, useRouter } from 'expo-router';
 import { useState } from 'react';
-import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 
-import { Radius, Spacing, Typography } from '@/constants/theme';
+import { AuthShell } from '@/components/auth/AuthShell';
+import { AuthInput } from '@/components/auth/AuthInput';
+import { AuthButton, AuthError } from '@/components/auth/AuthButton';
+import { Spacing, Typography } from '@/constants/theme';
 import { useTheme } from '@/hooks/useTheme';
 import { loginUser } from '@/services/auth';
 
 export default function LoginScreen() {
   const router = useRouter();
-  const { colors, themeName } = useTheme();
-  const pageBackground = themeName === 'vincent' ? colors.surface : colors.background;
-  const elevatedSurface = themeName === 'vincent' ? colors.surface : colors.surfaceHigh;
+  const { colors } = useTheme();
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -32,7 +33,6 @@ export default function LoginScreen() {
         setError('Giriş bilgileri hatalı veya hesap bulunamadı.');
         return;
       }
-
       router.replace('/(tabs)/profile');
     } finally {
       setLoading(false);
@@ -40,104 +40,67 @@ export default function LoginScreen() {
   };
 
   return (
-    <View style={[styles(colors).container, { backgroundColor: pageBackground }]}>
-      <View style={[styles(colors).card, { backgroundColor: pageBackground }]}>
-        <Text style={styles(colors).title}>Giriş Yap</Text>
-        <Text style={styles(colors).subtitle}>Profil sayfasına erişmek için hesabınla giriş yap.</Text>
+    <AuthShell
+      title="Tekrar hoş geldin"
+      subtitle="Akışını kaldığın yerden sürdürmek için giriş yap."
+    >
+      <AuthInput
+        label="E-posta"
+        icon="mail-outline"
+        placeholder="ornek@gazete.ai"
+        value={email}
+        onChangeText={setEmail}
+        keyboardType="email-address"
+        autoCapitalize="none"
+        autoComplete="email"
+        textContentType="emailAddress"
+      />
+      <AuthInput
+        label="Şifre"
+        icon="lock-closed-outline"
+        placeholder="Şifreni gir"
+        value={password}
+        onChangeText={setPassword}
+        secureTextEntry
+        passwordToggle
+        autoComplete="password"
+        textContentType="password"
+        onSubmitEditing={handleLogin}
+      />
 
-        <TextInput
-          value={email}
-          onChangeText={setEmail}
-          placeholder="E-posta"
-          placeholderTextColor={colors.textMuted}
-          keyboardType="email-address"
-          autoCapitalize="none"
-          style={[styles(colors).input, { backgroundColor: elevatedSurface }]}
-        />
+      <AuthError message={error} />
 
-        <TextInput
-          value={password}
-          onChangeText={setPassword}
-          placeholder="Şifre"
-          placeholderTextColor={colors.textMuted}
-          secureTextEntry
-          style={[styles(colors).input, { backgroundColor: elevatedSurface }]}
-        />
+      <AuthButton
+        label="Giriş Yap"
+        loading={loading}
+        onPress={handleLogin}
+      />
 
-        {error ? <Text style={styles(colors).errorText}>{error}</Text> : null}
-
-        <Pressable style={styles(colors).primaryButton} onPress={handleLogin} disabled={loading}>
-          <Text style={styles(colors).primaryButtonText}>{loading ? 'Giriş yapılıyor...' : 'Giriş Yap'}</Text>
-        </Pressable>
-
+      <View style={styles.footer}>
+        <Text style={[styles.muted, { color: colors.textMuted }]}>Hesabın yok mu?</Text>
         <Link href="/auth/register" asChild>
-          <Pressable style={styles(colors).secondaryButton}>
-            <Text style={styles(colors).secondaryButtonText}>Hesabın yok mu? Kayıt Ol</Text>
+          <Pressable hitSlop={6}>
+            <Text style={[styles.link, { color: colors.accent }]}>Kayıt Ol</Text>
           </Pressable>
         </Link>
       </View>
-    </View>
+    </AuthShell>
   );
 }
 
-const styles = (colors: any) =>
-  StyleSheet.create({
-    container: {
-      flex: 1,
-      backgroundColor: colors.background,
-      padding: Spacing.lg,
-      justifyContent: 'center',
-    },
-    card: {
-      backgroundColor: colors.surface,
-      borderRadius: Radius.lg,
-      borderWidth: 1,
-      borderColor: colors.borderSubtle,
-      padding: Spacing.lg,
-      gap: Spacing.md,
-    },
-    title: {
-      color: colors.textPrimary,
-      fontSize: Typography.fontSize.xl,
-      fontWeight: Typography.fontWeight.bold,
-    },
-    subtitle: {
-      color: colors.textSecondary,
-      fontSize: Typography.fontSize.base,
-      lineHeight: 20,
-    },
-    input: {
-      backgroundColor: colors.surfaceHigh,
-      borderWidth: 1,
-      borderColor: colors.border,
-      borderRadius: Radius.md,
-      paddingVertical: Spacing.md,
-      paddingHorizontal: Spacing.md,
-      color: colors.textPrimary,
-    },
-    errorText: {
-      color: colors.error,
-      fontSize: Typography.fontSize.sm,
-    },
-    primaryButton: {
-      backgroundColor: colors.accent,
-      borderRadius: Radius.md,
-      paddingVertical: Spacing.md,
-      alignItems: 'center',
-      justifyContent: 'center',
-    },
-    primaryButtonText: {
-      color: colors.white,
-      fontSize: Typography.fontSize.md,
-      fontWeight: Typography.fontWeight.bold,
-    },
-    secondaryButton: {
-      alignItems: 'center',
-      paddingVertical: Spacing.sm,
-    },
-    secondaryButtonText: {
-      color: colors.accent,
-      fontSize: Typography.fontSize.base,
-      fontWeight: Typography.fontWeight.medium,
-    },
-  });
+const styles = StyleSheet.create({
+  footer: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: 6,
+    marginTop: Spacing.md,
+  },
+  muted: {
+    fontSize: Typography.fontSize.base,
+  },
+  link: {
+    fontSize: Typography.fontSize.base,
+    fontWeight: Typography.fontWeight.bold,
+  },
+});
