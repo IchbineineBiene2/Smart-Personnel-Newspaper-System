@@ -18,6 +18,7 @@ import {
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 
+import { requireAuth } from '@/contexts/AuthGate';
 import { Radius, Spacing, Typography } from '@/constants/theme';
 import { useApiNews } from '@/hooks/useNews';
 import { useBookmarks } from '@/hooks/useBookmarks';
@@ -486,25 +487,8 @@ export default function NewsDetailPage() {
 
   const articleFromCache = cacheHit ?? remoteArticle;
 
-  if (params.id && !params.title && !articleFromCache && (loading || remoteLoading)) {
-    return (
-      <View style={styles(colors).centerWrap}>
-        <ActivityIndicator color={colors.accent} />
-        <Text style={styles(colors).statusText}>Haber yükleniyor...</Text>
-      </View>
-    );
-  }
-
-  if (!params.id || (!params.title && !articleFromCache)) {
-    return (
-      <View style={styles(colors).centerWrap}>
-        <Text style={styles(colors).errorTitle}>Haber açılamadı</Text>
-        <Text style={styles(colors).statusText}>
-          {remoteError ? 'Sunucudan bu haber çekilemedi.' : 'Haber verisi bulunamadı.'}
-        </Text>
-      </View>
-    );
-  }
+  // NOT: Loader / "Haber açılamadı" branch'leri en alttaki return'ın
+  // hemen üstüne taşındı (hooks count'unun render'lar arasında değişmemesi için).
 
   useEffect(() => {
     let active = true;
@@ -757,7 +741,8 @@ export default function NewsDetailPage() {
     }
   };
 
-  const openMessagePanel = () => {
+  const openMessagePanel = async () => {
+    if (!(await requireAuth('mesaj göndermek'))) return;
     setMessagePanelVisible(true);
     setSendFeedback(null);
   };
@@ -878,21 +863,16 @@ export default function NewsDetailPage() {
 
   const isSaved = savedIds.includes(params.id || '');
 
-  const handleToggleSave = () => {
-    if (params.id) {
-      toggleSaved(params.id);
-    }
+  const handleToggleSave = async () => {
+    if (!params.id) return;
+    if (!(await requireAuth('haberi kaydetmek'))) return;
+    toggleSaved(params.id);
   };
 
   const handleToggleLike = async () => {
     if (!params.id || likeLoading) return;
-
+    if (!(await requireAuth('beğeni'))) return;
     setLikeError(null);
-    if (!messageToken) {
-      setLikeError('Beğenmek için giriş yapmalısınız.');
-      setTimeout(() => setLikeError(null), 3000);
-      return;
-    }
 
     const previousLiked = likedByMe;
     const previousCount = likesCount;
@@ -922,6 +902,7 @@ export default function NewsDetailPage() {
 
   const handleSubmitComment = async () => {
     if (!params.id || !commentText.trim()) return;
+    if (!(await requireAuth('yorum yapmak'))) return;
 
     try {
       setCommentSubmitting(true);
@@ -1115,6 +1096,27 @@ export default function NewsDetailPage() {
       </Pressable>
     </View>
   );
+
+  // Late-return: tüm hook'lar yukarıda kayıtsız şartsız çalıştı; burada güvenle ekran seçilebilir.
+  if (params.id && !params.title && !articleFromCache && (loading || remoteLoading)) {
+    return (
+      <View style={styles(colors).centerWrap}>
+        <ActivityIndicator color={colors.accent} />
+        <Text style={styles(colors).statusText}>Haber yükleniyor...</Text>
+      </View>
+    );
+  }
+
+  if (!params.id || (!params.title && !articleFromCache)) {
+    return (
+      <View style={styles(colors).centerWrap}>
+        <Text style={styles(colors).errorTitle}>Haber açılamadı</Text>
+        <Text style={styles(colors).statusText}>
+          {remoteError ? 'Sunucudan bu haber çekilemedi.' : 'Haber verisi bulunamadı.'}
+        </Text>
+      </View>
+    );
+  }
 
   return (
     <ScrollView ref={scrollViewRef} style={styles(colors).container} contentContainerStyle={styles(colors).content}>
