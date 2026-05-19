@@ -4,8 +4,53 @@ import { scrapeArticleDetails } from '../collectors/scraper';
 import { query } from '../db';
 import { generateArticleAnalysis } from '../services/articleAnalysis';
 import { runCollection } from '../scheduler/newsScheduler';
+import { optionalAuth, authMiddleware } from '../middleware/authMiddleware';
+import { getInterestVector } from '../services/userInterest';
 import axios from 'axios';
 import * as cheerio from 'cheerio';
+
+/**
+ * Light cache for user preferences — avoid hitting the DB on every /api/news call.
+ * Invalidated when the preferences PUT route updates a row (no live invalidation yet,
+ * just a 30-second TTL — preference changes show up within half a minute).
+ */
+type UserPrefs = {
+  preferredCategories: string[];
+  preferredLanguages: string[];
+  preferredSources: string[];
+  mutedSources: string[];
+};
+const prefsCache = new Map<number, { prefs: UserPrefs; ts: number }>();
+const PREFS_TTL_MS = 30 * 1000;
+
+async function loadUserPrefs(userId: number): Promise<UserPrefs | null> {
+  const cached = prefsCache.get(userId);
+  if (cached && Date.now() - cached.ts < PREFS_TTL_MS) return cached.prefs;
+  try {
+    const r = await query<{
+      preferred_categories: string[] | null;
+      preferred_languages: string[] | null;
+      preferred_sources: string[] | null;
+      muted_sources: string[] | null;
+    }>(
+      `SELECT preferred_categories, preferred_languages, preferred_sources, muted_sources
+         FROM user_preferences WHERE user_id = $1`,
+      [userId],
+    );
+    if (r.rowCount === 0) return null;
+    const prefs: UserPrefs = {
+      preferredCategories: r.rows[0].preferred_categories ?? [],
+      preferredLanguages: r.rows[0].preferred_languages ?? [],
+      preferredSources: r.rows[0].preferred_sources ?? [],
+      mutedSources: r.rows[0].muted_sources ?? [],
+    };
+    prefsCache.set(userId, { prefs, ts: Date.now() });
+    return prefs;
+  } catch (e) {
+    console.warn('[NewsAPI] preferences load failed for user', userId, (e as Error).message);
+    return null;
+  }
+}
 
 const router = Router();
 
@@ -167,6 +212,74 @@ router.get('/breaking', async (req: Request, res: Response) => {
   }
 });
 
+// GET /api/news/for-you - Kişiselleştirilmiş feed (auth zorunlu).
+// Kullanıcının interest_vector'ına en yakın güncel (3 günlük) makaleleri sıralar.
+// Soğuk başlangıç (henüz like/view yoksa): trending davranışına düşer.
+router.get('/for-you', authMiddleware, async (req: Request, res: Response) => {
+  try {
+    if (!req.user) {
+      return res.status(401).json({ error: 'auth required' });
+    }
+    const limit = Math.min(Math.max(Number(req.query.limit ?? 30), 1), 100);
+    const lookbackDays = Math.min(Math.max(Number(req.query.days ?? 3), 1), 14);
+
+    const interest = await getInterestVector(req.user.userId);
+
+    // mutedSources hard filter — preferences kayıtlıysa uygula
+    const prefsRow = await query<{ muted_sources: string[] | null }>(
+      `SELECT muted_sources FROM user_preferences WHERE user_id = $1`,
+      [req.user.userId],
+    );
+    const muted = prefsRow.rows[0]?.muted_sources ?? [];
+
+    // Cold start: vector yok → tipik akış (popüler/güncel)
+    if (!interest.vector || interest.sampleCount === 0) {
+      const fallback = await query<any>(
+        `SELECT id, title, description, content, url, image_url, published_at,
+                category, language, source_name, source_url
+           FROM articles
+          WHERE published_at >= NOW() - INTERVAL '${lookbackDays} days'
+            AND embedding_v2 IS NOT NULL
+            ${muted.length ? `AND source_name <> ALL($2)` : ''}
+          ORDER BY published_at DESC
+          LIMIT $1`,
+        muted.length ? [limit, muted] : [limit],
+      );
+      return res.json({
+        cold: true,
+        sampleCount: 0,
+        articles: fallback.rows,
+      });
+    }
+
+    // Personalized: cosine similarity sort
+    // pgvector cosine distance: vector <=> vector → 0=identical, 2=opposite
+    // score = 1 - distance
+    const personalized = await query<any>(
+      `SELECT id, title, description, content, url, image_url, published_at,
+              category, language, source_name, source_url,
+              (1 - (embedding_v2 <=> $1::vector)) AS interest_score
+         FROM articles
+        WHERE published_at >= NOW() - INTERVAL '${lookbackDays} days'
+          AND embedding_v2 IS NOT NULL
+          ${muted.length ? `AND source_name <> ALL($3)` : ''}
+        ORDER BY embedding_v2 <=> $1::vector
+        LIMIT $2`,
+      muted.length ? [interest.vector, limit, muted] : [interest.vector, limit],
+    );
+
+    return res.json({
+      cold: false,
+      sampleCount: interest.sampleCount,
+      freshness: interest.freshness,
+      articles: personalized.rows,
+    });
+  } catch (err) {
+    console.error('[NewsAPI] for-you hatası:', err);
+    return res.status(500).json({ error: 'For-you feed alınamadı' });
+  }
+});
+
 // GET /api/news/sources - Aktif yayıncı/kaynak listesi (her kaynaktan en son haber + sayım)
 router.get('/sources', async (_req: Request, res: Response) => {
   try {
@@ -188,15 +301,37 @@ router.get('/sources', async (_req: Request, res: Response) => {
   }
 });
 
-// GET /api/news - Tüm haberleri getir (filtreli)
-router.get('/', async (req: Request, res: Response) => {
+// GET /api/news - Tüm haberleri getir (filtreli + opsiyonel kişiselleştirme).
+//
+// Guests: query string filtreleri (category, language, source) çalışır.
+// Authenticated: ek olarak `?personalized=1` verilirse kullanıcının tercih
+// dilleri/kaynakları/kategorileri filtreye eklenir. mutedSources her zaman
+// uygulanır (auth'lu kullanıcı için).
+router.get('/', optionalAuth, async (req: Request, res: Response) => {
   try {
     const { category, language, source, limit = '50', offset = '0' } = req.query;
+    const personalized = String(req.query.personalized ?? '') === '1' || String(req.query.personalized ?? '') === 'true';
+
+    let prefs: UserPrefs | null = null;
+    if (req.user) {
+      prefs = await loadUserPrefs(req.user.userId);
+    }
+
+    // Query-string filter > user prefs filter (kullanıcı UI'da bir filtreyi
+    // override etmek istiyorsa direk request'le geçsin).
+    const useUserCategories = personalized && prefs && prefs.preferredCategories.length > 0 && !category;
+    const useUserLanguages = personalized && prefs && prefs.preferredLanguages.length > 0 && !language;
+    const useUserSources = personalized && prefs && prefs.preferredSources.length > 0 && !source;
+    const useMutedSources = !!prefs && prefs.mutedSources.length > 0;
 
     const result = await getArticles({
       category: category ? String(category) : undefined,
       language: language ? String(language) : undefined,
       source: source ? String(source) : undefined,
+      categories: useUserCategories ? prefs!.preferredCategories : undefined,
+      languages: useUserLanguages ? prefs!.preferredLanguages : undefined,
+      sources: useUserSources ? prefs!.preferredSources : undefined,
+      mutedSources: useMutedSources ? prefs!.mutedSources : undefined,
       limit: Number(limit),
       offset: Number(offset),
     });

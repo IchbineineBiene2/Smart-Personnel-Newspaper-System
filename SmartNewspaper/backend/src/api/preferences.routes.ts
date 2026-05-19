@@ -7,7 +7,20 @@ router.use(authMiddleware);
 
 /**
  * GET /api/preferences
- * Get current user's preferences
+ * Returns the current user's preferences (creates a default row on first access).
+ *
+ * Response shape:
+ *   {
+ *     preferredCategories: string[],
+ *     preferredLanguages:  string[],
+ *     preferredSources:    string[],
+ *     mutedSources:        string[],
+ *     language:            string,    // legacy single value, hâlâ destekleniyor
+ *     theme:               string,
+ *     notificationsEnabled: boolean,
+ *     emailDigest:          boolean,
+ *     digestFrequency:      string,
+ *   }
  */
 router.get('/', async (req: Request, res: Response) => {
   try {
@@ -16,31 +29,45 @@ router.get('/', async (req: Request, res: Response) => {
       return;
     }
 
-    const result = await dbQuery(
-      'SELECT * FROM user_preferences WHERE user_id = $1',
-      [req.user.userId]
+    let row = await dbQuery(
+      `SELECT preferred_categories, preferred_languages, preferred_sources, muted_sources,
+              language, theme, notifications_enabled, email_digest, digest_frequency
+       FROM user_preferences WHERE user_id = $1`,
+      [req.user.userId],
     );
 
-    if (result.rows.length === 0) {
-      const defaultResult = await dbQuery(
-        `INSERT INTO user_preferences (user_id, preferred_categories, language, theme)
-         VALUES ($1, '{}', 'tr', 'light')
-         RETURNING *`,
-        [req.user.userId]
+    if (row.rows.length === 0) {
+      row = await dbQuery(
+        `INSERT INTO user_preferences (user_id) VALUES ($1)
+         RETURNING preferred_categories, preferred_languages, preferred_sources, muted_sources,
+                   language, theme, notifications_enabled, email_digest, digest_frequency`,
+        [req.user.userId],
       );
-      res.json({ preferences: defaultResult.rows[0] });
-    } else {
-      res.json({ preferences: result.rows[0] });
     }
+
+    const p = row.rows[0] as any;
+    res.json({
+      preferredCategories: p.preferred_categories ?? [],
+      preferredLanguages: p.preferred_languages ?? [],
+      preferredSources: p.preferred_sources ?? [],
+      mutedSources: p.muted_sources ?? [],
+      language: p.language,
+      theme: p.theme,
+      notificationsEnabled: p.notifications_enabled,
+      emailDigest: p.email_digest,
+      digestFrequency: p.digest_frequency,
+    });
   } catch (err) {
-    const error = err as Error;
-    res.status(500).json({ error: error.message });
+    res.status(500).json({ error: (err as Error).message });
   }
 });
 
 /**
  * PUT /api/preferences
- * Update user preferences
+ * Partial update. Yalnızca gönderilen alanlar değişir (COALESCE).
+ * Accepted body fields (any subset):
+ *   preferredCategories, preferredLanguages, preferredSources, mutedSources,
+ *   language, theme, notificationsEnabled, emailDigest, digestFrequency
  */
 router.put('/', async (req: Request, res: Response) => {
   try {
@@ -49,46 +76,57 @@ router.put('/', async (req: Request, res: Response) => {
       return;
     }
 
-    const {
-      preferred_categories,
-      language,
-      theme,
-      notifications_enabled,
-      email_digest,
-      digest_frequency,
-    } = req.body;
-
-    const result = await dbQuery(
-      `UPDATE user_preferences 
-       SET preferred_categories = COALESCE($1, preferred_categories),
-           language = COALESCE($2, language),
-           theme = COALESCE($3, theme),
-           notifications_enabled = COALESCE($4, notifications_enabled),
-           email_digest = COALESCE($5, email_digest),
-           digest_frequency = COALESCE($6, digest_frequency),
-           updated_at = NOW()
-       WHERE user_id = $7
-       RETURNING *`,
-      [
-        preferred_categories || null,
-        language || null,
-        theme || null,
-        notifications_enabled !== undefined ? notifications_enabled : null,
-        email_digest !== undefined ? email_digest : null,
-        digest_frequency || null,
-        req.user.userId,
-      ]
+    // Ensure row exists
+    await dbQuery(
+      `INSERT INTO user_preferences (user_id) VALUES ($1)
+       ON CONFLICT (user_id) DO NOTHING`,
+      [req.user.userId],
     );
 
-    if (result.rows.length === 0) {
-      res.status(404).json({ error: 'Preferences not found' });
-      return;
-    }
+    const b = req.body ?? {};
+    const result = await dbQuery(
+      `UPDATE user_preferences
+         SET preferred_categories  = COALESCE($1, preferred_categories),
+             preferred_languages   = COALESCE($2, preferred_languages),
+             preferred_sources     = COALESCE($3, preferred_sources),
+             muted_sources         = COALESCE($4, muted_sources),
+             language              = COALESCE($5, language),
+             theme                 = COALESCE($6, theme),
+             notifications_enabled = COALESCE($7, notifications_enabled),
+             email_digest          = COALESCE($8, email_digest),
+             digest_frequency      = COALESCE($9, digest_frequency),
+             updated_at            = NOW()
+       WHERE user_id = $10
+       RETURNING preferred_categories, preferred_languages, preferred_sources, muted_sources,
+                 language, theme, notifications_enabled, email_digest, digest_frequency`,
+      [
+        Array.isArray(b.preferredCategories) ? b.preferredCategories : null,
+        Array.isArray(b.preferredLanguages) ? b.preferredLanguages : null,
+        Array.isArray(b.preferredSources) ? b.preferredSources : null,
+        Array.isArray(b.mutedSources) ? b.mutedSources : null,
+        typeof b.language === 'string' ? b.language : null,
+        typeof b.theme === 'string' ? b.theme : null,
+        typeof b.notificationsEnabled === 'boolean' ? b.notificationsEnabled : null,
+        typeof b.emailDigest === 'boolean' ? b.emailDigest : null,
+        typeof b.digestFrequency === 'string' ? b.digestFrequency : null,
+        req.user.userId,
+      ],
+    );
 
-    res.json({ preferences: result.rows[0] });
+    const p = result.rows[0] as any;
+    res.json({
+      preferredCategories: p.preferred_categories ?? [],
+      preferredLanguages: p.preferred_languages ?? [],
+      preferredSources: p.preferred_sources ?? [],
+      mutedSources: p.muted_sources ?? [],
+      language: p.language,
+      theme: p.theme,
+      notificationsEnabled: p.notifications_enabled,
+      emailDigest: p.email_digest,
+      digestFrequency: p.digest_frequency,
+    });
   } catch (err) {
-    const error = err as Error;
-    res.status(500).json({ error: error.message });
+    res.status(500).json({ error: (err as Error).message });
   }
 });
 
