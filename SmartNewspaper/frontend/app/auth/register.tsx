@@ -1,16 +1,29 @@
 import { Link, useRouter } from 'expo-router';
-import { useState } from 'react';
-import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { useMemo, useState } from 'react';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 
+import { AuthShell } from '@/components/auth/AuthShell';
+import { AuthInput } from '@/components/auth/AuthInput';
+import { AuthButton, AuthError } from '@/components/auth/AuthButton';
 import { Radius, Spacing, Typography } from '@/constants/theme';
 import { useTheme } from '@/hooks/useTheme';
 import { registerUser } from '@/services/auth';
 
+function strength(pw: string): { score: 0 | 1 | 2 | 3 | 4; label: string } {
+  if (!pw) return { score: 0, label: '' };
+  let s = 0;
+  if (pw.length >= 6) s++;
+  if (pw.length >= 10) s++;
+  if (/[A-Z]/.test(pw) && /[a-z]/.test(pw)) s++;
+  if (/\d/.test(pw)) s++;
+  if (/[^A-Za-z0-9]/.test(pw)) s = Math.min(4, s + 1);
+  const labels = ['Çok zayıf', 'Zayıf', 'Orta', 'İyi', 'Güçlü'];
+  return { score: Math.min(4, s) as 0 | 1 | 2 | 3 | 4, label: labels[Math.min(4, s)] };
+}
+
 export default function RegisterScreen() {
   const router = useRouter();
-  const { colors, themeName } = useTheme();
-  const pageBackground = themeName === 'vincent' ? colors.surface : colors.background;
-  const elevatedSurface = themeName === 'vincent' ? colors.surface : colors.surfaceHigh;
+  const { colors } = useTheme();
 
   const [name, setName] = useState('');
   const [username, setUsername] = useState('');
@@ -20,167 +33,180 @@ export default function RegisterScreen() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
+  const usernameValid = username.length === 0 ? null : /^[a-zA-Z0-9_]{3,24}$/.test(username);
+  const emailValid = email.length === 0 ? null : /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+  const passwordValid = password.length === 0 ? null : password.length >= 6;
+  const confirmValid = confirmPassword.length === 0 ? null : password === confirmPassword;
+
+  const pw = useMemo(() => strength(password), [password]);
+  const meterColors = [colors.error, colors.error, colors.warning, colors.info, colors.success];
+
   const handleRegister = async () => {
     if (!name.trim() || !username.trim() || !email.trim() || !password.trim()) {
       setError('Tüm alanlar zorunludur.');
       return;
     }
-
-    if (!/^[a-zA-Z0-9_]{3,24}$/.test(username.trim())) {
-      setError('Kullanici adi 3-24 karakter olmali; sadece harf, rakam ve alt cizgi kullanilabilir.');
+    if (!usernameValid) {
+      setError('Kullanıcı adı 3-24 karakter olmalı; sadece harf, rakam ve alt çizgi kullanılabilir.');
       return;
     }
-
-    if (password.length < 6) {
+    if (!emailValid) {
+      setError('Geçerli bir e-posta gir.');
+      return;
+    }
+    if (!passwordValid) {
       setError('Şifre en az 6 karakter olmalıdır.');
       return;
     }
-
-    if (password !== confirmPassword) {
+    if (!confirmValid) {
       setError('Şifreler birbiriyle eşleşmiyor.');
       return;
     }
 
     setLoading(true);
     setError(null);
-
     try {
       await registerUser({ name, username, email, password });
       router.replace('/(tabs)/profile');
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'Kayit olusturulamadi.';
-      setError(message);
+      setError(err instanceof Error ? err.message : 'Kayıt oluşturulamadı.');
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <View style={[styles(colors).container, { backgroundColor: pageBackground }]}>
-      <View style={[styles(colors).card, { backgroundColor: pageBackground }]}>
-        <Text style={styles(colors).title}>Kayıt Ol</Text>
-        <Text style={styles(colors).subtitle}>Yeni hesap oluştur ve profilini aç.</Text>
+    <AuthShell
+      title="Aramıza katıl"
+      subtitle="Birkaç saniyede hesap aç, akış hemen senin için hazırlansın."
+    >
+      <AuthInput
+        label="Ad Soyad"
+        icon="person-outline"
+        placeholder="Ad ve soyadın"
+        value={name}
+        onChangeText={setName}
+        autoCapitalize="words"
+        textContentType="name"
+      />
+      <AuthInput
+        label="Kullanıcı adı"
+        icon="at-outline"
+        placeholder="kullaniciadi"
+        value={username}
+        onChangeText={setUsername}
+        autoCapitalize="none"
+        autoCorrect={false}
+        valid={usernameValid}
+        hint={usernameValid === false ? '3-24 karakter; harf, rakam ve _' : undefined}
+      />
+      <AuthInput
+        label="E-posta"
+        icon="mail-outline"
+        placeholder="ornek@gazete.ai"
+        value={email}
+        onChangeText={setEmail}
+        keyboardType="email-address"
+        autoCapitalize="none"
+        valid={emailValid}
+      />
+      <AuthInput
+        label="Şifre"
+        icon="lock-closed-outline"
+        placeholder="En az 6 karakter"
+        value={password}
+        onChangeText={setPassword}
+        secureTextEntry
+        passwordToggle
+      />
 
-        <TextInput
-          value={name}
-          onChangeText={setName}
-          placeholder="Ad Soyad"
-          placeholderTextColor={colors.textMuted}
-          style={[styles(colors).input, { backgroundColor: elevatedSurface }]}
-        />
+      {/* Strength meter */}
+      {password.length > 0 && (
+        <View style={styles.meterWrap}>
+          <View style={styles.meterTrack}>
+            {[0, 1, 2, 3].map((i) => (
+              <View
+                key={i}
+                style={[
+                  styles.meterSegment,
+                  {
+                    backgroundColor: pw.score > i ? meterColors[pw.score] : colors.surfaceHigh,
+                  },
+                ]}
+              />
+            ))}
+          </View>
+          <Text style={[styles.meterLabel, { color: meterColors[pw.score] }]}>{pw.label}</Text>
+        </View>
+      )}
 
-        <TextInput
-          value={username}
-          onChangeText={setUsername}
-          placeholder="Kullanici adi"
-          placeholderTextColor={colors.textMuted}
-          autoCapitalize="none"
-          autoCorrect={false}
-          style={[styles(colors).input, { backgroundColor: elevatedSurface }]}
-        />
+      <AuthInput
+        label="Şifre tekrar"
+        icon="lock-closed-outline"
+        placeholder="Şifreyi tekrar gir"
+        value={confirmPassword}
+        onChangeText={setConfirmPassword}
+        secureTextEntry
+        passwordToggle
+        valid={confirmValid}
+        hint={confirmValid === false ? 'Şifreler eşleşmiyor.' : undefined}
+        onSubmitEditing={handleRegister}
+      />
 
-        <TextInput
-          value={email}
-          onChangeText={setEmail}
-          placeholder="E-posta"
-          placeholderTextColor={colors.textMuted}
-          keyboardType="email-address"
-          autoCapitalize="none"
-          style={[styles(colors).input, { backgroundColor: elevatedSurface }]}
-        />
+      <AuthError message={error} />
 
-        <TextInput
-          value={password}
-          onChangeText={setPassword}
-          placeholder="Şifre"
-          placeholderTextColor={colors.textMuted}
-          secureTextEntry
-          style={[styles(colors).input, { backgroundColor: elevatedSurface }]}
-        />
+      <AuthButton
+        label="Hesap oluştur"
+        loading={loading}
+        onPress={handleRegister}
+      />
 
-        <TextInput
-          value={confirmPassword}
-          onChangeText={setConfirmPassword}
-          placeholder="Şifre Tekrar"
-          placeholderTextColor={colors.textMuted}
-          secureTextEntry
-          style={[styles(colors).input, { backgroundColor: elevatedSurface }]}
-        />
-
-        {error ? <Text style={styles(colors).errorText}>{error}</Text> : null}
-
-        <Pressable style={styles(colors).primaryButton} onPress={handleRegister} disabled={loading}>
-          <Text style={styles(colors).primaryButtonText}>{loading ? 'Kayıt oluşturuluyor...' : 'Kayıt Ol'}</Text>
-        </Pressable>
-
+      <View style={styles.footer}>
+        <Text style={[styles.muted, { color: colors.textMuted }]}>Zaten hesabın var mı?</Text>
         <Link href="/auth/login" asChild>
-          <Pressable style={styles(colors).secondaryButton}>
-            <Text style={styles(colors).secondaryButtonText}>Zaten hesabın var mı? Giriş Yap</Text>
+          <Pressable hitSlop={6}>
+            <Text style={[styles.link, { color: colors.accent }]}>Giriş Yap</Text>
           </Pressable>
         </Link>
       </View>
-    </View>
+    </AuthShell>
   );
 }
 
-const styles = (colors: any) =>
-  StyleSheet.create({
-    container: {
-      flex: 1,
-      backgroundColor: colors.background,
-      padding: Spacing.lg,
-      justifyContent: 'center',
-    },
-    card: {
-      backgroundColor: colors.surface,
-      borderRadius: Radius.lg,
-      borderWidth: 1,
-      borderColor: colors.borderSubtle,
-      padding: Spacing.lg,
-      gap: Spacing.md,
-    },
-    title: {
-      color: colors.textPrimary,
-      fontSize: Typography.fontSize.xl,
-      fontWeight: Typography.fontWeight.bold,
-    },
-    subtitle: {
-      color: colors.textSecondary,
-      fontSize: Typography.fontSize.base,
-      lineHeight: 20,
-    },
-    input: {
-      backgroundColor: colors.surfaceHigh,
-      borderWidth: 1,
-      borderColor: colors.border,
-      borderRadius: Radius.md,
-      paddingVertical: Spacing.md,
-      paddingHorizontal: Spacing.md,
-      color: colors.textPrimary,
-    },
-    errorText: {
-      color: colors.error,
-      fontSize: Typography.fontSize.sm,
-    },
-    primaryButton: {
-      backgroundColor: colors.accent,
-      borderRadius: Radius.md,
-      paddingVertical: Spacing.md,
-      alignItems: 'center',
-      justifyContent: 'center',
-    },
-    primaryButtonText: {
-      color: colors.white,
-      fontSize: Typography.fontSize.md,
-      fontWeight: Typography.fontWeight.bold,
-    },
-    secondaryButton: {
-      alignItems: 'center',
-      paddingVertical: Spacing.sm,
-    },
-    secondaryButtonText: {
-      color: colors.accent,
-      fontSize: Typography.fontSize.base,
-      fontWeight: Typography.fontWeight.medium,
-    },
-  });
+const styles = StyleSheet.create({
+  meterWrap: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.sm,
+    marginTop: -Spacing.xs,
+  },
+  meterTrack: {
+    flex: 1,
+    flexDirection: 'row',
+    gap: 4,
+  },
+  meterSegment: {
+    flex: 1,
+    height: 6,
+    borderRadius: Radius.sm,
+  },
+  meterLabel: {
+    fontSize: Typography.fontSize.xs,
+    fontWeight: Typography.fontWeight.bold,
+    minWidth: 60,
+  },
+  footer: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: 6,
+    marginTop: Spacing.md,
+  },
+  muted: {
+    fontSize: Typography.fontSize.base,
+  },
+  link: {
+    fontSize: Typography.fontSize.base,
+    fontWeight: Typography.fontWeight.bold,
+  },
+});
