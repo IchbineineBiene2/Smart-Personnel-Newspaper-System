@@ -140,22 +140,13 @@ export async function runCollection(includeNewsApi = false): Promise<CollectionR
 
     const { inserted, skipped } = await upsertArticles(finalArticles);
 
-    // Compute embeddings — eski model (geçiş için) + v2 (multilingual-e5-large)
-    // DISABLED: Connection pool optimization needed - causes timeout on API requests
-    // if (inserted > 0) {
-    //   console.log('[Scheduler] Generating embeddings for new articles...');
-    //   try {
-    //     const { computeAndSaveEmbeddings } = require('../processors/embedding');
-    //     await computeAndSaveEmbeddings();
-    //   } catch(e) {
-    //     console.error('[Embedding Error]', e);
-    //   }
-    //   try {
-    //     await computeAndSaveEmbeddingsV2({ limit: 200, onlyMissing: true });
-    //   } catch(e) {
-    //     console.error('[EmbeddingV2 Error]', e);
-    //   }
-    // }
+    // V2 embedding (multilingual-e5-base) — fire-and-forget so collection doesn't
+    // hold the API connection pool. Errors logged but don't fail the run.
+    if (inserted > 0) {
+      void computeAndSaveEmbeddingsV2({ limit: 200, onlyMissing: true })
+        .then((r) => console.log(`[Scheduler] EmbeddingV2 batch: ${r.processed} processed, ${r.failed} failed`))
+        .catch((e) => console.error('[Scheduler] EmbeddingV2 error:', (e as Error).message));
+    }
 
     const duration = Date.now() - startTime;
     console.log(

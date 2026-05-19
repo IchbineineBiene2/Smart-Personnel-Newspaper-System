@@ -88,14 +88,16 @@ async function ensurePublisherSystemUser(sourceName: string): Promise<void> {
   const trimmed = sourceName.trim();
   if (!trimmed) return;
 
+  // Explicit ::text cast on every $1 — different functions (LOWER/REGEXP_REPLACE/MD5)
+  // make Postgres' type inference inconsistent and the INSERT errors out.
   await query(
     `INSERT INTO users (username, email, password_hash, role, status)
      VALUES (
-       $1,
+       $1::text,
        CONCAT(
-         LOWER(REGEXP_REPLACE($1, '[^a-zA-Z0-9]+', '-', 'g')),
+         LOWER(REGEXP_REPLACE($1::text, '[^a-zA-Z0-9]+', '-', 'g')),
          '-',
-         SUBSTRING(MD5($1) FROM 1 FOR 10),
+         SUBSTRING(MD5($1::text) FROM 1 FOR 10),
          '@publisher.local'
        ),
        'system-managed-publisher',
