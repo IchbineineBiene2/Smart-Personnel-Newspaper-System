@@ -487,25 +487,8 @@ export default function NewsDetailPage() {
 
   const articleFromCache = cacheHit ?? remoteArticle;
 
-  if (params.id && !params.title && !articleFromCache && (loading || remoteLoading)) {
-    return (
-      <View style={styles(colors).centerWrap}>
-        <ActivityIndicator color={colors.accent} />
-        <Text style={styles(colors).statusText}>Haber yükleniyor...</Text>
-      </View>
-    );
-  }
-
-  if (!params.id || (!params.title && !articleFromCache)) {
-    return (
-      <View style={styles(colors).centerWrap}>
-        <Text style={styles(colors).errorTitle}>Haber açılamadı</Text>
-        <Text style={styles(colors).statusText}>
-          {remoteError ? 'Sunucudan bu haber çekilemedi.' : 'Haber verisi bulunamadı.'}
-        </Text>
-      </View>
-    );
-  }
+  // NOT: Loader / "Haber açılamadı" branch'leri en alttaki return'ın
+  // hemen üstüne taşındı (hooks count'unun render'lar arasında değişmemesi için).
 
   useEffect(() => {
     let active = true;
@@ -1113,6 +1096,27 @@ export default function NewsDetailPage() {
       </Pressable>
     </View>
   );
+
+  // Late-return: tüm hook'lar yukarıda kayıtsız şartsız çalıştı; burada güvenle ekran seçilebilir.
+  if (params.id && !params.title && !articleFromCache && (loading || remoteLoading)) {
+    return (
+      <View style={styles(colors).centerWrap}>
+        <ActivityIndicator color={colors.accent} />
+        <Text style={styles(colors).statusText}>Haber yükleniyor...</Text>
+      </View>
+    );
+  }
+
+  if (!params.id || (!params.title && !articleFromCache)) {
+    return (
+      <View style={styles(colors).centerWrap}>
+        <Text style={styles(colors).errorTitle}>Haber açılamadı</Text>
+        <Text style={styles(colors).statusText}>
+          {remoteError ? 'Sunucudan bu haber çekilemedi.' : 'Haber verisi bulunamadı.'}
+        </Text>
+      </View>
+    );
+  }
 
   return (
     <ScrollView ref={scrollViewRef} style={styles(colors).container} contentContainerStyle={styles(colors).content}>
