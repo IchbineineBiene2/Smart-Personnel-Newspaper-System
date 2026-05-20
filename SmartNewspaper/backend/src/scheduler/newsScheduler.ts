@@ -8,7 +8,6 @@ import { enrichArticlesWithContent } from '../collectors/scraper';
 import { filterDuplicates, clearCache, loadSeenIdsFromDb } from '../processors/duplicateDetector';
 import { upsertArticles } from '../db/articleRepository';
 import { query } from '../db/index';
-import { findAndSaveSimilarArticles } from '../processors/similarity-processor';
 import { findAndSaveSimilarArticlesV2 } from '../processors/similarityProcessorV2';
 import { computeAndSaveEmbeddingsV2 } from '../processors/embeddingV2';
 
@@ -224,15 +223,9 @@ export function startScheduler(): void {
 
   console.log('[Scheduler] Zamanlayıcılar başlatıldı (RSS her 10dk | NewsAPI her 6s | Konser her 6s | sıfırlama 03:00)');
 
-  // V1 (eski 384-dim) — geçiş döneminde paralel çalışsın. v2 stabil olduğunda kaldırılacak.
-  cron.schedule('0 * * * *', async () => {
-    console.log('[Scheduler] Benzerlik analizi (v1) başlatılıyor...');
-    try {
-      await findAndSaveSimilarArticles();
-    } catch (e) {
-      console.error('[Scheduler] V1 Benzerlik analizi hatası:', e);
-    }
-  });
+  // V1 cron'u kaldırıldı: v1 (eski 384-dim `embedding`) similar_articles'a kind'sız
+  // satır ekliyor ve ON CONFLICT DO UPDATE ile v2'nin similarity_score'unu uyumsuz
+  // bir modelin skoruyla eziyordu — v2 kalibrasyonunu bozuyordu. v2 artık tek kaynak.
 
   // V2 (multilingual-e5-large + iki katmanlı + entity guard) — her 30dk incremental
   cron.schedule('*/30 * * * *', async () => {
