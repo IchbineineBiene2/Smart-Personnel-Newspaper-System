@@ -1,0 +1,135 @@
+-- Migration 026: Seed konser verisi (fotoğraflarla)
+
+INSERT INTO concerts (id, title, artist, description, event_date, location, venue, category, image_url, ticket_url, price)
+VALUES
+  (
+    'c1d2e3f4-a5b6-7890-cdef-ab1234567801',
+    'Gençlik Konser Festivali',
+    'Çeşitli Sanatçılar',
+    'Ülkenin en popüler gençlik müzik festivali. Yerli ve yabancı sanatçıların performansı.',
+    '2026-04-15T18:00:00+03:00',
+    'İstanbul',
+    'Parkorman Açık Hava Sahası',
+    'konser',
+    'https://images.unsplash.com/photo-1501386761578-eac5c94b800a?w=900&h=900&fit=crop',
+    'https://www.biletix.com',
+    '250-500 TL'
+  ),
+  (
+    'c1d2e3f4-a5b6-7890-cdef-ab1234567802',
+    'Klasik Müzik Gecesi',
+    'İstanbul Filarmoni Orkestrası',
+    'Mozart, Beethoven ve Çaykovski''nin en güzel eserlerinden oluşan bir gece.',
+    '2026-04-18T20:00:00+03:00',
+    'İstanbul',
+    'Atatürk Kültür Merkezi',
+    'konser',
+    'https://images.unsplash.com/photo-1501386761578-eac5c94b800a?w=900&h=900&fit=crop',
+    'https://www.biletix.com',
+    '150-400 TL'
+  ),
+  (
+    'c1d2e3f4-a5b6-7890-cdef-ab1234567803',
+    'Kültür ve Sanat Festivali 2026',
+    'Tiyatro, Dans, Müzik',
+    'Yerel ve uluslararası tiyatro oyunları, bale performansları ve canlı müzik.',
+    '2026-04-20T19:30:00+03:00',
+    'Ankara',
+    'Ankara Kültür ve Turizm Merkezi',
+    'tiyatro',
+    'https://images.unsplash.com/photo-1503095396549-807759245b35?w=900&h=900&fit=crop',
+    'https://www.biletix.com',
+    '100-300 TL'
+  ),
+  (
+    'c1d2e3f4-a5b6-7890-cdef-ab1234567804',
+    'Standup Gecesi: Komedi Dolu Saat',
+    'Çeşitli Stand-up Sanatçıları',
+    'Türkiye''nin en komik stand-up sanatçılarının tek gece performansı.',
+    '2026-04-22T21:00:00+03:00',
+    'İstanbul',
+    'Jolly Joker Beyoğlu',
+    'stand-up',
+    'https://images.unsplash.com/photo-1527224857830-43a7acc85260?w=900&h=900&fit=crop',
+    'https://www.passo.com.tr',
+    '100-200 TL'
+  ),
+  (
+    'c1d2e3f4-a5b6-7890-cdef-ab1234567805',
+    'Türk Pop Yıldızları',
+    'Çeşitli Yerli Sanatçılar',
+    'Türk pop müziğinin ikon isimlerinin büyük buluşması.',
+    '2026-05-05T20:00:00+03:00',
+    'İzmir',
+    'Alsancak Kültür Sahası',
+    'konser',
+    'https://images.unsplash.com/photo-1501386761578-eac5c94b800a?w=900&h=900&fit=crop',
+    'https://www.biletix.com',
+    '300-600 TL'
+  ),
+  (
+    'c1d2e3f4-a5b6-7890-cdef-ab1234567806',
+    'Shakespeare''s Hamlet — Türkçe Uyarlama',
+    'Oyuncu Kadrosu',
+    'Shakespeare''nin ölümsüz eserinin muhteşem Türkçe sahne uyarlaması.',
+    '2026-04-25T20:30:00+03:00',
+    'Ankara',
+    'Devlet Tiyatro Sahnesi',
+    'tiyatro',
+    'https://images.unsplash.com/photo-1503095396549-807759245b35?w=900&h=900&fit=crop',
+    'https://www.biletix.com',
+    '75-250 TL'
+  ),
+  (
+    'c1d2e3f4-a5b6-7890-cdef-ab1234567807',
+    'Uluslararası Konser Gecesi',
+    'Ünlü Müzik İsimleri',
+    'Dünyanın en meşhur müzisyenlerinin tek gece performansı. Canlı orkestra eşliğinde.',
+    '2026-05-10T19:00:00+03:00',
+    'İstanbul',
+    'Vodafone Park',
+    'konser',
+    'https://images.unsplash.com/photo-1501386761578-eac5c94b800a?w=900&h=900&fit=crop',
+    'https://www.ticketmaster.com',
+    '500-1500 TL'
+  ),
+  (
+    'c1d2e3f4-a5b6-7890-cdef-ab1234567808',
+    'Komedi Festivali 2026',
+    'Uluslararası Stand-up Sanatçıları',
+    'Dünyanın dört bir yanından en komik stand-up sanatçılarının buluşması.',
+    '2026-05-15T20:00:00+03:00',
+    'İstanbul',
+    'Jolly Joker Kalamış',
+    'stand-up',
+    'https://images.unsplash.com/photo-1527224857830-43a7acc85260?w=900&h=900&fit=crop',
+    'https://www.passo.com.tr',
+    '150-300 TL'
+  ),
+  (
+    'c1d2e3f4-a5b6-7890-cdef-ab1234567809',
+    'Bale: Don Kişot',
+    'Milli Raks Tiyatrosu',
+    'Klasik bale sanatının en ikonik eserlerinden biri. Muhteşem kostümler ve koreografi.',
+    '2026-04-28T19:30:00+03:00',
+    'İstanbul',
+    'Atatürk Kültür Merkezi Bale Sahnesi',
+    'tiyatro',
+    'https://images.unsplash.com/photo-1503095396549-807759245b35?w=900&h=900&fit=crop',
+    'https://www.biletix.com',
+    '200-500 TL'
+  ),
+  (
+    'c1d2e3f4-a5b6-7890-cdef-ab1234567810',
+    'Elektrik Müzik Festivali',
+    'DJ ve Prodüktör Kadrosu',
+    'Dünya çapında ünlü DJ''lerin katılacağı mega elektronik müzik festivali.',
+    '2026-05-20T22:00:00+03:00',
+    'İstanbul',
+    'Küçükçiftlik Park',
+    'konser',
+    'https://images.unsplash.com/photo-1501386761578-eac5c94b800a?w=900&h=900&fit=crop',
+    'https://www.biletix.com',
+    '400-800 TL'
+  )
+ON CONFLICT (id) DO NOTHING;

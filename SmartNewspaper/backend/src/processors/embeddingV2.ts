@@ -1,11 +1,16 @@
 /**
- * Embedding v2 — multilingual-e5-large (1024-dim).
+ * Embedding v2 — multilingual-e5-base (768-dim).
  *
  * MiniLM-L12'den (384-dim, sadece title+description) farkları:
- *  - Daha güçlü çok-dilli retrieval modeli; Türkçe MTEB skorları belirgin yüksek
+ *  - Çok-dilli retrieval modeli; Türkçe MTEB skorları yüksek
  *  - Girdiye `content`'in ilk 1500 karakteri dahil → aynı olayı farklı sözcüklerle
  *    anlatan kaynaklar artık vektör uzayında yakınlaşır
  *  - E5 protokolüne uygun "passage: " prefix'i kullanılır
+ *
+ * Model seçimi: e5-large (1024-dim, ~2.2GB) sunucuda OOM'a yol açıyordu.
+ * Fixture bench'inde base, large ile aynı ayrım kalitesini gösterdi
+ * (medyan gap 0.159 vs 0.177, ikisi de 0 misclassified) ve unrelated max
+ * skor 0.769 → 0.78 same_event eşiği güvende.
  *
  * Girdi hash'i `embedding_v2_input_hash` kolonunda saklanır; aynı içerikte
  * yeniden embed maliyetini önler.
@@ -16,7 +21,7 @@ import { pipeline } from '@xenova/transformers';
 import { query } from '../db';
 import { extractEntities } from './entityExtractor';
 
-const MODEL_ID = 'Xenova/multilingual-e5-large';
+const MODEL_ID = 'Xenova/multilingual-e5-base';
 
 let extractor: any = null;
 let loading: Promise<any> | null = null;
@@ -118,9 +123,9 @@ export async function computeAndSaveEmbeddingsV2(opts: {
   workerId?: number;
   workerCount?: number;
   microBatch?: number;
-  /** Sadece son N günde yayınlanmış makaleleri işle (Mac öncelik tier'ı için) */
+  /** Sadece son N günde yayınlanmış makaleleri işle (öncelik tier'ı için) */
   sinceDays?: number | null;
-  /** Sadece N günden eski makaleleri işle (server arka plan tier'ı için) */
+  /** Sadece N günden eski makaleleri işle (arka plan tier'ı için) */
   olderThanDays?: number | null;
 } = {}): Promise<{ processed: number; failed: number }> {
   const limit = opts.limit ?? 200;
@@ -135,24 +140,18 @@ export async function computeAndSaveEmbeddingsV2(opts: {
     ? 'embedding_v2 IS NULL'
     : `(embedding_v2 IS NULL OR embedding_v2_input_hash IS NULL)`;
 
-  // Deterministik sharding: id zaten URL'in MD5'i (hex 32 char).
-  // İlk 2 hex char'ı (0..255) alıp workerCount'a mod alıyoruz — 256 farklı değer üzerinden mod
-  // <=256 worker için iyi dengeli dağılım sağlar.
-  // ('x' || hex)::bit(8) hex'i 4-bit sola kaydırarak parse ediyor; bu yüzden bit(8) yerine
-  // tam 2 char ile kullanıyoruz: 'xab'::bit(8) → 0xAB.
   const shardClause = workerCount > 1
     ? `AND (('x' || substr(id, 1, 2))::bit(8)::int % ${workerCount}) = ${workerId}`
     : '';
 
-  // Zaman tier'ı — Mac yeni haberleri, server eskiler için. Aynı anda iki flag verilmez.
-  let timeClause = '';
+  // Zaman tier'ı — yeni haberlere öncelik için recent / arka plan için old
   if (sinceDays !== null && olderThanDays !== null) {
     throw new Error('sinceDays ile olderThanDays birlikte kullanılamaz');
   }
+  let timeClause = '';
   if (sinceDays !== null && sinceDays > 0) {
     timeClause = `AND published_at >= NOW() - INTERVAL '${sinceDays} days'`;
-  }
-  if (olderThanDays !== null && olderThanDays > 0) {
+  } else if (olderThanDays !== null && olderThanDays > 0) {
     timeClause = `AND published_at < NOW() - INTERVAL '${olderThanDays} days'`;
   }
 

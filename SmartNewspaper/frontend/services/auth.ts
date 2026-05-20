@@ -11,6 +11,7 @@ const API_BASE_URL = 'http://localhost:3000/api';
 export interface UserProfile {
   id: string;
   name: string;
+  username?: string;
   email: string;
   createdAt: string;
 }
@@ -18,6 +19,7 @@ export interface UserProfile {
 export interface BackendUser {
   userId: number;
   username: string;
+  fullName?: string;
   email: string;
   role?: string;
   status?: string;
@@ -25,6 +27,7 @@ export interface BackendUser {
 
 export interface RegisterInput {
   name: string;
+  username: string;
   email: string;
   password: string;
 }
@@ -67,11 +70,13 @@ export async function isLoggedIn(): Promise<boolean> {
 
 export async function registerUser(input: RegisterInput): Promise<UserProfile> {
   const name = input.name.trim();
+  const username = input.username.trim().toLowerCase();
   const email = input.email.trim().toLowerCase();
 
   const profile: UserProfile = {
     id: `user-${Date.now()}`,
     name,
+    username,
     email,
     createdAt: new Date().toISOString(),
   };
@@ -80,7 +85,7 @@ export async function registerUser(input: RegisterInput): Promise<UserProfile> {
     const response = await fetch(`${API_BASE_URL}/auth/register`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ username: name, email, password: input.password }),
+      body: JSON.stringify({ fullName: name, username, email, password: input.password }),
     });
 
     if (response.ok) {
@@ -91,11 +96,18 @@ export async function registerUser(input: RegisterInput): Promise<UserProfile> {
       if (data.user) {
         await AsyncStorage.setItem(BACKEND_USER_KEY, JSON.stringify(data.user));
         profile.id = String(data.user.userId ?? data.user.id ?? profile.id);
-        profile.name = data.user.username ?? profile.name;
+        profile.name = data.user.fullName ?? data.user.username ?? profile.name;
+        profile.username = data.user.username ?? profile.username;
       }
+    } else {
+      const data = await response.json().catch(() => null);
+      throw new Error(data?.error || 'Kayit olusturulamadi.');
     }
-  } catch {
-    // Local auth remains available when the backend is not running.
+  } catch (error) {
+    if (error instanceof Error) {
+      throw error;
+    }
+    throw new Error('Kayit olusturulamadi. Backend baglantisini ve bilgileri kontrol et.');
   }
 
   await AsyncStorage.multiSet([
@@ -113,7 +125,7 @@ export async function loginUser(input: LoginInput): Promise<UserProfile | null> 
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        email: input.email.trim().toLowerCase(),
+        email: input.email.trim(),
         password: input.password,
       }),
     });
@@ -131,7 +143,8 @@ export async function loginUser(input: LoginInput): Promise<UserProfile | null> 
 
       const profile: UserProfile = {
         id: String(backendUser?.userId ?? Date.now()),
-        name: backendUser?.username ?? input.email.trim(),
+        name: backendUser?.fullName ?? backendUser?.username ?? input.email.trim(),
+        username: backendUser?.username,
         email: backendUser?.email ?? input.email.trim().toLowerCase(),
         createdAt: new Date().toISOString(),
       };
@@ -160,7 +173,11 @@ export async function loginUser(input: LoginInput): Promise<UserProfile | null> 
   }
 
   const profile = JSON.parse(profileValue) as UserProfile;
-  const emailMatches = profile.email.toLowerCase() === input.email.trim().toLowerCase();
+  const identity = input.email.trim().toLowerCase();
+  const emailMatches =
+    profile.email.toLowerCase() === identity ||
+    profile.username?.toLowerCase() === identity ||
+    profile.name.toLowerCase() === identity;
   const passwordMatches = passwordValue === input.password;
 
   if (!emailMatches || !passwordMatches) {

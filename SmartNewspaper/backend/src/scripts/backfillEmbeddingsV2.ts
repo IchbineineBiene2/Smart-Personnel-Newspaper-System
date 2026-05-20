@@ -59,8 +59,11 @@ async function getMissingCount(
     ? `AND (('x' || substr(id, 1, 2))::bit(8)::int % ${workerCount}) = ${workerId}`
     : '';
   let timeClause = '';
-  if (sinceDays && sinceDays > 0) timeClause = `AND published_at >= NOW() - INTERVAL '${sinceDays} days'`;
-  if (olderThanDays && olderThanDays > 0) timeClause = `AND published_at < NOW() - INTERVAL '${olderThanDays} days'`;
+  if (sinceDays !== null && sinceDays > 0) {
+    timeClause = `AND published_at >= NOW() - INTERVAL '${sinceDays} days'`;
+  } else if (olderThanDays !== null && olderThanDays > 0) {
+    timeClause = `AND published_at < NOW() - INTERVAL '${olderThanDays} days'`;
+  }
   const r = await query<{ count: string }>(
     `SELECT COUNT(*)::text AS count FROM articles WHERE embedding_v2 IS NULL ${shardClause} ${timeClause}`,
   );

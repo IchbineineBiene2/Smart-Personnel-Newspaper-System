@@ -33,6 +33,22 @@ export function authMiddleware(req: Request, res: Response, next: NextFunction):
 }
 
 /**
+ * Optional auth — parses Bearer token if present, never blocks.
+ * Sets req.user when valid, otherwise leaves it undefined.
+ * Use for endpoints where guests are allowed but signed-in users get extras
+ * (e.g. personalized /api/news ranking, "Sizin İçin" filter).
+ */
+export function optionalAuth(req: Request, _res: Response, next: NextFunction): void {
+  const authHeader = req.headers.authorization;
+  if (authHeader && authHeader.startsWith('Bearer ')) {
+    const token = authHeader.slice(7);
+    const user = verifyToken(token);
+    if (user) req.user = user;
+  }
+  next();
+}
+
+/**
  * Admin-only middleware
  */
 export function adminMiddleware(req: Request, res: Response, next: NextFunction): void {

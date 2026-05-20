@@ -9,6 +9,7 @@ import { Platform, View } from 'react-native';
 import { useTheme } from '@/hooks/useTheme';
 import { isOnboardingComplete } from '@/services/auth';
 import { NotificationProvider } from '@/contexts/NotificationContext';
+import { AuthGateProvider } from '@/contexts/AuthGate';
 
 export {
   // Catch any errors thrown by the Layout component.
@@ -83,6 +84,7 @@ function RootLayoutNav({ initialRouteName }: RootLayoutNavProps) {
 
   return (
     <NotificationProvider>
+      <AuthGateProvider>
       <ThemeProvider value={customTheme}>
         <Stack
           initialRouteName={initialRouteName}
@@ -162,6 +164,7 @@ function RootLayoutNav({ initialRouteName }: RootLayoutNavProps) {
         <Stack.Screen name="modal" options={{ presentation: 'modal' }} />
       </Stack>
       </ThemeProvider>
+      </AuthGateProvider>
     </NotificationProvider>
   );
 }

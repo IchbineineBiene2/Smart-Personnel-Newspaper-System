@@ -1357,18 +1357,106 @@ export function proxyImageUrl(url?: string): string | undefined {
   return `${API_BASE}/api/proxy/image?url=${encodeURIComponent(upgraded)}`;
 }
 
-export async function fetchArticles(params: FetchNewsParams = {}): Promise<ApiArticle[]> {
+export function proxyPageUrl(url?: string): string | undefined {
+  if (!url) return undefined;
+  return `${API_BASE}/api/proxy/page?url=${encodeURIComponent(url)}`;
+}
+
+/**
+ * Auth-aware fetchArticles. token verilirse Authorization header eklenir;
+ * personalized=true ile request edilirse backend kullanıcının kaynak/dil/kategori
+ * tercihlerini filtre olarak uygular.
+ */
+export async function fetchArticles(
+  params: FetchNewsParams & { personalized?: boolean; token?: string | null } = {},
+): Promise<ApiArticle[]> {
   const query = new URLSearchParams();
   if (params.language) query.set('language', params.language);
   if (params.category) query.set('category', params.category);
   if (params.source) query.set('source', params.source);
   if (params.limit) query.set('limit', String(params.limit));
   if (params.offset) query.set('offset', String(params.offset));
+  if (params.personalized) query.set('personalized', '1');
 
-  const res = await fetch(`${API_BASE}/api/news?${query.toString()}`);
+  const headers: Record<string, string> = {};
+  if (params.token) headers.Authorization = `Bearer ${params.token}`;
+
+  const res = await fetch(`${API_BASE}/api/news?${query.toString()}`, { headers });
   if (!res.ok) throw new Error(`API hatası: ${res.status}`);
   const data: { total: number; articles: ApiArticle[] } = await res.json();
   return data.articles;
+}
+
+/**
+ * Embedding-bazlı "Sizin İçin" feed. Auth gerekli.
+ * cold=true dönerse kullanıcının henüz like/view'i yok → trending fallback.
+ */
+/**
+ * Bir makalenin görüntülendiğini server'a bildir. Auth gerekli (token yoksa no-op).
+ * Idempotent — UPSERT'tir; dwellMs ve scrollPct daha büyükle değiştirilir.
+ *
+ * Fire-and-forget: çağırırken `await` etme; UI'yi tutma.
+ */
+export async function recordArticleView(
+  articleId: string,
+  token: string | null,
+  opts: { dwellMs?: number; scrollPct?: number; sourceCtx?: string } = {},
+): Promise<void> {
+  if (!token) return;
+  try {
+    await fetch(`${API_BASE}/api/news/${encodeURIComponent(articleId)}/view`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify(opts),
+    });
+  } catch {
+    // best-effort; analitik kaybı OK
+  }
+}
+
+export async function fetchRecentViews(token: string, limit = 10): Promise<any[]> {
+  if (!token) return [];
+  try {
+    const res = await fetch(`${API_BASE}/api/news/recent-views?limit=${limit}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!res.ok) return [];
+    const data = await res.json();
+    return data.articles ?? [];
+  } catch {
+    return [];
+  }
+}
+
+export interface ForYouResponse {
+  cold: boolean;
+  sampleCount: number;
+  freshness?: 'fresh' | 'stale' | 'cold';
+  articles: Array<{
+    id: string;
+    title: string;
+    description: string;
+    content?: string;
+    url: string;
+    image_url?: string | null;
+    published_at: string;
+    category?: string | null;
+    language?: string | null;
+    source_name: string;
+    source_url: string;
+    interest_score?: number;
+  }>;
+}
+export async function fetchForYouArticles(token: string, limit = 30, days = 3): Promise<ForYouResponse | null> {
+  if (!token) return null;
+  const res = await fetch(`${API_BASE}/api/news/for-you?limit=${limit}&days=${days}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) return null;
+  return (await res.json()) as ForYouResponse;
 }
 
 export async function fetchArticleById(id: string): Promise<ApiArticle> {
@@ -1377,10 +1465,10 @@ export async function fetchArticleById(id: string): Promise<ApiArticle> {
   return (await res.json()) as ApiArticle;
 }
 
-export async function fetchArticleFullContent(id: string): Promise<{ content: string; images?: string[]; fromSource: boolean }> {
+export async function fetchArticleFullContent(id: string): Promise<{ content: string | null; images?: string[]; fromSource: boolean; available?: boolean }> {
   const res = await fetch(`${API_BASE}/api/news/${encodeURIComponent(id)}/full-content`);
   if (!res.ok) throw new Error(`API hatası: ${res.status}`);
-  return (await res.json()) as { content: string; images?: string[]; fromSource: boolean };
+  return (await res.json()) as { content: string | null; images?: string[]; fromSource: boolean; available?: boolean };
 }
 
 export async function fetchArticleAiAnalysis(id: string): Promise<ArticleAiAnalysis> {

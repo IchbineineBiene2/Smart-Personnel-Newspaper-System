@@ -1,7 +1,7 @@
-import { StyleSheet, Text, View } from 'react-native';
+import { useEffect, useState } from 'react';
+import { ActivityIndicator, Platform, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '@/hooks/useTheme';
-import { useEffect, useState } from 'react';
 import type { WidgetSize } from './WidgetCard';
 
 interface Rate {
@@ -19,35 +19,48 @@ const DEFAULT_RATES: Rate[] = [
   { name: 'BIST 100',   value: '10.412',   change: '+1.42%', up: true,  icon: 'trending-up-outline' },
 ];
 
+const API_BASE =
+  Platform.OS === 'web'
+    ? 'http://localhost:3000'
+    : Platform.OS === 'android'
+    ? 'http://10.0.2.2:3000'
+    : 'http://localhost:3000';
+
 interface Props { size?: WidgetSize }
 
 export function CurrencyWidget({ size = 'sm' }: Props) {
   const { colors } = useTheme();
   const [rates, setRates] = useState<Rate[]>(DEFAULT_RATES);
+  const [loading, setLoading] = useState(true);
+
+  const fetchRates = async () => {
+    try {
+      const response = await fetch(`${API_BASE}/api/news/market-rates`);
+      if (response.ok) {
+        const data = await response.json();
+        if (data && Array.isArray(data.rates)) {
+          // Map backend response rates to include correct icons
+          const mappedRates = data.rates.map((r: any) => {
+            let icon = 'stats-chart-outline';
+            if (r.name === 'Gram Altın') icon = 'bar-chart-outline';
+            else if (r.name === 'USD/TRY') icon = 'logo-usd';
+            else if (r.name === 'EUR/TRY') icon = 'cash-outline';
+            else if (r.name === 'BIST 100') icon = 'trending-up-outline';
+            return { ...r, icon };
+          });
+          setRates(mappedRates);
+        }
+      }
+    } catch (error) {
+      console.warn('Could not fetch rates, using fallback values');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   useEffect(() => {
-    const fetchRates = async () => {
-      try {
-        const controller = new AbortController();
-        const timeout = setTimeout(() => controller.abort(), 3000);
-        
-        const response = await fetch('http://localhost:3000/api/rates', {
-          signal: controller.signal,
-        });
-        clearTimeout(timeout);
-        
-        if (response.ok) {
-          const data = await response.json();
-          setRates(data);
-        }
-      } catch (error) {
-        console.warn('Could not fetch rates, using default values');
-      }
-    };
-
     fetchRates();
-    const interval = setInterval(fetchRates, 30000);
-
+    const interval = setInterval(fetchRates, 60000);
     return () => clearInterval(interval);
   }, []);
 
@@ -91,6 +104,11 @@ export function CurrencyWidget({ size = 'sm' }: Props) {
           </View>
         </View>
       ))}
+      {loading && rates === DEFAULT_RATES && (
+        <View style={styles.loaderContainer}>
+          <ActivityIndicator size="small" color={colors.accent} />
+        </View>
+      )}
     </View>
   );
 }
@@ -121,5 +139,9 @@ const styles = StyleSheet.create({
     paddingVertical: 3,
     borderRadius: 7,
   },
-  change: { fontWeight: '800' },
+  change: { fontSize: 10, fontWeight: '700' },
+  loaderContainer: {
+    paddingVertical: 5,
+    alignItems: 'center',
+  }
 });

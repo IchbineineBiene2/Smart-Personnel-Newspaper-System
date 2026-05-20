@@ -1,6 +1,7 @@
 import { Platform, Alert } from 'react-native';
 import { ApiArticle } from '@/services/newsApi';
 import { ContentCategory } from '@/services/content';
+import { cleanArticleBody } from '@/services/articleContentQuality';
 import { NewspaperArticleInput } from './newspaperPdfTemplate';
 import { exportNewspaperPdf } from './newspaperPdfExporter';
 
@@ -9,6 +10,11 @@ import { exportNewspaperPdf } from './newspaperPdfExporter';
  * Uses real backend data instead of mock/generated content
  */
 export function mapApiArticleToNewspaperInput(article: ApiArticle): NewspaperArticleInput {
+  const content = cleanArticleBody(article.content);
+  if (!content) {
+    throw new Error(`Article ${article.id} does not have clean full content`);
+  }
+
   return {
     id: article.id,
     title: article.title,
@@ -16,7 +22,7 @@ export function mapApiArticleToNewspaperInput(article: ApiArticle): NewspaperArt
     summary: article.description || '',
     // Use real content from backend if available, otherwise use description
     // This ensures we use actual article body, not fake generated text
-    content: article.content || article.description || '',
+    content,
     category: (article.category || 'Teknoloji') as ContentCategory | string,
     source: article.source.name || 'Unknown Source',
     date: article.publishedAt || new Date().toISOString(),
@@ -43,7 +49,20 @@ export async function exportRealNewsToPdf(
 
   try {
     // Map all real articles to PDF template format
-    const pdfarticles: NewspaperArticleInput[] = articles.map(mapApiArticleToNewspaperInput);
+    const pdfarticles: NewspaperArticleInput[] = articles
+      .map((article) => {
+        try {
+          return mapApiArticleToNewspaperInput(article);
+        } catch {
+          return null;
+        }
+      })
+      .filter((article): article is NewspaperArticleInput => Boolean(article));
+
+    if (pdfarticles.length === 0) {
+      Alert.alert('UyarÄ±', 'Temiz tam metni olan makale bulunamadi.');
+      return;
+    }
 
     // Export using the standard PDF exporter
     await exportNewspaperPdf({

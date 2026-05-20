@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { createElement, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Image,
@@ -18,17 +18,22 @@ import {
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 
+import { requireAuth } from '@/contexts/AuthGate';
 import { Radius, Spacing, Typography } from '@/constants/theme';
 import { useApiNews } from '@/hooks/useNews';
 import { useBookmarks } from '@/hooks/useBookmarks';
 import { useTheme } from '@/hooks/useTheme';
 import {
+  ApiArticle,
   ArticleAiAnalysis,
   fetchArticleAiAnalysis,
+  fetchArticleById,
   fetchArticleFullContent,
   fetchSimilarArticlesFromDb,
   mapToContentCategory,
+  proxyPageUrl,
   proxyImageUrl,
+  recordArticleView,
 } from '@/services/newsApi';
 import { getPublisherIdFromSourceName } from '@/services/publisherProfiles';
 import {
@@ -59,6 +64,42 @@ function stripHtml(value: string): string {
     .map((paragraph) => paragraph.replace(/\n+/g, ' ').replace(/[ ]{2,}/g, ' ').trim())
     .filter(Boolean)
     .join('\n\n');
+}
+
+function isLikelyArticleBody(value: string | null | undefined): boolean {
+  if (!value) return false;
+
+  const text = stripHtml(value);
+  if (text.length < 120) return false;
+
+  const codeSignals = [
+    /\bimport\s+[\w*{]/,
+    /\bexport\s+(default\s+)?(function|const|class)\b/,
+    /\b(function|const|let|var)\s+[a-z_$][\w$]*\s*[=(]/,
+    /=>\s*[{(]/,
+    /\b(document|window)\.[a-z]/,
+    /\baddEventListener\s*\(/,
+    /\bgetElementById\s*\(/,
+    /<\/?[a-z][\s\S]*?>/i,
+    /\bclass(Name)?=/,
+    /\bstroke-dash(array|offset)\b/,
+    /\bxmlns=/,
+    /\bprops:\s*{/,
+  ].filter((pattern) => pattern.test(value)).length;
+
+  const punctuationChars = (text.match(/[{}[\];=<>]/g) ?? []).length;
+  const punctuationDensity = punctuationChars / Math.max(text.length, 1);
+  const words = text.split(/\s+/).filter(Boolean);
+  const proseWords = words.filter((word) => /[a-zA-ZğüşıöçĞÜŞİÖÇäöüßÄÖÜ]{3,}/.test(word)).length;
+  const sentenceCount = (text.match(/[.!?](\s|$)/g) ?? []).length;
+
+  if (codeSignals >= 2) return false;
+  if (codeSignals >= 1 && punctuationDensity > 0.025) return false;
+  if (punctuationDensity > 0.055) return false;
+  if (words.length >= 30 && proseWords / words.length < 0.62) return false;
+  if (text.length > 240 && sentenceCount < 2) return false;
+
+  return true;
 }
 
 function unwrapImageUrl(input: string): string {
@@ -331,8 +372,9 @@ export default function NewsDetailPage() {
   const { savedIds, toggleSaved } = useBookmarks();
   const isWeb = Platform.OS === 'web';
   const [fullContent, setFullContent] = useState<string | null>(null);
+  const [contentUnavailable, setContentUnavailable] = useState(false);
   const [extraImages, setExtraImages] = useState<string[]>([]);
-  const [loadingContent, setLoadingContent] = useState(false);
+  const [loadingContent, setLoadingContent] = useState(true);
   const [imageAspectRatios, setImageAspectRatios] = useState<Record<string, number>>({});
   const [leftHoverEdge, setLeftHoverEdge] = useState<'left' | 'right' | null>(null);
   const [rightHoverEdge, setRightHoverEdge] = useState<'left' | 'right' | null>(null);
@@ -343,6 +385,8 @@ export default function NewsDetailPage() {
   const [leftSlotHeight, setLeftSlotHeight] = useState(0);
   const [rightSlotHeight, setRightSlotHeight] = useState(0);
   const [messagePanelVisible, setMessagePanelVisible] = useState(false);
+  const [sourcePreviewVisible, setSourcePreviewVisible] = useState(false);
+  const [sourcePreviewLoaded, setSourcePreviewLoaded] = useState(false);
   const [messageToken, setMessageToken] = useState<string>('');
   const [recipientQuery, setRecipientQuery] = useState('');
   const [recipientResults, setRecipientResults] = useState<UserProfile[]>([]);
@@ -371,6 +415,8 @@ export default function NewsDetailPage() {
   const commentSectionRef = useRef<View | null>(null);
   const commentInputRef = useRef<TextInput | null>(null);
   const [commentSectionY, setCommentSectionY] = useState(0);
+  const relatedScrollRef = useRef<ScrollView | null>(null);
+  const [relatedScrollX, setRelatedScrollX] = useState(0);
   const params = useLocalSearchParams<{
     id?: string;
     title?: string;
@@ -378,6 +424,7 @@ export default function NewsDetailPage() {
     content?: string;
     imageUrl?: string;
     source?: string;
+    url?: string;
     publishedAt?: string;
     category?: string;
   }>();
@@ -422,39 +469,85 @@ export default function NewsDetailPage() {
     loadInteractions();
   }, [params.id]);
 
-  const articleFromCache = articles.find((item: { id: string }) => item.id === params.id);
+  // Read history tracking — kullanıcı bu makaleyi açtığında server'a haber ver.
+  // Mount'ta initial view, unmount'ta final dwell_ms gönderir. UPSERT en uzun değeri tutar.
+  useEffect(() => {
+    if (!params.id || !messageToken) return;
+    const t0 = Date.now();
+    let firstReported = false;
 
-  if (params.id && !params.title && !articleFromCache && loading) {
-    return (
-      <View style={styles(colors).centerWrap}>
-        <ActivityIndicator color={colors.accent} />
-        <Text style={styles(colors).statusText}>Haber yükleniyor...</Text>
-      </View>
-    );
-  }
+    // Bounce-savar: en az 1.5 saniye sayfada kal, sonra "okudu" olarak işaretle.
+    const initialTimer = setTimeout(() => {
+      firstReported = true;
+      void recordArticleView(params.id!, messageToken, { dwellMs: 0, sourceCtx: 'detail' });
+    }, 1500);
 
-  if (!params.id || (!params.title && !articleFromCache)) {
-    return (
-      <View style={styles(colors).centerWrap}>
-        <Text style={styles(colors).errorTitle}>Haber açılamadı</Text>
-        <Text style={styles(colors).statusText}>Haber verisi bulunamadı.</Text>
-      </View>
-    );
-  }
+    return () => {
+      clearTimeout(initialTimer);
+      if (firstReported) {
+        const dwell = Date.now() - t0;
+        void recordArticleView(params.id!, messageToken, { dwellMs: dwell, sourceCtx: 'detail' });
+      }
+    };
+  }, [params.id, messageToken]);
+
+  // Home feed önbelleği — kullanıcı feed'den geldiyse burada bulunur.
+  const cacheHit = articles.find((item: { id: string }) => item.id === params.id);
+
+  // "Aynı haber, farklı kaynaklar" widget'ından gelen tıklamalarda hedef makale
+  // home feed'de olmayabilir ve URL'de title vs taşınmaz → API'den çek.
+  const [remoteArticle, setRemoteArticle] = useState<ApiArticle | null>(null);
+  const [remoteLoading, setRemoteLoading] = useState(false);
+  const [remoteError, setRemoteError] = useState(false);
+
+  useEffect(() => {
+    if (!params.id) return;
+    if (cacheHit || params.title) {
+      // Önbellekte ya da URL'de yeterli veri var — remote fetch gereksiz.
+      setRemoteArticle(null);
+      setRemoteError(false);
+      return;
+    }
+    let active = true;
+    setRemoteLoading(true);
+    setRemoteError(false);
+    fetchArticleById(params.id)
+      .then((a) => {
+        if (active) setRemoteArticle(a);
+      })
+      .catch(() => {
+        if (active) setRemoteError(true);
+      })
+      .finally(() => {
+        if (active) setRemoteLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [params.id, cacheHit, params.title]);
+
+  const articleFromCache = cacheHit ?? remoteArticle;
+
+  // NOT: Loader / "Haber açılamadı" branch'leri en alttaki return'ın
+  // hemen üstüne taşındı (hooks count'unun render'lar arasında değişmemesi için).
 
   useEffect(() => {
     let active = true;
     setLoadingContent(true);
+    setContentUnavailable(false);
     fetchArticleFullContent(params.id ?? '')
       .then((data) => {
         if (active) {
-          setFullContent(data.content);
+          const safeContent = data.content && isLikelyArticleBody(data.content) ? data.content : null;
+          setFullContent(safeContent);
+          setContentUnavailable(!safeContent);
           setExtraImages(Array.isArray(data.images) ? data.images : []);
         }
       })
       .catch(() => {
         if (active) {
           setFullContent(null);
+          setContentUnavailable(false);
           setExtraImages([]);
         }
       })
@@ -471,8 +564,11 @@ export default function NewsDetailPage() {
 
   const resolvedTitle = articleFromCache?.title ?? params.title ?? 'Haber detayı';
   const resolvedSummary = articleFromCache?.description ?? params.summary ?? '';
-  const rawContent = fullContent ?? articleFromCache?.content ?? params.content ?? resolvedSummary;
+  const fallbackContent = articleFromCache?.content ?? params.content ?? '';
+  const safeFallbackContent = !contentUnavailable && isLikelyArticleBody(fallbackContent) ? fallbackContent : null;
+  const rawContent = fullContent ?? safeFallbackContent ?? '';
   const body = stripHtml(rawContent);
+  const hasUsableBody = isLikelyArticleBody(body);
   const category = mapToContentCategory(
     articleFromCache?.category ?? params.category,
     resolvedTitle,
@@ -480,6 +576,8 @@ export default function NewsDetailPage() {
   );
   const sourceName = articleFromCache?.source?.name ?? params.source ?? 'Kaynak bilinmiyor';
   const sourceUrl = articleFromCache?.source?.url;
+  const sourceArticleUrl = articleFromCache?.url ?? params.url;
+  const sourcePreviewUrl = useMemo(() => proxyPageUrl(sourceArticleUrl), [sourceArticleUrl]);
   const currentLanguage = articleFromCache?.language;
 
   const [exactMatches, setExactMatches] = useState<ArticleLike[]>([]);
@@ -615,8 +713,8 @@ export default function NewsDetailPage() {
 
   const mainImageAspectRatio = mainImage ? imageAspectRatios[mainImage] ?? 4 / 3 : 4 / 3;
   const paragraphs = useMemo(
-    () => body.split(/\n\n+/).map((p) => p.trim()).filter(Boolean),
-    [body]
+    () => (hasUsableBody ? body.split(/\n\n+/).map((p) => p.trim()).filter(Boolean) : []),
+    [body, hasUsableBody]
   );
   const articleImages = useMemo(
     () => (mainImage ? [mainImage, ...secondaryImages] : [...secondaryImages]),
@@ -673,8 +771,8 @@ export default function NewsDetailPage() {
   const handleShare = async () => {
     try {
       await Share.share({
-        message: `${resolvedTitle}\n\n${sourceUrl || 'Smart Newspaper'}`,
-        url: sourceUrl,
+        message: `${resolvedTitle}\n\n${sourceArticleUrl || sourceUrl || 'Smart Newspaper'}`,
+        url: sourceArticleUrl || sourceUrl,
         title: resolvedTitle,
       });
     } catch (error) {
@@ -683,20 +781,32 @@ export default function NewsDetailPage() {
   };
 
   const openSourceWebsite = () => {
-    if (sourceUrl) {
+    const targetUrl = sourceArticleUrl || sourceUrl;
+    if (targetUrl) {
       if (Platform.OS === 'web') {
-        window.open(sourceUrl, '_blank');
+        window.open(targetUrl, '_blank');
       } else {
-        Linking.openURL(sourceUrl).catch(() => {
+        Linking.openURL(targetUrl).catch(() => {
           // Hata durumunda sessiz geç
         });
       }
     }
   };
 
-  const openMessagePanel = () => {
+  const openMessagePanel = async () => {
+    if (!(await requireAuth('mesaj göndermek'))) return;
     setMessagePanelVisible(true);
     setSendFeedback(null);
+  };
+
+  const openSourcePreview = () => {
+    if (!sourcePreviewUrl) {
+      openSourceWebsite();
+      return;
+    }
+
+    setSourcePreviewLoaded(false);
+    setSourcePreviewVisible(true);
   };
 
   const loadRecentRecipients = async () => {
@@ -776,6 +886,7 @@ export default function NewsDetailPage() {
       summary: resolvedSummary,
       imageUrl: mainImage || imageUrl,
       source: sourceName,
+      url: sourceArticleUrl,
       publishedAt: articleFromCache?.publishedAt ?? params.publishedAt,
       category,
       sourceUrl,
@@ -815,21 +926,16 @@ export default function NewsDetailPage() {
 
   const isSaved = savedIds.includes(params.id || '');
 
-  const handleToggleSave = () => {
-    if (params.id) {
-      toggleSaved(params.id);
-    }
+  const handleToggleSave = async () => {
+    if (!params.id) return;
+    if (!(await requireAuth('haberi kaydetmek'))) return;
+    toggleSaved(params.id);
   };
 
   const handleToggleLike = async () => {
     if (!params.id || likeLoading) return;
-
+    if (!(await requireAuth('beğeni'))) return;
     setLikeError(null);
-    if (!messageToken) {
-      setLikeError('Beğenmek için giriş yapmalısınız.');
-      setTimeout(() => setLikeError(null), 3000);
-      return;
-    }
 
     const previousLiked = likedByMe;
     const previousCount = likesCount;
@@ -859,6 +965,7 @@ export default function NewsDetailPage() {
 
   const handleSubmitComment = async () => {
     if (!params.id || !commentText.trim()) return;
+    if (!(await requireAuth('yorum yapmak'))) return;
 
     try {
       setCommentSubmitting(true);
@@ -932,6 +1039,12 @@ export default function NewsDetailPage() {
     const bounded = Math.max(0, Math.min(index, secondHalfImages.length - 1));
     rightCarouselRef.current.scrollTo({ x: bounded * rightSlotWidth, animated: true });
     setRightCarouselIndex(bounded);
+  };
+
+  const scrollRelated = (direction: 'left' | 'right') => {
+    if (!relatedScrollRef.current) return;
+    const targetX = direction === 'left' ? Math.max(0, relatedScrollX - 696) : relatedScrollX + 696;
+    relatedScrollRef.current.scrollTo({ x: targetX, animated: true });
   };
 
   const leftImageHeight = leftSlotHeight > 18 ? leftSlotHeight - 18 : leftSlotHeight;
@@ -1047,6 +1160,27 @@ export default function NewsDetailPage() {
     </View>
   );
 
+  // Late-return: tüm hook'lar yukarıda kayıtsız şartsız çalıştı; burada güvenle ekran seçilebilir.
+  if (params.id && !params.title && !articleFromCache && (loading || remoteLoading)) {
+    return (
+      <View style={styles(colors).centerWrap}>
+        <ActivityIndicator color={colors.accent} />
+        <Text style={styles(colors).statusText}>Haber yükleniyor...</Text>
+      </View>
+    );
+  }
+
+  if (!params.id || (!params.title && !articleFromCache)) {
+    return (
+      <View style={styles(colors).centerWrap}>
+        <Text style={styles(colors).errorTitle}>Haber açılamadı</Text>
+        <Text style={styles(colors).statusText}>
+          {remoteError ? 'Sunucudan bu haber çekilemedi.' : 'Haber verisi bulunamadı.'}
+        </Text>
+      </View>
+    );
+  }
+
   return (
     <ScrollView ref={scrollViewRef} style={styles(colors).container} contentContainerStyle={styles(colors).content}>
       <View style={styles(colors).articleHero}>
@@ -1153,6 +1287,19 @@ export default function NewsDetailPage() {
           >
             <Ionicons name="open-outline" size={16} color={colors.textPrimary} />
             <Text style={[styles(colors).actionButtonLabel, { color: colors.textPrimary }]}>Kaynakta</Text>
+          </Pressable>
+
+          <Pressable
+            style={({ pressed }) => [
+              styles(colors).actionButton,
+              { backgroundColor: colors.surfaceInput, opacity: sourcePreviewUrl ? 1 : 0.55 },
+              pressed && sourcePreviewUrl && { opacity: 0.7 },
+            ]}
+            onPress={openSourcePreview}
+            disabled={!sourcePreviewUrl}
+          >
+            <Ionicons name="reader-outline" size={16} color={colors.textPrimary} />
+            <Text style={[styles(colors).actionButtonLabel, { color: colors.textPrimary }]}>{'Sitede G\u00f6r'}</Text>
           </Pressable>
 
           <Pressable
@@ -1291,6 +1438,62 @@ export default function NewsDetailPage() {
         </View>
       </Modal>
 
+      <Modal
+        visible={sourcePreviewVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setSourcePreviewVisible(false)}
+      >
+        <View style={styles(colors).modalOverlay}>
+          <Pressable style={styles(colors).modalBackdrop} onPress={() => setSourcePreviewVisible(false)} />
+          <View style={styles(colors).sourcePreviewPanel}>
+            <View style={styles(colors).sourcePreviewHeader}>
+              <View style={{ flex: 1, minWidth: 0 }}>
+                <Text style={styles(colors).sourcePreviewTitle}>{'Kaynak sayfa'}</Text>
+                <Text style={styles(colors).sourcePreviewSubtitle} numberOfLines={1}>{resolvedTitle}</Text>
+              </View>
+              <Pressable style={styles(colors).panelIconButton} onPress={openSourceWebsite}>
+                <Ionicons name="open-outline" size={20} color={colors.textPrimary} />
+              </Pressable>
+              <Pressable style={styles(colors).panelIconButton} onPress={() => setSourcePreviewVisible(false)}>
+                <Ionicons name="close" size={20} color={colors.textPrimary} />
+              </Pressable>
+            </View>
+
+            <View style={styles(colors).sourcePreviewFrameWrap}>
+              {!sourcePreviewLoaded ? (
+                <View style={styles(colors).sourcePreviewLoading}>
+                  <ActivityIndicator color={colors.accent} />
+                  <Text style={styles(colors).statusText}>{'Kaynak sayfa y\u00fckleniyor...'}</Text>
+                </View>
+              ) : null}
+
+              {isWeb && sourcePreviewUrl ? (
+                createElement('iframe' as any, {
+                  src: sourcePreviewUrl,
+                  title: resolvedTitle,
+                  sandbox: 'allow-forms allow-popups allow-same-origin allow-scripts',
+                  onLoad: () => setSourcePreviewLoaded(true),
+                  style: {
+                    width: '100%',
+                    height: '100%',
+                    border: '0',
+                    backgroundColor: '#fff',
+                  },
+                })
+              ) : (
+                <View style={styles(colors).sourcePreviewUnavailable}>
+                  <Text style={styles(colors).contentUnavailableTitle}>{'Onizleme desteklenmiyor'}</Text>
+                  <Text style={styles(colors).contentUnavailableText}>
+                    {'Bu ekranda kaynak sayfa onizlemesi yalnizca web surumunde kullanilabilir.'}
+                  </Text>
+                </View>
+              )}
+            </View>
+          </View>
+        </View>
+      </Modal>
+
       <View style={[styles(colors).detailLayout, isWeb ? styles(colors).detailLayoutWeb : null]}>
         <View style={styles(colors).bodyCol}>
           <View style={styles(colors).bodyCard}>
@@ -1299,7 +1502,7 @@ export default function NewsDetailPage() {
                 <ActivityIndicator color={colors.accent} />
                 <Text style={styles(colors).statusText}>Kaynak içeriği yükleniyor...</Text>
               </View>
-            ) : paragraphs.length ? (
+            ) : hasUsableBody && paragraphs.length ? (
               isWeb ? (
                 <>
                   <View style={styles(colors).webFlowRow}>
@@ -1515,7 +1718,13 @@ export default function NewsDetailPage() {
                 ))
               )
             ) : (
-              <Text style={styles(colors).bodyText}>{body}</Text>
+              <View style={styles(colors).contentUnavailableBox}>
+                <Ionicons name="document-text-outline" size={26} color={colors.textMuted} />
+                <Text style={styles(colors).contentUnavailableTitle}>{'Detay y\u00fcklenemiyor'}</Text>
+                <Text style={styles(colors).contentUnavailableText}>
+                  {'Bu haberin kaynak metni temiz \u015fekilde al\u0131namad\u0131. \u0130sterseniz haberi kaynak sitesinde a\u00e7abilirsiniz.'}
+                </Text>
+              </View>
             )}
           </View>
         </View>
@@ -1722,11 +1931,42 @@ export default function NewsDetailPage() {
 
       {generalRelatedArticles.length > 0 && (
         <View style={styles(colors).relatedSection}>
-          <View style={styles(colors).relatedHeader}>
-            <View style={[styles(colors).relatedDot, { backgroundColor: colors.accent }]} />
-            <Text style={styles(colors).relatedTitle}>Benzer Haberler</Text>
+          <View style={[styles(colors).relatedHeader, { justifyContent: 'space-between' }]}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.sm }}>
+              <View style={[styles(colors).relatedDot, { backgroundColor: colors.accent }]} />
+              <Text style={styles(colors).relatedTitle}>Benzer Haberler</Text>
+            </View>
+            {isWeb && (
+              <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center' }}>
+                <Pressable
+                  style={({ pressed }) => [
+                    styles(colors).scrollNavBtn,
+                    pressed && { opacity: 0.7 }
+                  ]}
+                  onPress={() => scrollRelated('left')}
+                >
+                  <Ionicons name="chevron-back" size={16} color={colors.textPrimary} />
+                </Pressable>
+                <Pressable
+                  style={({ pressed }) => [
+                    styles(colors).scrollNavBtn,
+                    pressed && { opacity: 0.7 }
+                  ]}
+                  onPress={() => scrollRelated('right')}
+                >
+                  <Ionicons name="chevron-forward" size={16} color={colors.textPrimary} />
+                </Pressable>
+              </View>
+            )}
           </View>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles(colors).relatedList}>
+          <ScrollView
+            ref={relatedScrollRef}
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles(colors).relatedList}
+            onScroll={(event) => setRelatedScrollX(event.nativeEvent.contentOffset.x)}
+            scrollEventThrottle={16}
+          >
             {generalRelatedArticles.map((item) => (
               <RelatedArticleCard
                 key={`related-${item.id}`}
@@ -2095,6 +2335,28 @@ const styles = (colors: any) =>
       fontSize: 16,
       lineHeight: 27,
     },
+    contentUnavailableBox: {
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: 10,
+      paddingVertical: 38,
+      paddingHorizontal: 18,
+      borderRadius: 18,
+      backgroundColor: colors.surfaceInput,
+    },
+    contentUnavailableTitle: {
+      color: colors.textPrimary,
+      fontSize: 18,
+      fontWeight: '900',
+      textAlign: 'center',
+    },
+    contentUnavailableText: {
+      color: colors.textMuted,
+      fontSize: 14,
+      lineHeight: 21,
+      textAlign: 'center',
+      maxWidth: 460,
+    },
     inlineRow: {
       flexDirection: 'row',
       alignItems: 'flex-start',
@@ -2356,6 +2618,17 @@ const styles = (colors: any) =>
       letterSpacing: 0.8,
       color: colors.textPrimary,
     },
+    scrollNavBtn: {
+      width: 32,
+      height: 32,
+      borderRadius: 16,
+      backgroundColor: colors.surfaceInput,
+      borderWidth: 1,
+      borderColor: colors.borderSubtle,
+      alignItems: 'center',
+      justifyContent: 'center',
+      cursor: 'pointer' as any,
+    },
     relatedList: {
       gap: Spacing.sm,
       paddingHorizontal: Spacing.xs,
@@ -2599,6 +2872,55 @@ const styles = (colors: any) =>
       borderRadius: 18,
       alignItems: 'center',
       justifyContent: 'center',
+      backgroundColor: colors.surfaceInput,
+    },
+    sourcePreviewPanel: {
+      width: '100%',
+      maxWidth: 980,
+      height: '82%' as any,
+      borderWidth: 1,
+      borderColor: colors.borderSubtle,
+      borderRadius: 18,
+      backgroundColor: colors.surface,
+      overflow: 'hidden',
+    },
+    sourcePreviewHeader: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 10,
+      padding: 12,
+      borderBottomWidth: 1,
+      borderBottomColor: colors.borderSubtle,
+      backgroundColor: colors.surface,
+    },
+    sourcePreviewTitle: {
+      color: colors.textPrimary,
+      fontSize: 16,
+      fontWeight: '900',
+    },
+    sourcePreviewSubtitle: {
+      color: colors.textMuted,
+      fontSize: 12,
+      marginTop: 2,
+    },
+    sourcePreviewFrameWrap: {
+      flex: 1,
+      backgroundColor: '#fff',
+      position: 'relative',
+    },
+    sourcePreviewLoading: {
+      ...StyleSheet.absoluteFillObject,
+      zIndex: 2,
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: 10,
+      backgroundColor: colors.surface,
+    },
+    sourcePreviewUnavailable: {
+      flex: 1,
+      alignItems: 'center',
+      justifyContent: 'center',
+      padding: 24,
       backgroundColor: colors.surfaceInput,
     },
     recipientSearchBox: {

@@ -20,6 +20,7 @@ import { useBookmarks } from '@/hooks/useBookmarks';
 import { usePreferences } from '@/hooks/usePreferences';
 import { useTheme } from '@/hooks/useTheme';
 import { ApiArticle, fetchArticleFullContent, mapToContentCategory, proxyImageUrl } from '@/services/newsApi';
+import { cleanArticleBody } from '@/services/articleContentQuality';
 import { exportNewspaperPdf } from '@/services/pdf/newspaperPdfExporter';
 import { NewspaperArticleInput } from '@/services/pdf/newspaperPdfTemplate';
 import { exportInteractiveNewspaperHtml } from '@/services/pdf/interactiveNewspaperHtmlExporter';
@@ -148,17 +149,20 @@ export default function NewspaperBuilder() {
 
   const clearCategories = () => setSelectedCategories([]);
 
-  const mapForPdf = async (article: ApiArticle): Promise<NewspaperArticleInput> => {
-    let content = article.content || article.description || '';
+  const mapForPdf = async (article: ApiArticle): Promise<NewspaperArticleInput | null> => {
+    let content = cleanArticleBody(article.content);
     let imageUrl = article.imageUrl ? proxyImageUrl(article.imageUrl) : undefined;
 
     try {
       const full = await fetchArticleFullContent(article.id);
-      if (full.content?.trim()) content = full.content;
+      const fullContent = cleanArticleBody(full.content);
+      if (fullContent) content = fullContent;
       if (!imageUrl && full.images?.[0]) imageUrl = proxyImageUrl(full.images[0]) || full.images[0];
     } catch {
-      // Export still works with the article summary when full scraping is unavailable.
+      // Clean cached article content can still be used; summaries are not enough for a newspaper detail.
     }
+
+    if (!content) return null;
 
     return {
       id: article.id,
@@ -171,6 +175,13 @@ export default function NewspaperBuilder() {
       imageUrl,
       relevanceScore: scoreArticle(article, preferredCategories, savedIds),
     };
+  };
+
+  const prepareNewspaperArticles = async () => {
+    const mapped = await Promise.all(selectedArticles.map(mapForPdf));
+    const usable = mapped.filter((article): article is NewspaperArticleInput => Boolean(article));
+    const skipped = selectedArticles.length - usable.length;
+    return { usable, skipped };
   };
 
   const createNewspaper = async () => {
@@ -186,9 +197,18 @@ export default function NewspaperBuilder() {
 
     try {
       setCreating(true);
+      const { usable: newspaperArticles, skipped } = await prepareNewspaperArticles();
+
+      if (newspaperArticles.length === 0) {
+        Alert.alert('Uyarı', 'Seçilen haberlerin tam metni temiz şekilde alınamadı. Gazete oluşturulmadı.');
+        return;
+      }
+
+      const usableIds = new Set(newspaperArticles.map((article) => article.id));
+      const archiveArticles = selectedArticles.filter((article) => usableIds.has(article.id));
       
       // Secili makale id'lerini aynen sakla; backend article id'leri string hash olarak tutuyor.
-      const articleIds = selectedArticles
+      const articleIds = archiveArticles
         .map((article) => String(article.id).trim())
         .filter(Boolean)
         .sort((a, b) => a.localeCompare(b));
@@ -220,14 +240,14 @@ export default function NewspaperBuilder() {
       // Gazeteyi arşive kaydet
       const result = await createEdition(
         paperName.trim() || 'Smart Newspaper',
-        `${selectedCategories.join(', ')} kategorilerinden seçilmiş ${selectedArticles.length} haber`,
+        `${selectedCategories.join(', ')} kategorilerinden seçilmiş ${archiveArticles.length} haber`,
         articleIds,
         userToken,
-        selectedArticles.map((article) => ({
+        archiveArticles.map((article) => ({
           id: article.id,
           title: article.title,
           description: article.description || '',
-          content: article.content,
+          content: newspaperArticles.find((item) => item.id === article.id)?.content ?? article.content,
           url: article.url,
           imageUrl: article.imageUrl,
           publishedAt: article.publishedAt,
@@ -240,6 +260,9 @@ export default function NewspaperBuilder() {
       if (result.error) {
         Alert.alert('Hata', result.error);
       } else if (result.edition) {
+        if (skipped > 0) {
+          Alert.alert('Bilgi', `${skipped} haberin temiz tam metni alınamadığı için gazeteye eklenmedi.`);
+        }
         router.push('/(tabs)/archive' as any);
       } else {
         Alert.alert('Hata', 'Gazete oluşturulamadı. Lütfen tekrar deneyin.');
@@ -260,7 +283,12 @@ export default function NewspaperBuilder() {
 
     try {
       setExporting(true);
-      const pdfArticles = await Promise.all(selectedArticles.map(mapForPdf));
+      const { usable: pdfArticles, skipped } = await prepareNewspaperArticles();
+
+      if (pdfArticles.length === 0) {
+        Alert.alert('Uyarı', 'Seçilen haberlerin tam metni temiz şekilde alınamadı. PDF oluşturulmadı.');
+        return;
+      }
 
       // PDF indir
       await exportNewspaperPdf({
@@ -273,6 +301,10 @@ export default function NewspaperBuilder() {
         },
         articles: pdfArticles,
       });
+
+      if (skipped > 0) {
+        Alert.alert('Bilgi', `${skipped} haberin temiz tam metni alınamadığı için PDF'e eklenmedi.`);
+      }
     } catch (error) {
       console.error('Newspaper export error:', error);
       Alert.alert('Hata', 'PDF indirilirken bir sorun oluştu.');
@@ -294,7 +326,12 @@ export default function NewspaperBuilder() {
 
     try {
       setExportingHtml(true);
-      const htmlArticles = await Promise.all(selectedArticles.map(mapForPdf));
+      const { usable: htmlArticles, skipped } = await prepareNewspaperArticles();
+
+      if (htmlArticles.length === 0) {
+        Alert.alert('Uyarı', 'Seçilen haberlerin tam metni temiz şekilde alınamadı. HTML oluşturulmadı.');
+        return;
+      }
 
       // HTML indir
       await exportInteractiveNewspaperHtml({
@@ -305,6 +342,10 @@ export default function NewspaperBuilder() {
         },
         articles: htmlArticles,
       });
+
+      if (skipped > 0) {
+        Alert.alert('Bilgi', `${skipped} haberin temiz tam metni alınamadığı için HTML'e eklenmedi.`);
+      }
     } catch (error) {
       console.error('Interactive HTML export error:', error);
       Alert.alert('Hata', 'HTML indirilirken bir sorun oluştu.');

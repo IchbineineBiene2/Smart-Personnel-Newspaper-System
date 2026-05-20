@@ -18,14 +18,24 @@ router.get('/', async (req: Request, res: Response) => {
 
     const { limit = 20, offset = 0, unread_only = false } = req.query;
 
-    let query = `SELECT * FROM notifications WHERE user_id = $1`;
+    let query = `
+      SELECT
+        n.*,
+        fr.id AS friend_request_id
+      FROM notifications n
+      LEFT JOIN friend_requests fr
+        ON n.type = 'friend_request'
+       AND fr.requester_id = n.related_user_id
+       AND fr.recipient_id = n.user_id
+       AND fr.status = 'pending'
+      WHERE n.user_id = $1`;
     let params: any[] = [req.user.userId];
 
     if (unread_only === 'true') {
-      query += ` AND is_read = FALSE`;
+      query += ` AND n.is_read = FALSE`;
     }
 
-    query += ` ORDER BY created_at DESC LIMIT $2 OFFSET $3`;
+    query += ` ORDER BY n.created_at DESC LIMIT $2 OFFSET $3`;
     params.push(limit, offset);
 
     const result = await dbQuery(query, params);

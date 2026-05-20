@@ -29,6 +29,7 @@ import { exportNewspaperPdf } from '@/services/pdf/newspaperPdfExporter';
 import { exportInteractiveNewspaperHtml } from '@/services/pdf/interactiveNewspaperHtmlExporter';
 import { NewspaperArticleInput } from '@/services/pdf/newspaperPdfTemplate';
 import { ApiArticle, fetchArticleFullContent, mapToContentCategory, proxyImageUrl } from '@/services/newsApi';
+import { cleanArticleBody } from '@/services/articleContentQuality';
 import { getToken, getCurrentUser } from '@/services/auth';
 
 type ScreenState = 'list' | 'detail' | 'search';
@@ -58,17 +59,20 @@ function snapshotToApiArticle(snapshot: NonNullable<ArchivedEdition['articles_sn
   };
 }
 
-async function mapEditionArticleForExport(article: ApiArticle): Promise<NewspaperArticleInput> {
-  let content = article.content || article.description || '';
+async function mapEditionArticleForExport(article: ApiArticle): Promise<NewspaperArticleInput | null> {
+  let content = cleanArticleBody(article.content);
   let imageUrl = article.imageUrl ? proxyImageUrl(article.imageUrl) : undefined;
 
   try {
     const full = await fetchArticleFullContent(article.id);
-    if (full.content?.trim()) content = full.content;
+    const fullContent = cleanArticleBody(full.content);
+    if (fullContent) content = fullContent;
     if (!imageUrl && full.images?.[0]) imageUrl = proxyImageUrl(full.images[0]) || full.images[0];
   } catch {
-    // Export can still be created from the article summary.
+    // Clean archived content can still be used; summaries are not enough for newspaper detail.
   }
+
+  if (!content) return null;
 
   return {
     id: article.id,
@@ -212,6 +216,7 @@ export default function Archive() {
         summary: article.description,
         imageUrl: article.imageUrl ?? '',
         source: article.source.name,
+        url: article.url,
         publishedAt: article.publishedAt,
         category,
       },
@@ -226,7 +231,13 @@ export default function Archive() {
 
     try {
       setDownloadingPdf(true);
-      const exportArticles = await Promise.all(editionArticles.map(mapEditionArticleForExport));
+      const mapped = await Promise.all(editionArticles.map(mapEditionArticleForExport));
+      const exportArticles = mapped.filter((article): article is NewspaperArticleInput => Boolean(article));
+
+      if (exportArticles.length === 0) {
+        Alert.alert('Hata', 'Bu gazetede temiz tam metni olan haber bulunamadi.');
+        return;
+      }
 
       await exportNewspaperPdf({
         engine: Platform.OS === 'web' ? 'react-pdf' : 'html-css',
@@ -257,7 +268,13 @@ export default function Archive() {
 
     try {
       setDownloadingHtml(true);
-      const exportArticles = await Promise.all(editionArticles.map(mapEditionArticleForExport));
+      const mapped = await Promise.all(editionArticles.map(mapEditionArticleForExport));
+      const exportArticles = mapped.filter((article): article is NewspaperArticleInput => Boolean(article));
+
+      if (exportArticles.length === 0) {
+        Alert.alert('Hata', 'Bu gazetede temiz tam metni olan haber bulunamadi.');
+        return;
+      }
 
       await exportInteractiveNewspaperHtml({
         newspaperName: getEditionName(edition),
