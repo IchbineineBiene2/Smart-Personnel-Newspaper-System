@@ -1,162 +1,356 @@
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useRouter } from 'expo-router';
-import { useState, useEffect } from 'react';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useMemo, useState } from 'react';
+import { Platform, Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 
-import { usePreferences } from '@/hooks/usePreferences';
-import { useTheme } from '@/hooks/useTheme';
-import { CATEGORIES } from '@/services/content';
+import { AuthButton } from '@/components/auth/AuthButton';
 import { Radius, Spacing, Typography } from '@/constants/theme';
+import { useTheme } from '@/hooks/useTheme';
+import { usePreferences } from '@/hooks/usePreferences';
+import { completeOnboarding } from '@/services/auth';
+import { CATEGORIES, NEWSPAPERS, NewspaperSource } from '@/services/content';
 
-const ONBOARDING_COMPLETE_KEY = 'onboarding-complete';
+const LANGUAGES = [
+  { code: 'tr', label: 'Türkçe', flag: '🇹🇷' },
+  { code: 'en', label: 'İngilizce', flag: '🇬🇧' },
+  { code: 'de', label: 'Almanca', flag: '🇩🇪' },
+  { code: 'fr', label: 'Fransızca', flag: '🇫🇷' },
+  { code: 'es', label: 'İspanyolca', flag: '🇪🇸' },
+  { code: 'ar', label: 'Arapça', flag: '🇸🇦' },
+];
+
+type Step = 0 | 1 | 2;
+
+const STEPS = [
+  { title: 'İlgi alanların', subtitle: 'Hangi konuların akışında öne çıksın istersin?' },
+  { title: 'Dil tercihleri', subtitle: 'Hangi dillerdeki haberleri görmek istersin?' },
+  { title: 'Favori kaynaklar', subtitle: 'Seçtiklerini feed üstünde öne çıkaralım — sonra değiştirebilirsin.' },
+];
 
 export default function OnboardingScreen() {
   const router = useRouter();
   const { colors } = useTheme();
-  const { preferredCategories, toggleCategory } = usePreferences();
-  const [isComplete, setIsComplete] = useState(false);
+  const { width } = useWindowDimensions();
+  const isWide = width >= 920;
 
-  const handleComplete = async () => {
-    if (preferredCategories.length === 0) {
-      alert('Lütfen en az bir kategori seçin');
+  const {
+    preferredCategories,
+    preferredNewsLanguages,
+    preferredNewspapers,
+    toggleCategory,
+    toggleNewsLanguage,
+    toggleNewspaper,
+  } = usePreferences();
+
+  const [step, setStep] = useState<Step>(0);
+  const [completing, setCompleting] = useState(false);
+
+  const canAdvance = useMemo(() => {
+    if (step === 0) return preferredCategories.length > 0;
+    if (step === 1) return preferredNewsLanguages.length > 0;
+    return true; // step 2 atlanabilir
+  }, [step, preferredCategories.length, preferredNewsLanguages.length]);
+
+  const handleNext = async () => {
+    if (step < 2) {
+      setStep((s) => (s + 1) as Step);
       return;
     }
+    setCompleting(true);
+    try {
+      await completeOnboarding();
+      router.replace('/(tabs)');
+    } finally {
+      setCompleting(false);
+    }
+  };
 
-    await AsyncStorage.setItem(ONBOARDING_COMPLETE_KEY, 'true');
-    setIsComplete(true);
-    router.replace('/(tabs)');
+  const handleBack = () => {
+    if (step > 0) setStep((s) => (s - 1) as Step);
   };
 
   return (
-    <ScrollView style={[styles(colors).container]} contentContainerStyle={styles(colors).content}>
-      <View style={styles(colors).header}>
-        <Text style={styles(colors).title}>Hoşgeldiniz!</Text>
-        <Text style={styles(colors).subtitle}>
-          İlgi duyduğunuz haber kategorilerini seçerek başlayın
-        </Text>
-      </View>
+    <ScrollView
+      style={{ backgroundColor: colors.background, flex: 1 }}
+      contentContainerStyle={[styles.scroll, isWide && styles.scrollWide]}
+      keyboardShouldPersistTaps="handled"
+    >
+      <View style={[styles.layout, isWide && styles.layoutWide]}>
+        {/* Hero */}
+        <View style={[styles.hero, isWide && styles.heroWide]}>
+          <View style={styles.brandRow}>
+            <View style={[styles.logoMark, { backgroundColor: colors.accent }]}>
+              <Ionicons name="newspaper" size={22} color={colors.white} />
+            </View>
+            <View>
+              <Text style={[styles.brandWord, { color: colors.textPrimary }]}>
+                GAZETE<Text style={{ color: colors.accent }}>.AI</Text>
+              </Text>
+              <Text style={[styles.brandTag, { color: colors.textMuted }]}>Sana özel haber akışı kuruluyor</Text>
+            </View>
+          </View>
+          {isWide && (
+            <Text style={[styles.heroBlurb, { color: colors.textSecondary }]}>
+              Birkaç soruyla akışını şekillendirelim.{'\n'}
+              Tercihlerin her zaman ayarlardan değiştirilebilir.
+            </Text>
+          )}
+        </View>
 
-      <View style={styles(colors).categoriesSection}>
-        <Text style={styles(colors).sectionTitle}>Kategorileri Seç</Text>
-        <View style={styles(colors).chipGroup}>
-          {CATEGORIES.map((category) => {
-            const selected = preferredCategories.includes(category);
-            return (
-              <Pressable
-                key={category}
-                style={[styles(colors).chip, selected ? styles(colors).chipSelected : null]}
-                onPress={() => toggleCategory(category)}
-              >
-                <Text style={[styles(colors).chipText, selected ? styles(colors).chipTextSelected : null]}>
-                  {category}
-                </Text>
+        {/* Card */}
+        <View
+          style={[
+            styles.card,
+            {
+              backgroundColor: colors.surfaceHigh,
+              borderColor: colors.borderSubtle,
+              shadowColor: colors.black,
+            },
+          ]}
+        >
+          <View style={styles.progressRow}>
+            {[0, 1, 2].map((i) => (
+              <View
+                key={i}
+                style={[
+                  styles.progressDot,
+                  { backgroundColor: i <= step ? colors.accent : colors.border },
+                ]}
+              />
+            ))}
+          </View>
+          <Text style={[styles.stepCounter, { color: colors.textMuted }]}>{step + 1} / 3</Text>
+
+          <Text style={[styles.title, { color: colors.textPrimary }]}>{STEPS[step].title}</Text>
+          <Text style={[styles.subtitle, { color: colors.textSecondary }]}>{STEPS[step].subtitle}</Text>
+
+          {step === 0 && (
+            <View style={styles.chipGrid}>
+              {CATEGORIES.map((cat) => {
+                const selected = preferredCategories.includes(cat);
+                return <Chip key={cat} label={cat} selected={selected} onPress={() => toggleCategory(cat)} />;
+              })}
+            </View>
+          )}
+          {step === 1 && (
+            <View style={styles.chipGrid}>
+              {LANGUAGES.map((lang) => {
+                const selected = preferredNewsLanguages.includes(lang.code);
+                return (
+                  <Chip
+                    key={lang.code}
+                    label={`${lang.flag}  ${lang.label}`}
+                    selected={selected}
+                    onPress={() => toggleNewsLanguage(lang.code)}
+                  />
+                );
+              })}
+            </View>
+          )}
+          {step === 2 && (
+            <>
+              <View style={styles.chipGrid}>
+                {NEWSPAPERS.map((paper: NewspaperSource) => {
+                  const selected = preferredNewspapers.includes(paper);
+                  return (
+                    <Chip
+                      key={paper}
+                      label={paper}
+                      selected={selected}
+                      onPress={() => toggleNewspaper(paper)}
+                    />
+                  );
+                })}
+              </View>
+              <Text style={[styles.hint, { color: colors.textMuted }]}>
+                Bu adım zorunlu değil — hiç seçmezsen tüm kaynaklardan haber gelir.
+              </Text>
+            </>
+          )}
+
+          <View style={styles.footerRow}>
+            {step > 0 ? (
+              <Pressable onPress={handleBack} style={styles.backBtn} hitSlop={6}>
+                <Ionicons name="arrow-back" size={18} color={colors.textSecondary} />
+                <Text style={[styles.backText, { color: colors.textSecondary }]}>Geri</Text>
               </Pressable>
-            );
-          })}
+            ) : (
+              <View />
+            )}
+            <View style={{ minWidth: 180 }}>
+              <AuthButton
+                label={step < 2 ? 'Devam Et' : 'Tamamla'}
+                onPress={handleNext}
+                disabled={!canAdvance}
+                loading={completing}
+              />
+            </View>
+          </View>
         </View>
       </View>
-
-      <View style={styles(colors).summaryCard}>
-        <Text style={styles(colors).summaryTitle}>Seçilen Kategoriler</Text>
-        <Text style={styles(colors).summaryBody}>
-          {preferredCategories.length
-            ? preferredCategories.join(', ')
-            : 'Henüz kategori seçilmedi.'}
-        </Text>
-      </View>
-
-      <Pressable style={styles(colors).completeButton} onPress={handleComplete}>
-        <Text style={styles(colors).completeButtonText}>Devam Et</Text>
-      </Pressable>
     </ScrollView>
   );
 }
 
-const styles = (colors: any) => StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: colors.background,
+function Chip({ label, selected, onPress }: { label: string; selected: boolean; onPress: () => void }) {
+  const { colors } = useTheme();
+  return (
+    <Pressable
+      onPress={onPress}
+      style={[
+        chipStyles.chip,
+        {
+          backgroundColor: selected ? colors.accent : colors.surface,
+          borderColor: selected ? colors.accent : colors.border,
+        },
+      ]}
+    >
+      {selected && <Ionicons name="checkmark" size={14} color={colors.white} />}
+      <Text
+        style={[
+          chipStyles.text,
+          { color: selected ? colors.white : colors.textPrimary, fontWeight: selected ? '600' : '500' },
+        ]}
+      >
+        {label}
+      </Text>
+    </Pressable>
+  );
+}
+
+const chipStyles = StyleSheet.create({
+  chip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    borderWidth: 1,
+    borderRadius: Radius.full,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
   },
-  content: {
+  text: {
+    fontSize: Typography.fontSize.base,
+  },
+});
+
+const styles = StyleSheet.create({
+  scroll: {
+    flexGrow: 1,
     padding: Spacing.lg,
+    justifyContent: 'center',
+  },
+  scrollWide: {
+    paddingHorizontal: Spacing.xxl,
+  },
+  layout: {
+    width: '100%',
+    maxWidth: 1080,
+    alignSelf: 'center',
+    gap: Spacing.xl,
+  },
+  layoutWide: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.xxl,
+  },
+  hero: {
     gap: Spacing.lg,
-    paddingBottom: Spacing.xxl,
   },
-  header: {
-    gap: Spacing.sm,
-    marginBottom: Spacing.lg,
+  heroWide: {
+    flex: 1,
+    paddingRight: Spacing.lg,
   },
-  title: {
-    color: colors.textPrimary,
-    fontSize: Typography.fontSize.xxl,
-    fontWeight: Typography.fontWeight.bold,
-  },
-  subtitle: {
-    color: colors.textSecondary,
-    fontSize: Typography.fontSize.md,
-    lineHeight: 22,
-  },
-  categoriesSection: {
+  brandRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
     gap: Spacing.md,
   },
-  sectionTitle: {
-    color: colors.textPrimary,
-    fontSize: Typography.fontSize.lg,
-    fontWeight: Typography.fontWeight.bold,
-  },
-  chipGroup: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: Spacing.sm,
-  },
-  chip: {
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: Radius.full,
-    backgroundColor: colors.surface,
-    paddingVertical: Spacing.sm,
-    paddingHorizontal: Spacing.md,
-  },
-  chipSelected: {
-    backgroundColor: colors.accent,
-    borderColor: colors.accent,
-  },
-  chipText: {
-    color: colors.textPrimary,
-    fontWeight: Typography.fontWeight.medium,
-  },
-  chipTextSelected: {
-    color: colors.white,
-  },
-  summaryCard: {
-    backgroundColor: colors.surface,
-    borderWidth: 1,
-    borderColor: colors.borderSubtle,
-    borderRadius: Radius.lg,
-    padding: Spacing.lg,
-    gap: Spacing.sm,
-  },
-  summaryTitle: {
-    color: colors.textPrimary,
-    fontSize: Typography.fontSize.md,
-    fontWeight: Typography.fontWeight.bold,
-  },
-  summaryBody: {
-    color: colors.textSecondary,
-    fontSize: Typography.fontSize.base,
-    lineHeight: 20,
-  },
-  completeButton: {
-    backgroundColor: colors.accent,
-    borderRadius: Radius.lg,
-    paddingVertical: Spacing.md,
-    paddingHorizontal: Spacing.lg,
+  logoMark: {
+    width: 44,
+    height: 44,
+    borderRadius: Radius.md,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  completeButtonText: {
-    color: colors.white,
-    fontSize: Typography.fontSize.md,
+  brandWord: {
+    fontSize: Typography.fontSize.xxl,
     fontWeight: Typography.fontWeight.bold,
+    letterSpacing: -0.5,
+  },
+  brandTag: {
+    fontSize: Typography.fontSize.sm,
+    letterSpacing: 0.4,
+    textTransform: 'uppercase',
+  },
+  heroBlurb: {
+    fontSize: Typography.fontSize.lg,
+    lineHeight: 26,
+    marginTop: Spacing.md,
+  },
+  card: {
+    maxWidth: 540,
+    alignSelf: 'center',
+    width: '100%',
+    borderRadius: Radius.lg,
+    borderWidth: 1,
+    padding: Spacing.xl,
+    gap: Spacing.md,
+    ...Platform.select({
+      web: { boxShadow: '0 16px 48px rgba(0,0,0,0.08)' } as any,
+      default: { shadowOpacity: 0.12, shadowRadius: 24, shadowOffset: { width: 0, height: 12 }, elevation: 6 },
+    }),
+  },
+  progressRow: {
+    flexDirection: 'row',
+    gap: 6,
+    alignItems: 'center',
+  },
+  progressDot: {
+    height: 6,
+    borderRadius: 3,
+    flex: 1,
+  },
+  stepCounter: {
+    fontSize: Typography.fontSize.xs,
+    letterSpacing: 0.5,
+    textTransform: 'uppercase',
+    marginTop: -4,
+  },
+  title: {
+    fontSize: Typography.fontSize.xxl,
+    fontWeight: Typography.fontWeight.bold,
+    letterSpacing: -0.5,
+  },
+  subtitle: {
+    fontSize: Typography.fontSize.base,
+    lineHeight: 20,
+    marginBottom: Spacing.sm,
+  },
+  chipGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: Spacing.sm,
+    marginBottom: Spacing.sm,
+  },
+  hint: {
+    fontSize: Typography.fontSize.sm,
+    fontStyle: 'italic',
+  },
+  footerRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginTop: Spacing.lg,
+  },
+  backBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingVertical: 10,
+    paddingHorizontal: 4,
+  },
+  backText: {
+    fontSize: Typography.fontSize.base,
+    fontWeight: Typography.fontWeight.medium,
   },
 });
