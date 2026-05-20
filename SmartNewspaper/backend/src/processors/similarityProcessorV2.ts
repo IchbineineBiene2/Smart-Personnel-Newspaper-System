@@ -1,16 +1,19 @@
 /**
- * Similarity processor v2 — iki katmanlı eşleştirme.
+ * Similarity processor v2 — iki katmanlı eşleştirme (embedding + entity guard).
  *
- * Eski sürümün sorunları:
- *   - Tek eşik (0.8) → düşük puanlı ama aynı olayı anlatan haberler kaybediliyordu
- *   - Aynı-kaynak çiftleri de yazılıyordu (özellikle RSS syndication exact duplicate)
- *   - 3 günlük pencere → devam eden konular bağlanamıyor
+ * Eşik kalibrasyonu (2026-05): multilingual-e5-base anizotropik bir modeldir —
+ * alakasız haber çiftleri bile 0.74-0.90 kosinüs alır. Eski 0.78 same_event
+ * eşiği bu gürültü tabanının İÇİNDEYDİ: 188k makale 7.7M same_event üretti
+ * (medyan 203 bağlantı/makale), sınırdaki çiftlerin tamamı alakasız çıktı ve
+ * same_event'in %92'si sıfır ortak entity'ye sahipti. Eşikler E5'in gerçek
+ * "aynı olay" bandına çekildi; entity_overlap artık duplicate dışındaki her
+ * katmanda ZORUNLU kapıdır (yalnızca tie-breaker değil).
  *
  * v2 mantığı (kaynak ≠ kaynak, ±3 gün pencere içinde):
- *   - score ≥ 0.92  → kind='duplicate' (RSS syndication veya birebir kopya)
- *   - score ≥ 0.78  → kind='same_event'
- *   - 0.65 ≤ score < 0.78 ∧ entity_overlap ≥ 2 → kind='same_event'
- *   - 0.55 ≤ score < 0.65 ∧ entity_overlap ≥ 1 → kind='related'
+ *   - score ≥ 0.95                              → kind='duplicate' (birebir/sendikasyon)
+ *   - score ≥ 0.90 ∧ entity_overlap ≥ 1         → kind='same_event'
+ *   - 0.84 ≤ score < 0.90 ∧ entity_overlap ≥ 2  → kind='same_event'
+ *   - 0.84 ≤ score < 0.90 ∧ entity_overlap = 1  → kind='related'
  *   - aksi halde yazılmaz
  *
  * HNSW index olduğunda KNN top-K + filter ile O(N log N), index yokken seq scan ile O(N²).
@@ -19,13 +22,13 @@
 import { query } from '../db';
 
 const WINDOW_DAYS = 3;
-const CANDIDATE_FLOOR = 0.55;          // Bunun altı hiç değerlendirilmez
-const DUPLICATE_THRESHOLD = 0.92;
-const STRONG_THRESHOLD = 0.78;
-const MEDIUM_THRESHOLD = 0.65;
-const WEAK_THRESHOLD = 0.55;
+const CANDIDATE_FLOOR = 0.84;          // Bunun altı E5 gürültü tabanı — hiç değerlendirilmez
+const DUPLICATE_THRESHOLD = 0.95;      // birebir / sendikasyon kopyası
+const STRONG_THRESHOLD = 0.90;         // + entity_overlap ≥ 1 zorunlu
+const MEDIUM_THRESHOLD = 0.84;         // + entity_overlap ≥ 2 zorunlu (same_event) / ≥ 1 (related)
+const MIN_OVERLAP_STRONG = 1;
 const MIN_OVERLAP_MEDIUM = 2;
-const MIN_OVERLAP_WEAK = 1;
+const MIN_OVERLAP_RELATED = 1;
 
 export interface SimilarityRunResult {
   candidates: number;
@@ -105,9 +108,9 @@ export async function findAndSaveSimilarArticlesV2(opts: {
         article_id_1, article_id_2, score, entity_overlap,
         CASE
           WHEN score >= ${DUPLICATE_THRESHOLD} THEN 'duplicate'
-          WHEN score >= ${STRONG_THRESHOLD} THEN 'same_event'
+          WHEN score >= ${STRONG_THRESHOLD} AND entity_overlap >= ${MIN_OVERLAP_STRONG} THEN 'same_event'
           WHEN score >= ${MEDIUM_THRESHOLD} AND entity_overlap >= ${MIN_OVERLAP_MEDIUM} THEN 'same_event'
-          WHEN score >= ${WEAK_THRESHOLD} AND entity_overlap >= ${MIN_OVERLAP_WEAK} THEN 'related'
+          WHEN score >= ${MEDIUM_THRESHOLD} AND entity_overlap >= ${MIN_OVERLAP_RELATED} THEN 'related'
           ELSE NULL
         END AS kind
       FROM pairs
