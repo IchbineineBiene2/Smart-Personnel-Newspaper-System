@@ -97,8 +97,7 @@ export async function loginUser(email: string, password: string): Promise<User |
     `SELECT id, username, full_name, email, role, status, password_hash
      FROM users
      WHERE (LOWER(email) = $1 OR LOWER(username) = $1)
-       AND status = 'active'
-       AND role = 'user'`,
+       AND status = 'active'`,
     [identity]
   );
 

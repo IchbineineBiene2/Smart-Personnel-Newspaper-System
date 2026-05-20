@@ -18,8 +18,10 @@ import { useRouter } from 'expo-router';
 import { useApiNews } from '@/hooks/useNews';
 import { useBookmarks } from '@/hooks/useBookmarks';
 import { usePreferences } from '@/hooks/usePreferences';
+import { usePublisherState } from '@/hooks/usePublisherState';
 import { useTheme } from '@/hooks/useTheme';
 import { ApiArticle, fetchArticleFullContent, mapToContentCategory, proxyImageUrl } from '@/services/newsApi';
+import { getPublisherIdFromSourceName } from '@/services/publisherProfiles';
 import { cleanArticleBody } from '@/services/articleContentQuality';
 import { exportNewspaperPdf } from '@/services/pdf/newspaperPdfExporter';
 import { NewspaperArticleInput } from '@/services/pdf/newspaperPdfTemplate';
@@ -29,6 +31,17 @@ import { getToken, getCurrentUser } from '@/services/auth';
 
 type DateFilter = 'day' | 'week' | 'all';
 type CountOption = 6 | 9 | 12;
+type SourceFilter = 'all' | 'followed' | string;
+
+const LANGUAGE_LABELS: Record<string, string> = {
+  tr: 'Türkçe',
+  en: 'İngilizce',
+  de: 'Almanca',
+  fr: 'Fransızca',
+  ar: 'Arapça',
+  es: 'İspanyolca',
+  it: 'İtalyanca',
+};
 
 function dateMatchesFilter(publishedAt: string, filter: DateFilter) {
   if (filter === 'all') return true;
@@ -60,11 +73,13 @@ export default function NewspaperBuilder() {
   const { articles, loading } = useApiNews();
   const { savedIds } = useBookmarks();
   const { preferredCategories } = usePreferences();
+  const { followedIds } = usePublisherState();
   const isWeb = Platform.OS === 'web';
 
   const [paperName, setPaperName] = useState('Smart Newspaper');
   const [selectedCategories, setSelectedCategories] = useState<string[]>(preferredCategories);
-  const [selectedSource, setSelectedSource] = useState<string>('all');
+  const [selectedSource, setSelectedSource] = useState<SourceFilter>('all');
+  const [selectedLanguages, setSelectedLanguages] = useState<string[]>([]);
   const [dateFilter, setDateFilter] = useState<DateFilter>('week');
   const [articleCount, setArticleCount] = useState<CountOption>(9);
   const [imagesOnly, setImagesOnly] = useState(false);
@@ -105,13 +120,26 @@ export default function NewspaperBuilder() {
     return [...set].sort((a, b) => a.localeCompare(b, 'tr')).slice(0, 24);
   }, [articles]);
 
+  const languages = useMemo(() => {
+    const set = new Set<string>();
+    articles.forEach((article) => { if (article.language) set.add(article.language); });
+    return [...set].sort();
+  }, [articles]);
+
+  const followedSet = useMemo(() => new Set(followedIds), [followedIds]);
+
   const selectedArticles = useMemo(() => {
     const categorySet = new Set(selectedCategories);
     return articles
       .filter((article) => {
         const category = mapToContentCategory(article.category, article.title, article.description);
         if (categorySet.size > 0 && !categorySet.has(category)) return false;
-        if (selectedSource !== 'all' && article.source.name !== selectedSource) return false;
+        if (selectedSource === 'followed') {
+          if (!followedSet.has(getPublisherIdFromSourceName(article.source.name))) return false;
+        } else if (selectedSource !== 'all' && article.source.name !== selectedSource) {
+          return false;
+        }
+        if (selectedLanguages.length > 0 && !selectedLanguages.includes(article.language)) return false;
         if (imagesOnly && !article.imageUrl) return false;
         return dateMatchesFilter(article.publishedAt, dateFilter);
       })
@@ -131,11 +159,13 @@ export default function NewspaperBuilder() {
     articles,
     articleCount,
     dateFilter,
+    followedSet,
     imagesOnly,
     preferredCategories,
     savedFirst,
     savedIds,
     selectedCategories,
+    selectedLanguages,
     selectedSource,
   ]);
 
@@ -148,6 +178,12 @@ export default function NewspaperBuilder() {
   };
 
   const clearCategories = () => setSelectedCategories([]);
+
+  const toggleLanguage = (lang: string) => {
+    setSelectedLanguages((current) =>
+      current.includes(lang) ? current.filter((l) => l !== lang) : [...current, lang]
+    );
+  };
 
   const mapForPdf = async (article: ApiArticle): Promise<NewspaperArticleInput | null> => {
     let content = cleanArticleBody(article.content);
@@ -443,6 +479,26 @@ export default function NewspaperBuilder() {
                   Tum kaynaklar
                 </Text>
               </Pressable>
+              <Pressable
+                style={[
+                  styles.filterChip,
+                  styles.filterChipFollowed,
+                  {
+                    backgroundColor: selectedSource === 'followed' ? colors.accent : colors.surfaceInput,
+                    borderColor: selectedSource === 'followed' ? colors.accent : colors.borderSubtle,
+                  },
+                ]}
+                onPress={() => setSelectedSource('followed')}
+              >
+                <Ionicons
+                  name="heart"
+                  size={11}
+                  color={selectedSource === 'followed' ? colors.white : colors.textMuted}
+                />
+                <Text style={[styles.filterChipText, { color: selectedSource === 'followed' ? colors.white : colors.textSecondary }]}>
+                  Takip Edilenler
+                </Text>
+              </Pressable>
               {sources.map((source) => {
                 const active = selectedSource === source;
                 return (
@@ -465,6 +521,41 @@ export default function NewspaperBuilder() {
               })}
             </ScrollView>
           </View>
+
+          {languages.length > 1 && (
+            <View style={[styles.controlSection, { borderColor: colors.borderSubtle, backgroundColor: colors.surface }]}>
+              <View style={styles.controlTitleRow}>
+                <Text style={[styles.controlTitle, { color: colors.textPrimary }]}>Dil</Text>
+                {selectedLanguages.length > 0 && (
+                  <Pressable onPress={() => setSelectedLanguages([])}>
+                    <Text style={[styles.clearText, { color: colors.accent }]}>Tumu</Text>
+                  </Pressable>
+                )}
+              </View>
+              <View style={styles.chipWrap}>
+                {languages.map((lang) => {
+                  const active = selectedLanguages.includes(lang);
+                  return (
+                    <Pressable
+                      key={lang}
+                      style={[
+                        styles.filterChip,
+                        {
+                          backgroundColor: active ? colors.accent : colors.surfaceInput,
+                          borderColor: active ? colors.accent : colors.borderSubtle,
+                        },
+                      ]}
+                      onPress={() => toggleLanguage(lang)}
+                    >
+                      <Text style={[styles.filterChipText, { color: active ? colors.white : colors.textSecondary }]}>
+                        {LANGUAGE_LABELS[lang] ?? lang.toUpperCase()}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+            </View>
+          )}
 
           <View style={[styles.controlSection, { borderColor: colors.borderSubtle, backgroundColor: colors.surface }]}>
             <Text style={[styles.controlTitle, { color: colors.textPrimary }]}>Filtreler</Text>
@@ -665,6 +756,7 @@ const styles = StyleSheet.create({
   chipWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   horizontalChips: { gap: 8, paddingRight: 8 },
   filterChip: { borderWidth: 1, borderRadius: 999, paddingHorizontal: 11, paddingVertical: 7 },
+  filterChipFollowed: { flexDirection: 'row', alignItems: 'center', gap: 5 },
   filterChipText: { fontSize: 12, fontWeight: '800' },
   segmentRow: { flexDirection: 'row', gap: 8 },
   segmentButton: { flex: 1, alignItems: 'center', borderRadius: 10, paddingVertical: 10, paddingHorizontal: 8 },

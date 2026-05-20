@@ -109,5 +109,6 @@ export function usePublisherState() {
     toggleFollow,
     togglePublisherNotifications,
     setReaction,
+    reload: load,
   };
 }

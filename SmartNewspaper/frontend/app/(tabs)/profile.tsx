@@ -86,10 +86,11 @@ export default function ProfileScreen() {
     toggleNewsLanguage,
     toggleNewspaper,
     toggleMutedNewspaper,
+    reload: reloadPreferences,
   } = usePreferences();
   const { savedIds } = useBookmarks();
   const { articles: apiArticles } = useApiNews();
-  const { followedIds, notificationEnabledIds, toggleFollow, togglePublisherNotifications } = usePublisherState();
+  const { followedIds, notificationEnabledIds, toggleFollow, togglePublisherNotifications, reload: reloadPublisherState } = usePublisherState();
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const [friends, setFriends] = useState<any[]>([]);
   const [activeTab, setActiveTab] = useState<ProfileTab>('general');
@@ -157,6 +158,8 @@ export default function ProfileScreen() {
 
   useFocusEffect(
     useCallback(() => {
+      reloadPreferences();
+      reloadPublisherState();
       const loadProfile = async () => {
         const profile = await getUserProfile();
         setUserProfile(profile);
@@ -165,7 +168,7 @@ export default function ProfileScreen() {
         }
       };
       loadProfile();
-    }, [loadFriends])
+    }, [loadFriends, reloadPreferences, reloadPublisherState])
   );
 
   useEffect(() => {
