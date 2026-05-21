@@ -146,7 +146,7 @@ export async function getArticles(params: {
   mutedSources?: string[];
   limit?: number;
   offset?: number;
-}): Promise<{ total: number; articles: Article[] }> {
+}): Promise<{ articles: Article[] }> {
   const {
     category,
     language,
@@ -199,12 +199,6 @@ export async function getArticles(params: {
 
   const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
 
-  const countResult = await query<{ count: string }>(
-    `SELECT COUNT(*) AS count FROM articles ${where}`,
-    values,
-  );
-  const total = parseInt(countResult.rows[0].count, 10);
-
   // Tek dil yoksa (ne single language ne 1-elemanlı languages array), dengeli interleave (tr/en/de)
   const singleLang = language || (hasLanguagesArray && languages!.length === 1);
   let rows: ArticleRow[];
@@ -222,7 +216,7 @@ export async function getArticles(params: {
     rows = result.rows;
   }
 
-  return { total, articles: rows.map(rowToArticle) };
+  return { articles: rows.map(rowToArticle) };
 }
 
 /** Tek makale */
