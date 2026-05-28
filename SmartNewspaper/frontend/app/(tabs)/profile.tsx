@@ -86,12 +86,16 @@ export default function ProfileScreen() {
     toggleNewsLanguage,
     toggleNewspaper,
     toggleMutedNewspaper,
+    reload: reloadPreferences,
   } = usePreferences();
   const { savedIds } = useBookmarks();
   const { articles: apiArticles } = useApiNews();
-  const { followedIds, notificationEnabledIds, toggleFollow, togglePublisherNotifications } = usePublisherState();
+  const { followedIds, notificationEnabledIds, toggleFollow, togglePublisherNotifications, reload: reloadPublisherState } = usePublisherState();
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const [friends, setFriends] = useState<any[]>([]);
+  const [pendingRequests, setPendingRequests] = useState<any[]>([]);
+  const [sentRequests, setSentRequests] = useState<any[]>([]);
+  const [requestActionLoading, setRequestActionLoading] = useState<Record<number, boolean>>({});
   const [activeTab, setActiveTab] = useState<ProfileTab>('general');
   const [showFollowedPublishers, setShowFollowedPublishers] = useState(false);
   const [showFriends, setShowFriends] = useState(false);
@@ -149,6 +153,8 @@ export default function ProfileScreen() {
       if (response.ok) {
         const data = await response.json();
         setFriends(data.friends || []);
+        setPendingRequests(data.pending_requests || []);
+        setSentRequests(data.sent_requests || []);
       }
     } catch (error) {
       console.error('Arkadaslar yuklenemedi:', error);
@@ -157,6 +163,8 @@ export default function ProfileScreen() {
 
   useFocusEffect(
     useCallback(() => {
+      reloadPreferences();
+      reloadPublisherState();
       const loadProfile = async () => {
         const profile = await getUserProfile();
         setUserProfile(profile);
@@ -165,7 +173,7 @@ export default function ProfileScreen() {
         }
       };
       loadProfile();
-    }, [loadFriends])
+    }, [loadFriends, reloadPreferences, reloadPublisherState])
   );
 
   useEffect(() => {
@@ -361,6 +369,72 @@ export default function ProfileScreen() {
     }
   };
 
+  const handleAcceptFriendRequest = async (requestId: number) => {
+    try {
+      setRequestActionLoading((c) => ({ ...c, [requestId]: true }));
+      const token = await getAuthToken();
+      const response = await fetch(`http://localhost:3000/api/friends/accept/${requestId}`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (response.ok) {
+        await loadFriends();
+      } else {
+        const data = await response.json();
+        Alert.alert('Hata', data.error || 'İstek kabul edilemedi.');
+      }
+    } catch {
+      Alert.alert('Hata', 'İstek kabul edilemedi.');
+    } finally {
+      setRequestActionLoading((c) => ({ ...c, [requestId]: false }));
+    }
+  };
+
+  const handleRejectFriendRequest = async (requestId: number) => {
+    try {
+      setRequestActionLoading((c) => ({ ...c, [requestId]: true }));
+      const token = await getAuthToken();
+      const response = await fetch(`http://localhost:3000/api/friends/reject/${requestId}`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (response.ok) {
+        setPendingRequests((c) => c.filter((r) => r.id !== requestId));
+      } else {
+        const data = await response.json();
+        Alert.alert('Hata', data.error || 'İstek reddedilemedi.');
+      }
+    } catch {
+      Alert.alert('Hata', 'İstek reddedilemedi.');
+    } finally {
+      setRequestActionLoading((c) => ({ ...c, [requestId]: false }));
+    }
+  };
+
+  const handleCancelSentRequest = async (recipientId: number) => {
+    try {
+      setRequestActionLoading((c) => ({ ...c, [recipientId]: true }));
+      const token = await getAuthToken();
+      const response = await fetch(`http://localhost:3000/api/friends/request/${recipientId}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (response.ok) {
+        setSentRequests((c) => c.filter((r) => r.recipient_id !== recipientId));
+        setFriendSearchResults((current) =>
+          current.map((u) => u.id === recipientId ? { ...u, friend_status: 'none' as const } : u)
+        );
+      } else {
+        const data = await response.json();
+        Alert.alert('Hata', data.error || 'İstek iptal edilemedi.');
+      }
+    } catch {
+      Alert.alert('Hata', 'İstek iptal edilemedi.');
+    } finally {
+      setRequestActionLoading((c) => ({ ...c, [recipientId]: false }));
+    }
+  };
+
   const openPhotoPicker = async (source: 'camera' | 'library') => {
     // TODO: Implement photo picker
     console.log('Photo picker called:', source);
@@ -487,7 +561,14 @@ export default function ProfileScreen() {
                   setActiveTab('general');
                 }}
               >
-                <Text style={[styles.statNum, { color: colors.textPrimary }]}>{friends.length}</Text>
+                <View style={{ position: 'relative', alignItems: 'center' }}>
+                  <Text style={[styles.statNum, { color: colors.textPrimary }]}>{friends.length}</Text>
+                  {pendingRequests.length > 0 && (
+                    <View style={[styles.requestBadge, { backgroundColor: '#ef4444' }]}>
+                      <Text style={styles.requestBadgeText}>{pendingRequests.length}</Text>
+                    </View>
+                  )}
+                </View>
                 <Text style={[styles.statLabel, { color: colors.textMuted }]}>ARKADAŞ</Text>
               </Pressable>
               <Pressable
@@ -1122,11 +1203,117 @@ export default function ProfileScreen() {
                     </View>
                   )}
 
-                  {friends.length === 0 ? (
+                  {/* ── Gelen Arkadaşlık İstekleri ── */}
+                  {pendingRequests.length > 0 && (
+                    <View style={[styles.pendingSection, { borderColor: colors.borderSubtle }]}>
+                      <View style={styles.pendingSectionHeader}>
+                        <View style={[styles.pendingBadgeDot, { backgroundColor: '#ef4444' }]} />
+                        <Text style={[styles.pendingSectionTitle, { color: colors.textPrimary }]}>
+                          Gelen İstekler
+                        </Text>
+                        <View style={[styles.pendingCount, { backgroundColor: '#ef444422' }]}>
+                          <Text style={[styles.pendingCountText, { color: '#ef4444' }]}>
+                            {pendingRequests.length}
+                          </Text>
+                        </View>
+                      </View>
+                      {pendingRequests.map((req) => {
+                        const busy = requestActionLoading[req.id];
+                        return (
+                          <View key={req.id} style={[styles.friendRow, { borderColor: colors.borderSubtle }]}>
+                            <View style={[styles.friendAvatar, { backgroundColor: '#ef444418' }]}>
+                              <Ionicons name="person-add" size={16} color="#ef4444" />
+                            </View>
+                            <View style={styles.friendText}>
+                              <Text style={[styles.friendName, { color: colors.textPrimary }]} numberOfLines={1}>
+                                {req.full_name || req.username}
+                              </Text>
+                              <Text style={[styles.friendEmail, { color: colors.textMuted }]} numberOfLines={1}>
+                                @{req.username}
+                              </Text>
+                            </View>
+                            <View style={styles.requestActions}>
+                              <Pressable
+                                style={[styles.acceptBtn, { backgroundColor: '#10b981' }]}
+                                onPress={() => handleAcceptFriendRequest(req.id)}
+                                disabled={busy}
+                              >
+                                {busy ? (
+                                  <ActivityIndicator size="small" color="#fff" />
+                                ) : (
+                                  <Ionicons name="checkmark" size={15} color="#fff" />
+                                )}
+                              </Pressable>
+                              <Pressable
+                                style={[styles.rejectBtn, { backgroundColor: colors.surfaceHigh, borderColor: colors.borderSubtle }]}
+                                onPress={() => handleRejectFriendRequest(req.id)}
+                                disabled={busy}
+                              >
+                                {busy ? (
+                                  <ActivityIndicator size="small" color="#ef4444" />
+                                ) : (
+                                  <Ionicons name="close" size={15} color="#ef4444" />
+                                )}
+                              </Pressable>
+                            </View>
+                          </View>
+                        );
+                      })}
+                    </View>
+                  )}
+
+                  {/* ── Gönderilen Arkadaşlık İstekleri ── */}
+                  {sentRequests.length > 0 && (
+                    <View style={[styles.pendingSection, { borderColor: colors.borderSubtle }]}>
+                      <View style={styles.pendingSectionHeader}>
+                        <View style={[styles.pendingBadgeDot, { backgroundColor: colors.accent }]} />
+                        <Text style={[styles.pendingSectionTitle, { color: colors.textPrimary }]}>
+                          Gönderilen İstekler
+                        </Text>
+                        <View style={[styles.pendingCount, { backgroundColor: colors.accent + '22' }]}>
+                          <Text style={[styles.pendingCountText, { color: colors.accent }]}>
+                            {sentRequests.length}
+                          </Text>
+                        </View>
+                      </View>
+                      {sentRequests.map((req) => {
+                        const busy = requestActionLoading[req.recipient_id];
+                        return (
+                          <View key={req.id} style={[styles.friendRow, { borderColor: colors.borderSubtle }]}>
+                            <View style={[styles.friendAvatar, { backgroundColor: colors.accent + '18' }]}>
+                              <Ionicons name="person-outline" size={16} color={colors.accent} />
+                            </View>
+                            <View style={styles.friendText}>
+                              <Text style={[styles.friendName, { color: colors.textPrimary }]} numberOfLines={1}>
+                                {req.full_name || req.username}
+                              </Text>
+                              <Text style={[styles.friendEmail, { color: colors.textMuted }]} numberOfLines={1}>
+                                @{req.username} · Bekliyor
+                              </Text>
+                            </View>
+                            <Pressable
+                              style={[styles.rejectBtn, { backgroundColor: colors.surfaceHigh, borderColor: colors.borderSubtle }]}
+                              onPress={() => handleCancelSentRequest(req.recipient_id)}
+                              disabled={busy}
+                            >
+                              {busy ? (
+                                <ActivityIndicator size="small" color={colors.textMuted} />
+                              ) : (
+                                <Ionicons name="close" size={15} color={colors.textMuted} />
+                              )}
+                            </Pressable>
+                          </View>
+                        );
+                      })}
+                    </View>
+                  )}
+
+                  {/* ── Arkadaş Listesi ── */}
+                  {friends.length === 0 && pendingRequests.length === 0 && sentRequests.length === 0 ? (
                     <Text style={[styles.panelSubtitle, { color: colors.textMuted }]}>
                       Henüz arkadaşın yok.
                     </Text>
-                  ) : (
+                  ) : friends.length === 0 ? null : (
                     <View style={styles.friendsList}>
                       {friends.map((friend) => (
                         <View
@@ -1645,6 +1832,77 @@ const styles = StyleSheet.create({
     color: '#ef4444',
     fontSize: 11,
     fontWeight: '800',
+  },
+  // Pending requests section
+  pendingSection: {
+    borderTopWidth: 1,
+    paddingTop: 12,
+    marginTop: 4,
+    marginBottom: 4,
+    gap: 6,
+  },
+  pendingSectionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 7,
+    marginBottom: 4,
+  },
+  pendingBadgeDot: {
+    width: 7,
+    height: 7,
+    borderRadius: 4,
+  },
+  pendingSectionTitle: {
+    fontSize: 12,
+    fontWeight: '800',
+    flex: 1,
+    letterSpacing: 0.3,
+  },
+  pendingCount: {
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+    borderRadius: 999,
+  },
+  pendingCountText: {
+    fontSize: 11,
+    fontWeight: '900',
+  },
+  requestActions: {
+    flexDirection: 'row',
+    gap: 6,
+    alignItems: 'center',
+  },
+  acceptBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  rejectBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+  },
+  // Stat badge for pending requests
+  requestBadge: {
+    position: 'absolute',
+    top: -6,
+    right: -12,
+    minWidth: 16,
+    height: 16,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 3,
+  },
+  requestBadgeText: {
+    color: '#fff',
+    fontSize: 9,
+    fontWeight: '900',
   },
   publisherPanelTabs: {
     flexDirection: 'row',

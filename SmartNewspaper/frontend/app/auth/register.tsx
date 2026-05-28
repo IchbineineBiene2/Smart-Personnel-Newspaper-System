@@ -67,7 +67,7 @@ export default function RegisterScreen() {
     setError(null);
     try {
       await registerUser({ name, username, email, password });
-      router.replace('/(tabs)/profile');
+      router.replace('/onboarding');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Kayıt oluşturulamadı.');
     } finally {

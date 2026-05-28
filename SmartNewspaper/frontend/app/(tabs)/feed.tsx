@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Animated,
@@ -12,6 +12,7 @@ import {
   View,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { useFocusEffect } from '@react-navigation/native';
 import { useRouter } from 'expo-router';
 
 import { useBookmarks } from '@/hooks/useBookmarks';
@@ -52,8 +53,15 @@ const PER_PAGE_OPTIONS = [20, 40, 60];
 export default function FeedScreen() {
   const router   = useRouter();
   const { colors } = useTheme();
-  const { preferredCategories, preferredNewsLanguages } = usePreferences();
-  const { followedIds } = usePublisherState();
+  const { preferredCategories, preferredNewsLanguages, reload: reloadPreferences } = usePreferences();
+  const { followedIds, reload: reloadPublisherState } = usePublisherState();
+
+  useFocusEffect(
+    useCallback(() => {
+      reloadPreferences();
+      reloadPublisherState();
+    }, [reloadPreferences, reloadPublisherState])
+  );
   const { savedIds, toggleSaved } = useBookmarks();
   const isWeb = Platform.OS === 'web';
 

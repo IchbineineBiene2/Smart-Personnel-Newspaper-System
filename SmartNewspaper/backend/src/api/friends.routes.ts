@@ -275,9 +275,26 @@ router.get('/', async (req: Request, res: Response) => {
       [req.user.userId]
     );
 
+    // Get pending requests (sent by this user)
+    const sentRequestsResult = await dbQuery(
+      `SELECT
+         fr.id,
+         fr.recipient_id,
+         u.username,
+         u.full_name,
+         u.email,
+         fr.created_at
+       FROM friend_requests fr
+       JOIN users u ON u.id = fr.recipient_id
+       WHERE fr.requester_id = $1 AND fr.status = 'pending'
+       ORDER BY fr.created_at DESC`,
+      [req.user.userId]
+    );
+
     res.json({
       friends: friendsResult.rows,
       pending_requests: pendingRequestsResult.rows,
+      sent_requests: sentRequestsResult.rows,
       friend_count: friendsResult.rows.length,
       pending_count: pendingRequestsResult.rows.length
     });
@@ -317,6 +334,38 @@ router.get('/:userId', async (req: Request, res: Response) => {
       friends: friendsResult.rows,
       friend_count: friendsResult.rows.length
     });
+  } catch (err) {
+    const error = err as Error;
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * DELETE /api/friends/request/:userId
+ * Cancel a sent pending friend request
+ */
+router.delete('/request/:userId', async (req: Request, res: Response) => {
+  try {
+    if (!req.user) {
+      res.status(401).json({ error: 'Not authenticated' });
+      return;
+    }
+
+    const recipientId = parseInt(req.params.userId);
+
+    const result = await dbQuery(
+      `DELETE FROM friend_requests
+       WHERE requester_id = $1 AND recipient_id = $2 AND status = 'pending'
+       RETURNING *`,
+      [req.user.userId, recipientId]
+    );
+
+    if (result.rows.length === 0) {
+      res.status(404).json({ error: 'Pending request not found' });
+      return;
+    }
+
+    res.json({ success: true, message: 'Friend request cancelled' });
   } catch (err) {
     const error = err as Error;
     res.status(500).json({ error: error.message });

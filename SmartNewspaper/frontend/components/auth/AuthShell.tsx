@@ -5,14 +5,6 @@ import { Ionicons } from '@expo/vector-icons';
 import { Radius, Spacing, Typography } from '@/constants/theme';
 import { useTheme } from '@/hooks/useTheme';
 
-/**
- * Shared shell for auth screens (login + register).
- * - Wide viewports (≥920px): split layout — hero on left, form card on right.
- * - Narrow: hero collapses to a compact header above the card.
- *
- * Provides brand identity, value proposition, and a consistent surface for
- * any auth form passed as `children`.
- */
 interface Bullet {
   icon: keyof typeof Ionicons.glyphMap;
   title: string;
@@ -43,31 +35,61 @@ const BULLETS: Bullet[] = [
   },
 ];
 
+const STATS = [
+  { value: '50K+', label: 'Kullanıcı' },
+  { value: '12',   label: 'Dil' },
+  { value: '200+', label: 'Kaynak' },
+];
+
 export function AuthShell({ title, subtitle, children }: Props) {
   const { colors, themeName } = useTheme();
   const { width } = useWindowDimensions();
   const isWide = width >= 920;
+  const isWeb  = Platform.OS === 'web';
 
-  const pageBackground = colors.background;
-  const cardBackground = themeName === 'vincent' ? colors.surface : colors.surfaceHigh;
+  const cardBg = themeName === 'vincent' ? colors.surface : colors.surfaceHigh;
 
   return (
     <ScrollView
-      style={{ backgroundColor: pageBackground, flex: 1 }}
+      style={{ backgroundColor: colors.background, flex: 1 }}
       contentContainerStyle={[styles.scroll, isWide && styles.scrollWide]}
       keyboardShouldPersistTaps="handled"
     >
+      {/* Decorative background orbs — web only */}
+      {isWeb && (
+        <View style={StyleSheet.absoluteFill} pointerEvents="none">
+          <View
+            style={[
+              styles.orb,
+              styles.orbTop,
+              { backgroundColor: colors.accent },
+              { filter: 'blur(120px)' } as any,
+            ]}
+          />
+          <View
+            style={[
+              styles.orb,
+              styles.orbBottom,
+              { backgroundColor: colors.accent },
+              { filter: 'blur(160px)' } as any,
+            ]}
+          />
+        </View>
+      )}
+
       <View style={[styles.container, isWide && styles.containerWide]}>
-        {/* Hero / brand panel */}
+
+        {/* ── Hero panel ── */}
         <View style={[styles.hero, isWide ? styles.heroWide : styles.heroCompact]}>
+
+          {/* Brand */}
           <View style={styles.brandRow}>
             <View style={[styles.logoMark, { backgroundColor: colors.accent }]}>
-              <Ionicons name="newspaper" size={22} color={colors.white} />
+              <Ionicons name="newspaper" size={24} color={colors.white} />
             </View>
             <View>
               <Text style={[styles.brandWord, { color: colors.textPrimary }]}>
-                GAZETE
-                <Text style={{ color: colors.accent }}>.AI</Text>
+                GAZETE<Text style={{ color: colors.accent }}>.AI</Text>
               </Text>
               <Text style={[styles.brandTag, { color: colors.textMuted }]}>Akıllı haber akışı</Text>
             </View>
@@ -75,13 +97,40 @@ export function AuthShell({ title, subtitle, children }: Props) {
 
           {isWide && (
             <>
+              {/* Headline */}
               <Text style={[styles.heroHeadline, { color: colors.textPrimary }]}>
-                Tek akışta hızla bilgilen,{'\n'}aynı olayın her bakışını gör.
+                Tek akışta hızla{'\n'}
+                <Text style={{ color: colors.accent, fontStyle: 'italic' }}>bilgilen,</Text>
+                {' '}aynı olayın{'\n'}her bakışını gör.
               </Text>
+
+              {/* Stats row */}
+              <View style={[styles.statsRow, { backgroundColor: colors.surface + 'CC', borderColor: colors.borderSubtle }]}>
+                {STATS.map((s, i) => (
+                  <View
+                    key={s.label}
+                    style={[
+                      styles.statItem,
+                      i < STATS.length - 1 && [styles.statBorder, { borderColor: colors.borderSubtle }],
+                    ]}
+                  >
+                    <Text style={[styles.statValue, { color: colors.accent }]}>{s.value}</Text>
+                    <Text style={[styles.statLabel, { color: colors.textMuted }]}>{s.label}</Text>
+                  </View>
+                ))}
+              </View>
+
+              {/* Bullet cards */}
               <View style={styles.bulletList}>
                 {BULLETS.map((b) => (
-                  <View key={b.title} style={styles.bullet}>
-                    <View style={[styles.bulletIcon, { backgroundColor: colors.surface, borderColor: colors.borderSubtle }]}>
+                  <View
+                    key={b.title}
+                    style={[
+                      styles.bullet,
+                      { backgroundColor: colors.surface + 'B0', borderColor: colors.borderSubtle },
+                    ]}
+                  >
+                    <View style={[styles.bulletIcon, { backgroundColor: colors.accent + '20' }]}>
                       <Ionicons name={b.icon} size={18} color={colors.accent} />
                     </View>
                     <View style={{ flex: 1 }}>
@@ -95,21 +144,36 @@ export function AuthShell({ title, subtitle, children }: Props) {
           )}
         </View>
 
-        {/* Auth card */}
+        {/* ── Auth card ── */}
         <View
           style={[
             styles.card,
             {
-              backgroundColor: cardBackground,
+              backgroundColor: cardBg,
               borderColor: colors.borderSubtle,
               shadowColor: colors.black,
             },
           ]}
         >
-          <Text style={[styles.title, { color: colors.textPrimary }]}>{title}</Text>
-          <Text style={[styles.subtitle, { color: colors.textSecondary }]}>{subtitle}</Text>
-          <View style={styles.formSlot}>{children}</View>
+          {/* Top accent stripe */}
+          <View style={[styles.accentStripe, { backgroundColor: colors.accent }]} />
+
+          <View style={styles.cardBody}>
+            {/* Card header */}
+            <View style={styles.cardHeader}>
+              <View style={[styles.cardBadge, { backgroundColor: colors.accent + '18' }]}>
+                <Ionicons name="shield-checkmark-outline" size={13} color={colors.accent} />
+                <Text style={[styles.cardBadgeText, { color: colors.accent }]}>Güvenli giriş</Text>
+              </View>
+              <Text style={[styles.title, { color: colors.textPrimary }]}>{title}</Text>
+              <Text style={[styles.subtitle, { color: colors.textSecondary }]}>{subtitle}</Text>
+            </View>
+
+            {/* Form */}
+            <View style={styles.formSlot}>{children}</View>
+          </View>
         </View>
+
       </View>
     </ScrollView>
   );
@@ -122,8 +186,31 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   scrollWide: {
-    paddingHorizontal: Spacing.xxl,
+    paddingHorizontal: 48,
+    paddingVertical: 40,
   },
+
+  // Background orbs
+  orb: {
+    position: 'absolute',
+    borderRadius: 9999,
+    opacity: 0.12,
+  },
+  orbTop: {
+    width: 480,
+    height: 480,
+    top: -160,
+    left: -80,
+  },
+  orbBottom: {
+    width: 400,
+    height: 400,
+    bottom: -140,
+    right: -60,
+    opacity: 0.08,
+  },
+
+  // Layout
   container: {
     width: '100%',
     maxWidth: 1080,
@@ -132,11 +219,13 @@ const styles = StyleSheet.create({
   },
   containerWide: {
     flexDirection: 'row',
-    gap: Spacing.xxl,
+    gap: 56,
     alignItems: 'center',
   },
+
+  // Hero
   hero: {
-    gap: Spacing.lg,
+    gap: Spacing.xl,
   },
   heroCompact: {
     alignItems: 'flex-start',
@@ -145,82 +234,153 @@ const styles = StyleSheet.create({
     flex: 1,
     paddingRight: Spacing.lg,
   },
+
+  // Brand
   brandRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: Spacing.md,
   },
   logoMark: {
-    width: 44,
-    height: 44,
-    borderRadius: Radius.md,
+    width: 48,
+    height: 48,
+    borderRadius: 14,
     alignItems: 'center',
     justifyContent: 'center',
   },
   brandWord: {
-    fontSize: Typography.fontSize.xxl,
-    fontWeight: Typography.fontWeight.bold,
+    fontSize: 22,
+    fontWeight: '900',
     letterSpacing: -0.5,
   },
   brandTag: {
-    fontSize: Typography.fontSize.sm,
-    letterSpacing: 0.4,
+    fontSize: 10,
+    fontWeight: '700',
+    letterSpacing: 1.2,
     textTransform: 'uppercase',
+    marginTop: 1,
   },
+
+  // Headline
   heroHeadline: {
-    fontSize: 32,
-    fontWeight: Typography.fontWeight.bold,
-    lineHeight: 40,
+    fontSize: 38,
+    fontWeight: '900',
+    lineHeight: 48,
+    letterSpacing: -1,
+  },
+
+  // Stats
+  statsRow: {
+    flexDirection: 'row',
+    borderRadius: 16,
+    borderWidth: 1,
+    overflow: 'hidden',
+  },
+  statItem: {
+    flex: 1,
+    alignItems: 'center',
+    paddingVertical: 14,
+    gap: 2,
+  },
+  statBorder: {
+    borderRightWidth: 1,
+  },
+  statValue: {
+    fontSize: 20,
+    fontWeight: '900',
     letterSpacing: -0.5,
   },
+  statLabel: {
+    fontSize: 10,
+    fontWeight: '700',
+    textTransform: 'uppercase',
+    letterSpacing: 0.8,
+  },
+
+  // Bullets
   bulletList: {
-    gap: Spacing.lg,
-    marginTop: Spacing.md,
+    gap: 10,
   },
   bullet: {
     flexDirection: 'row',
     gap: Spacing.md,
-    alignItems: 'flex-start',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderRadius: 14,
+    padding: 14,
   },
   bulletIcon: {
-    width: 38,
-    height: 38,
-    borderRadius: Radius.md,
+    width: 40,
+    height: 40,
+    borderRadius: 12,
     alignItems: 'center',
     justifyContent: 'center',
-    borderWidth: 1,
+    flexShrink: 0,
   },
   bulletTitle: {
-    fontSize: Typography.fontSize.md,
-    fontWeight: Typography.fontWeight.bold,
+    fontSize: 13,
+    fontWeight: '800',
     marginBottom: 2,
   },
   bulletBody: {
-    fontSize: Typography.fontSize.base,
-    lineHeight: 20,
+    fontSize: 12,
+    lineHeight: 18,
+    fontWeight: '500',
   },
+
+  // Card
   card: {
     width: '100%',
     maxWidth: 460,
     alignSelf: 'center',
-    borderRadius: Radius.lg,
+    borderRadius: 24,
     borderWidth: 1,
-    padding: Spacing.xl,
+    overflow: 'hidden',
     ...Platform.select({
-      web: { boxShadow: '0 16px 48px rgba(0,0,0,0.08)' } as any,
-      default: { shadowOpacity: 0.12, shadowRadius: 24, shadowOffset: { width: 0, height: 12 }, elevation: 6 },
+      web: { boxShadow: '0 24px 64px rgba(0,0,0,0.14)' } as any,
+      default: {
+        shadowOpacity: 0.15,
+        shadowRadius: 32,
+        shadowOffset: { width: 0, height: 16 },
+        elevation: 8,
+      },
     }),
   },
+  accentStripe: {
+    height: 4,
+    width: '100%',
+  },
+  cardBody: {
+    padding: 32,
+    gap: Spacing.xl,
+  },
+  cardHeader: {
+    gap: 8,
+  },
+  cardBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    alignSelf: 'flex-start',
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 999,
+    marginBottom: 4,
+  },
+  cardBadgeText: {
+    fontSize: 11,
+    fontWeight: '800',
+    letterSpacing: 0.3,
+  },
   title: {
-    fontSize: Typography.fontSize.xxl,
-    fontWeight: Typography.fontWeight.bold,
-    letterSpacing: -0.5,
-    marginBottom: 6,
+    fontSize: 28,
+    fontWeight: '900',
+    letterSpacing: -0.8,
   },
   subtitle: {
-    fontSize: Typography.fontSize.base,
-    lineHeight: 20,
-    marginBottom: Spacing.lg,
+    fontSize: 14,
+    lineHeight: 21,
+    fontWeight: '500',
   },
   formSlot: {
     gap: Spacing.md,

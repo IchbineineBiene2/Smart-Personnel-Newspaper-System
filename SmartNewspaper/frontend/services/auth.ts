@@ -208,6 +208,21 @@ export async function getCurrentUser(): Promise<BackendUser | null> {
   }
 }
 
+export async function getUserRole(): Promise<string | null> {
+  const user = await getCurrentUser();
+  return user?.role ?? null;
+}
+
+export async function isAdmin(): Promise<boolean> {
+  const role = await getUserRole();
+  return role === 'admin';
+}
+
+export async function seedAdminUser(): Promise<{ message: string; email?: string; password?: string }> {
+  const response = await fetch(`${API_BASE_URL}/admin/seed`, { method: 'POST' });
+  return response.json();
+}
+
 export async function resetUserPassword(email: string, newPassword: string): Promise<boolean> {
   const value = await AsyncStorage.getItem(USER_PROFILE_KEY);
   if (!value) {

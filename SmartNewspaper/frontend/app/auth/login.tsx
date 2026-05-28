@@ -7,7 +7,7 @@ import { AuthInput } from '@/components/auth/AuthInput';
 import { AuthButton, AuthError } from '@/components/auth/AuthButton';
 import { Spacing, Typography } from '@/constants/theme';
 import { useTheme } from '@/hooks/useTheme';
-import { loginUser } from '@/services/auth';
+import { isAdmin, loginUser } from '@/services/auth';
 
 export default function LoginScreen() {
   const router = useRouter();
@@ -33,7 +33,8 @@ export default function LoginScreen() {
         setError('Giriş bilgileri hatalı veya hesap bulunamadı.');
         return;
       }
-      router.replace('/(tabs)/profile');
+      const admin = await isAdmin();
+      router.replace(admin ? ('/admin' as any) : '/(tabs)/profile');
     } finally {
       setLoading(false);
     }
@@ -55,18 +56,23 @@ export default function LoginScreen() {
         autoComplete="email"
         textContentType="emailAddress"
       />
-      <AuthInput
-        label="Şifre"
-        icon="lock-closed-outline"
-        placeholder="Şifreni gir"
-        value={password}
-        onChangeText={setPassword}
-        secureTextEntry
-        passwordToggle
-        autoComplete="password"
-        textContentType="password"
-        onSubmitEditing={handleLogin}
-      />
+      <View>
+        <AuthInput
+          label="Şifre"
+          icon="lock-closed-outline"
+          placeholder="Şifreni gir"
+          value={password}
+          onChangeText={setPassword}
+          secureTextEntry
+          passwordToggle
+          autoComplete="password"
+          textContentType="password"
+          onSubmitEditing={handleLogin}
+        />
+        <Pressable hitSlop={8} style={styles.forgotWrap}>
+          <Text style={[styles.forgot, { color: colors.accent }]}>Şifremi unuttum?</Text>
+        </Pressable>
+      </View>
 
       <AuthError message={error} />
 
@@ -75,6 +81,8 @@ export default function LoginScreen() {
         loading={loading}
         onPress={handleLogin}
       />
+
+      <View style={[styles.divider, { backgroundColor: colors.border }]} />
 
       <View style={styles.footer}>
         <Text style={[styles.muted, { color: colors.textMuted }]}>Hesabın yok mu?</Text>
@@ -89,6 +97,18 @@ export default function LoginScreen() {
 }
 
 const styles = StyleSheet.create({
+  forgotWrap: {
+    alignSelf: 'flex-end',
+    marginTop: 6,
+  },
+  forgot: {
+    fontSize: Typography.fontSize.sm,
+    fontWeight: Typography.fontWeight.bold,
+  },
+  divider: {
+    height: 1,
+    marginVertical: 4,
+  },
   footer: {
     flexDirection: 'row',
     justifyContent: 'center',

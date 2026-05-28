@@ -24,7 +24,6 @@ const NAV_ROUTES: { name: string; label: string; icon: string; iconFilled: strin
   { name: 'discover', label: 'Ekinlikler',  icon: 'calendar-outline', iconFilled: 'calendar' },
   { name: 'archive',  label: 'Arşiv',       icon: 'archive-outline',  iconFilled: 'archive' },
   { name: 'messages', label: 'Mesajlar',    icon: 'chatbubble-outline', iconFilled: 'chatbubble' },
-  { name: 'ai',       label: 'AI Chat',     icon: 'sparkles-outline', iconFilled: 'sparkles' },
 ];
 
 const HIDDEN_ROUTES = ['publisherpage', 'publisherprofile', 'pdfpreview', 'messages/[userId]'];
@@ -423,48 +422,6 @@ export default function TabLayout() {
           }}
         />
         <Tabs.Screen
-          name="ai"
-          options={{
-            title: 'AI Chat',
-            tabBarLabel: 'AI',
-            tabBarIcon: ({ color, focused }) => (
-              <Ionicons
-                name={focused ? 'sparkles' : 'sparkles-outline'}
-                size={isWeb ? 20 : 24}
-                color={color}
-              />
-            ),
-            tabBarButton: isWeb
-              ? undefined
-              : (props) => {
-                  const selected = props.accessibilityState?.selected;
-                  return (
-                    <Pressable
-                      onPress={props.onPress}
-                      onLongPress={props.onLongPress}
-                      testID={props.testID}
-                      accessibilityLabel={props.accessibilityLabel}
-                      accessibilityState={props.accessibilityState}
-                      style={[
-                        props.style as any,
-                        styles.mobileCenterFab,
-                        {
-                          backgroundColor: selected ? colors.accent : colors.accentLight,
-                          borderColor: colors.surface,
-                        },
-                      ]}
-                    >
-                      <Ionicons
-                        name={selected ? 'sparkles' : 'sparkles-outline'}
-                        size={24}
-                        color="#fff"
-                      />
-                    </Pressable>
-                  );
-                },
-          }}
-        />
-        <Tabs.Screen
           name="notifications"
           options={{
             title: 'Bildirimler',
@@ -491,6 +448,7 @@ export default function TabLayout() {
             ),
           }}
         />
+        <Tabs.Screen name="ai" options={{ href: null }} />
         <Tabs.Screen name="newspaper" options={{ href: null }} />
         <Tabs.Screen name="publisherpage" options={{ href: null }} />
         <Tabs.Screen name="publisherprofile" options={{ href: null }} />
@@ -628,19 +586,5 @@ const styles = StyleSheet.create({
     color: '#ef4444',
     letterSpacing: 1.2,
     textTransform: 'uppercase',
-  },
-  mobileCenterFab: {
-    width: 58,
-    height: 58,
-    borderRadius: 999,
-    marginTop: -22,
-    borderWidth: 4,
-    alignItems: 'center',
-    justifyContent: 'center',
-    shadowColor: '#000',
-    shadowOpacity: 0.18,
-    shadowRadius: 10,
-    shadowOffset: { width: 0, height: 4 },
-    elevation: 6,
   },
 });

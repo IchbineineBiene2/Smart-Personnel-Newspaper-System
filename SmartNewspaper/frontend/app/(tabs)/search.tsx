@@ -18,13 +18,12 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useApiNews } from '@/hooks/useNews';
 import { useBookmarks } from '@/hooks/useBookmarks';
 import { useTheme } from '@/hooks/useTheme';
-import { useSearch } from '@/hooks/useSearch';
+import { useSearch, getTrendingArticles } from '@/hooks/useSearch';
 import { mapToContentCategory, proxyImageUrl } from '@/services/newsApi';
 import { buildPublisherDataset } from '@/services/publisherProfiles';
 import { getToken } from '@/services/auth';
 
 const RECENT_KEY = 'recent-searches';
-const TRENDING_TAGS = ['Kripto', 'MilliTakim', 'YapayZeka', 'ElonMusk', 'Secim2026', 'GunesFirtinasi'];
 
 type SearchScope = 'all' | 'news' | 'publishers' | 'users' | 'tags';
 type UserResult = { id: number; username: string; full_name?: string; email: string };
@@ -66,6 +65,9 @@ export default function SearchTab() {
   const [activeScope, setActiveScope] = useState<SearchScope>('all');
   const [userResults, setUserResults] = useState<UserResult[]>([]);
   const [userSearchLoading, setUserSearchLoading] = useState(false);
+  const [trendingTopics, setTrendingTopics] = useState<Array<{ tag: string; count: number }>>([]);
+  const [backendSearchResults, setBackendSearchResults] = useState<any[]>([]);
+  const [backendSearchLoading, setBackendSearchLoading] = useState(false);
   const inputRef = useRef<TextInput>(null);
 
   const headerFade = useRef(new Animated.Value(0)).current;
@@ -88,6 +90,11 @@ export default function SearchTab() {
         }
       }
     });
+
+    fetch('http://localhost:3000/api/news/trending-topics')
+      .then((r) => r.json())
+      .then((data) => setTrendingTopics(data.topics || []))
+      .catch(() => {});
   }, [headerFade, listFade]);
 
   const { publishers } = useMemo(() => buildPublisherDataset(articles), [articles]);
@@ -102,24 +109,24 @@ export default function SearchTab() {
   }, [normalizedQuery, publishers]);
 
   const tagResults = useMemo(() => {
+    const trendingTagNames = trendingTopics.map((t) => t.tag);
     const categoryTags = articles
       .flatMap((article) => [
         article.category || '',
         mapToContentCategory(article.category, article.title, article.description),
       ])
       .filter(Boolean);
-    const displayTags = Array.from(new Set([...categoryTags, ...TRENDING_TAGS]));
+    const displayTags = Array.from(new Set([...trendingTagNames, ...categoryTags]));
     const counts = new Map<string, number>();
 
     articles.forEach((article) => {
       const mappedCategory = mapToContentCategory(article.category, article.title, article.description);
       if (article.category) counts.set(article.category, (counts.get(article.category) ?? 0) + 1);
       counts.set(mappedCategory, (counts.get(mappedCategory) ?? 0) + 1);
-      TRENDING_TAGS.forEach((tag) => {
-        if (`${article.title} ${article.description}`.toLocaleLowerCase('tr-TR').includes(tag.toLocaleLowerCase('tr-TR'))) {
-          counts.set(tag, (counts.get(tag) ?? 0) + 1);
-        }
-      });
+    });
+
+    trendingTopics.forEach(({ tag, count }) => {
+      if (!counts.has(tag)) counts.set(tag, count);
     });
 
     return displayTags
@@ -127,7 +134,7 @@ export default function SearchTab() {
       .map((tag) => ({ tag, count: counts.get(tag) ?? 0 }))
       .sort((a, b) => b.count - a.count || a.tag.localeCompare(b.tag, 'tr'))
       .slice(0, 18);
-  }, [articles, normalizedQuery]);
+  }, [articles, normalizedQuery, trendingTopics]);
 
   const tagArticleResults = useMemo(() => {
     if (!normalizedQuery) return [];
@@ -185,6 +192,38 @@ export default function SearchTab() {
     };
   }, [activeScope, localQuery]);
 
+  useEffect(() => {
+    const q = localQuery.trim();
+    if (q.length < 2 || (activeScope !== 'all' && activeScope !== 'news')) {
+      setBackendSearchResults([]);
+      setBackendSearchLoading(false);
+      return;
+    }
+
+    let active = true;
+    setBackendSearchLoading(true);
+
+    const timer = setTimeout(async () => {
+      try {
+        const response = await fetch(
+          `http://localhost:3000/api/news/search?q=${encodeURIComponent(q)}&limit=20`
+        );
+        if (!response.ok) throw new Error('search failed');
+        const data = await response.json();
+        if (active) setBackendSearchResults(data.articles || []);
+      } catch {
+        if (active) setBackendSearchResults([]);
+      } finally {
+        if (active) setBackendSearchLoading(false);
+      }
+    }, 300);
+
+    return () => {
+      active = false;
+      clearTimeout(timer);
+    };
+  }, [activeScope, localQuery]);
+
   const handleQueryChange = (value: string) => {
     setLocalQuery(value);
     updateFilter('query', value);
@@ -204,14 +243,22 @@ export default function SearchTab() {
     updateFilter('query', '');
   };
 
+  const articleResults = useMemo(() => {
+    if (activeScope === 'publishers' || activeScope === 'users' || activeScope === 'tags') return [];
+    if (backendSearchResults.length > 0) {
+      const ids = new Set(backendSearchResults.map((a) => a.id));
+      return [...backendSearchResults, ...results.filter((a) => !ids.has(a.id))];
+    }
+    return results;
+  }, [activeScope, backendSearchResults, results]);
+
   const isSearching = localQuery.trim().length > 0;
-  const articleResults = activeScope === 'publishers' || activeScope === 'users' || activeScope === 'tags' ? [] : results;
   const resultCount =
-    (activeScope === 'all' || activeScope === 'news' ? results.length : 0) +
+    (activeScope === 'all' || activeScope === 'news' ? articleResults.length : 0) +
     (activeScope === 'all' || activeScope === 'publishers' ? publisherResults.length : 0) +
     (activeScope === 'all' || activeScope === 'users' ? userResults.length : 0) +
     (activeScope === 'all' || activeScope === 'tags' ? tagResults.length + tagArticleResults.length : 0);
-  const suggested = articles.slice(0, 5);
+  const suggested = getTrendingArticles(articles, 5);
 
   return (
     <ScrollView
@@ -268,19 +315,28 @@ export default function SearchTab() {
         <Animated.View style={{ opacity: listFade, gap: 12 }}>
           <Text style={[styles.sectionTitle, { color: colors.textPrimary }]}>{resultCount} sonuc bulundu</Text>
 
-          {(activeScope === 'all' || activeScope === 'news') && articleResults.length > 0 ? (
-            <SearchSection title="Haberler" colors={colors}>
-              {articleResults.slice(0, activeScope === 'all' ? 5 : 14).map((item) => (
-                <ArticleRow
-                  key={item.id}
-                  article={item}
-                  colors={colors}
-                  isSaved={savedIds.includes(item.id)}
-                  onPress={() => router.push({ pathname: '/news/[id]', params: { id: item.id } })}
-                  onSave={() => toggleSaved(item.id)}
-                />
-              ))}
-            </SearchSection>
+          {(activeScope === 'all' || activeScope === 'news') ? (
+            backendSearchLoading && articleResults.length === 0 ? (
+              <SearchSection title="Haberler" colors={colors}>
+                <View style={styles.loadingLine}>
+                  <ActivityIndicator size="small" color={colors.accent} />
+                  <Text style={[styles.noResultText, { color: colors.textMuted }]}>Haberler aranıyor...</Text>
+                </View>
+              </SearchSection>
+            ) : articleResults.length > 0 ? (
+              <SearchSection title="Haberler" colors={colors}>
+                {articleResults.slice(0, activeScope === 'all' ? 5 : 14).map((item) => (
+                  <ArticleRow
+                    key={item.id}
+                    article={item}
+                    colors={colors}
+                    isSaved={savedIds.includes(item.id)}
+                    onPress={() => router.push({ pathname: '/news/[id]', params: { id: item.id } })}
+                    onSave={() => toggleSaved(item.id)}
+                  />
+                ))}
+              </SearchSection>
+            ) : null
           ) : null}
 
           {(activeScope === 'all' || activeScope === 'publishers') && publisherResults.length > 0 ? (
@@ -372,7 +428,9 @@ export default function SearchTab() {
                 <Text style={[styles.sectionTitle, { color: colors.textPrimary }]}>SON ARAMALAR</Text>
               </View>
               <View style={styles.recentList}>
-                {(recentLocal.length > 0 ? recentLocal : ['Altin Fiyatlari', 'Super Lig', 'Enflasyon Tahmini', 'Yeni iPhone']).map((q) => (
+                {recentLocal.length === 0 ? (
+                  <Text style={[styles.emptySectionText, { color: colors.textMuted }]}>Henüz arama yapmadınız.</Text>
+                ) : recentLocal.map((q) => (
                   <Pressable
                     key={q}
                     style={({ pressed }) => [
@@ -397,7 +455,9 @@ export default function SearchTab() {
                 <Text style={[styles.sectionTitle, { color: colors.textPrimary }]}>TREND BASLIKLAR</Text>
               </View>
               <View style={styles.tagCloud}>
-                {TRENDING_TAGS.map((tag) => (
+                {trendingTopics.length === 0 ? (
+                  <ActivityIndicator size="small" color={colors.accent} />
+                ) : trendingTopics.slice(0, 10).map(({ tag }) => (
                   <Pressable
                     key={tag}
                     style={[styles.tag, { backgroundColor: colors.accent + '15', borderColor: colors.accent + '30' }]}
