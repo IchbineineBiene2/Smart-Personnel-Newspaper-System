@@ -53,13 +53,26 @@ export function getTrendingArticles(articles: ApiArticle[], count = 10): ApiArti
     .slice(0, count);
 }
 
+function normTr(s: string): string {
+  return s
+    .toLocaleLowerCase('tr-TR')
+    .replace(/ı/g, 'i')
+    .replace(/ğ/g, 'g')
+    .replace(/ş/g, 's')
+    .replace(/ö/g, 'o')
+    .replace(/ü/g, 'u')
+    .replace(/ç/g, 'c')
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '');
+}
+
 function matchesQuery(article: ApiArticle, q: string): boolean {
   if (!q) return true;
-  const lower = q.toLowerCase();
+  const norm = normTr(q);
   return (
-    article.title.toLowerCase().includes(lower) ||
-    article.description.toLowerCase().includes(lower) ||
-    article.source.name.toLowerCase().includes(lower)
+    normTr(article.title).includes(norm) ||
+    normTr(article.description).includes(norm) ||
+    normTr(article.source.name).includes(norm)
   );
 }
 

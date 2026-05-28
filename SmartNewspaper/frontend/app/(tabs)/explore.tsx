@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Animated,
@@ -27,6 +27,7 @@ import {
   NewsSourceSummary,
 } from '@/services/newsApi';
 import { ContentCategory } from '@/services/content';
+import { SocialSidebar } from '@/components/SocialSidebar';
 
 const CATEGORY_META: { key: ContentCategory; label: string; icon: string; color: string }[] = [
   { key: 'Siyaset',   label: 'Gündem',    icon: 'megaphone-outline',   color: '#ef4444' },
@@ -67,6 +68,9 @@ export default function ExploreScreen() {
   const [trending, setTrending] = useState<ApiArticle[]>([]);
   const [sources, setSources] = useState<NewsSourceSummary[]>([]);
   const [activeCategory, setActiveCategory] = useState<ContentCategory | 'tumu'>('tumu');
+  const [draggedArticle, setDraggedArticle] = useState<ApiArticle | null>(null);
+  const [token, setToken] = useState('');
+  const [currentUserId, setCurrentUserId] = useState(0);
 
   const headerFade = useRef(new Animated.Value(0)).current;
   const heroFade = useRef(new Animated.Value(0)).current;
@@ -85,6 +89,19 @@ export default function ExploreScreen() {
     fetchBreakingArticles(8).then(setBreaking).catch(() => {});
     fetchTrendingArticles(10).then(setTrending).catch(() => {});
     fetchNewsSources().then(setSources).catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    const load = async () => {
+      try {
+        const authModule = require('@/services/auth');
+        const t = await authModule.getToken?.();
+        const u = await authModule.getCurrentUser?.();
+        if (t) setToken(t);
+        if (u?.userId) setCurrentUserId(u.userId);
+      } catch {}
+    };
+    load();
   }, []);
 
   const matchesPreferredLanguage = (article: ApiArticle) =>
@@ -179,9 +196,14 @@ export default function ExploreScreen() {
   const editorCols = isWide ? 3 : isMedium ? 2 : 1;
 
   return (
+    <View style={{ flex: 1, flexDirection: isWide ? 'row' : 'column', backgroundColor: colors.background }}>
     <ScrollView
-      style={[styles.root, { backgroundColor: colors.background }]}
-      contentContainerStyle={[styles.content, isWeb && styles.webContent]}
+      style={[styles.root, { backgroundColor: colors.background, flex: 1 }]}
+      contentContainerStyle={[
+        styles.content,
+        isWeb && { paddingTop: 28 },
+        !isWide && isWeb && { maxWidth: 1280, alignSelf: 'center' as any, width: '100%' as any },
+      ]}
       showsVerticalScrollIndicator={false}
     >
       {/* ─────────────────────────── BREAKING TICKER ─────────────────────────── */}
@@ -278,11 +300,17 @@ export default function ExploreScreen() {
       ) : (
         <Animated.View style={[styles.heroWrap, { opacity: heroFade, flexDirection: heroSideStack ? 'column' : 'row' }]}>
           {/* Main hero */}
+          <DragWrap
+            article={heroMain.article}
+            style={{ flex: heroSideStack ? undefined : 1.7 }}
+            onArticleDrag={setDraggedArticle}
+            onDragEnd={() => setDraggedArticle(null)}
+          >
           <Pressable
             onPress={() => openArticle(heroMain.article)}
             style={({ pressed }) => [
               styles.heroMain,
-              { flex: heroSideStack ? undefined : 1.7, backgroundColor: colors.surface, borderColor: colors.borderSubtle, opacity: pressed ? 0.92 : 1 },
+              { flex: 1, backgroundColor: colors.surface, borderColor: colors.borderSubtle, opacity: pressed ? 0.92 : 1 },
             ]}
           >
             {heroMain.article.imageUrl && (
@@ -308,12 +336,19 @@ export default function ExploreScreen() {
               </View>
             </View>
           </Pressable>
+          </DragWrap>
 
           {/* Side hero stack */}
           <View style={[styles.heroSideStack, { flex: heroSideStack ? undefined : 1, flexDirection: heroSideStack ? 'row' : 'column' }]}>
             {heroSide.map((e) => (
-              <Pressable
+              <DragWrap
                 key={e.article.id}
+                article={e.article}
+                style={{ flex: 1 }}
+                onArticleDrag={setDraggedArticle}
+                onDragEnd={() => setDraggedArticle(null)}
+              >
+              <Pressable
                 onPress={() => openArticle(e.article)}
                 style={({ pressed }) => [
                   styles.heroSideCard,
@@ -335,6 +370,7 @@ export default function ExploreScreen() {
                   </Text>
                 </View>
               </Pressable>
+              </DragWrap>
             ))}
           </View>
         </Animated.View>
@@ -350,13 +386,19 @@ export default function ExploreScreen() {
           >
             <View style={[styles.grid, { gap: 16 }]}>
               {editorPicks.slice(0, editorCols * 2).map((e) => (
-                <Pressable
+                <DragWrap
                   key={e.article.id}
+                  article={e.article}
+                  style={{ width: `${100 / editorCols - 1}%` as any }}
+                  onArticleDrag={setDraggedArticle}
+                  onDragEnd={() => setDraggedArticle(null)}
+                >
+                <Pressable
                   onPress={() => openArticle(e.article)}
                   style={({ pressed }) => [
                     styles.gridCard,
                     {
-                      width: `${100 / editorCols - 1}%` as any,
+                      flex: 1,
                       backgroundColor: colors.surface,
                       borderColor: colors.borderSubtle,
                       opacity: pressed ? 0.92 : 1,
@@ -383,6 +425,7 @@ export default function ExploreScreen() {
                     </Text>
                   </View>
                 </Pressable>
+                </DragWrap>
               ))}
             </View>
           </Section>
@@ -521,12 +564,18 @@ export default function ExploreScreen() {
                 />
                 <View style={[styles.bandRow, { flexDirection: isWide || isMedium ? 'row' : 'column' }]}>
                   {/* Lead */}
+                  <DragWrap
+                    article={lead.article}
+                    style={{ flex: isWide || isMedium ? 1.4 : undefined }}
+                    onArticleDrag={setDraggedArticle}
+                    onDragEnd={() => setDraggedArticle(null)}
+                  >
                   <Pressable
                     onPress={() => openArticle(lead.article)}
                     style={({ pressed }) => [
                       styles.bandLead,
                       {
-                        flex: isWide || isMedium ? 1.4 : undefined,
+                        flex: 1,
                         backgroundColor: colors.surface,
                         borderColor: colors.borderSubtle,
                         opacity: pressed ? 0.92 : 1,
@@ -554,6 +603,7 @@ export default function ExploreScreen() {
                       </Text>
                     </View>
                   </Pressable>
+                  </DragWrap>
 
                   {/* Rest list */}
                   <View style={{ flex: isWide || isMedium ? 1 : undefined, gap: 0 }}>
@@ -608,6 +658,15 @@ export default function ExploreScreen() {
         </View>
       </Animated.View>
     </ScrollView>
+    {isWide && (
+      <SocialSidebar
+        token={token}
+        currentUserId={currentUserId}
+        draggedArticle={draggedArticle}
+        onClearDrag={() => setDraggedArticle(null)}
+      />
+    )}
+    </View>
   );
 }
 
@@ -637,6 +696,102 @@ function getCategorySectionTitle(cat: ContentCategory): string {
 }
 
 // ─────────────────────── SUB-COMPONENTS ───────────────────────
+
+function DragWrap({
+  article,
+  style,
+  onArticleDrag,
+  onDragEnd,
+  children,
+}: {
+  article: ApiArticle;
+  style?: any;
+  onArticleDrag: (a: ApiArticle) => void;
+  onDragEnd: () => void;
+  children: React.ReactNode;
+}) {
+  const wrapRef = useRef<any>(null);
+  const [hovered, setHovered] = useState(false);
+
+  // Keep latest callbacks in refs so DOM listeners never go stale
+  const articleRef = useRef(article);
+  const onArticleDragRef = useRef(onArticleDrag);
+  const onDragEndRef = useRef(onDragEnd);
+  articleRef.current = article;
+  onArticleDragRef.current = onArticleDrag;
+  onDragEndRef.current = onDragEnd;
+
+  useEffect(() => {
+    if (Platform.OS !== 'web') return;
+    const el: HTMLElement | null = wrapRef.current;
+    if (!el) return;
+
+    // Set draggable directly on the DOM element (more reliable than React prop)
+    el.draggable = true;
+
+    // Images are draggable by default in browsers – disable them so the card
+    // drag takes precedence instead of the browser's native image drag ghost.
+    const disableImgDrag = () =>
+      el.querySelectorAll('img').forEach((img) => { img.draggable = false; });
+    disableImgDrag();
+    // Re-run if images load after mount
+    const mo = new MutationObserver(disableImgDrag);
+    mo.observe(el, { childList: true, subtree: true });
+
+    const onDragStart = (e: Event) => {
+      const de = e as DragEvent;
+      if (de.dataTransfer) {
+        de.dataTransfer.effectAllowed = 'copy';
+        de.dataTransfer.setData('text/plain', articleRef.current.id);
+      }
+      onArticleDragRef.current(articleRef.current);
+    };
+    const onDragEndHandler = () => onDragEndRef.current();
+    const onMouseEnter = () => setHovered(true);
+    const onMouseLeave = () => setHovered(false);
+
+    el.addEventListener('dragstart', onDragStart);
+    el.addEventListener('dragend', onDragEndHandler);
+    el.addEventListener('mouseenter', onMouseEnter);
+    el.addEventListener('mouseleave', onMouseLeave);
+
+    return () => {
+      mo.disconnect();
+      el.removeEventListener('dragstart', onDragStart);
+      el.removeEventListener('dragend', onDragEndHandler);
+      el.removeEventListener('mouseenter', onMouseEnter);
+      el.removeEventListener('mouseleave', onMouseLeave);
+    };
+  }, []); // mount/unmount only; callbacks are stable via refs above
+
+  if (Platform.OS !== 'web') return <View style={style}>{children}</View>;
+  return (
+    <View ref={wrapRef} style={[style, { position: 'relative', cursor: 'grab' } as any]}>
+      {children}
+      {hovered && (
+        <Pressable
+          style={{
+            position: 'absolute',
+            top: 8,
+            right: 8,
+            backgroundColor: 'rgba(0,0,0,0.62)',
+            borderRadius: 7,
+            paddingHorizontal: 8,
+            paddingVertical: 5,
+            zIndex: 10,
+            flexDirection: 'row',
+            alignItems: 'center',
+            gap: 4,
+          }}
+          onPress={() => onArticleDragRef.current(articleRef.current)}
+        >
+          <Ionicons name="share-social-outline" size={12} color="#fff" />
+          <Text style={{ color: '#fff', fontSize: 10, fontWeight: '700' }}>Paylaş</Text>
+        </Pressable>
+      )}
+    </View>
+  );
+}
 
 function CategoryChip({
   label, icon, active, color, colors, onPress,

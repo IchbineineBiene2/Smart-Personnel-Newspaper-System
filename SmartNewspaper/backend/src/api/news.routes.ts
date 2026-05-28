@@ -454,6 +454,65 @@ router.get('/sources', async (_req: Request, res: Response) => {
   }
 });
 
+// GET /api/news/search?q=keyword&limit=30 - Türkçe karakter normalize ederek haber arama
+router.get('/search', async (req: Request, res: Response) => {
+  try {
+    const q = String(req.query.q ?? '').trim();
+    if (!q || q.length < 2) {
+      return res.json({ articles: [] });
+    }
+    const limit = Math.min(Number(req.query.limit ?? 20), 50);
+
+    const result = await query<any>(
+      `SELECT id, title, description, url, image_url, published_at, language, category, source_name, source_url
+       FROM articles
+       WHERE translate(lower(title), 'çğışöü', 'cgisou') ILIKE '%' || translate(lower($1), 'çğışöü', 'cgisou') || '%'
+          OR translate(lower(COALESCE(description, '')), 'çğışöü', 'cgisou') ILIKE '%' || translate(lower($1), 'çğışöü', 'cgisou') || '%'
+          OR lower(source_name) ILIKE '%' || lower($1) || '%'
+          OR lower(COALESCE(category, '')) ILIKE '%' || lower($1) || '%'
+       ORDER BY published_at DESC
+       LIMIT $2`,
+      [q, limit]
+    );
+
+    return res.json({
+      articles: result.rows.map((r) => ({
+        id: r.id,
+        title: r.title,
+        description: r.description ?? '',
+        url: r.url,
+        imageUrl: r.image_url ?? undefined,
+        publishedAt: r.published_at,
+        language: r.language,
+        category: r.category ?? undefined,
+        source: { name: r.source_name, url: r.source_url ?? '', type: 'rss' },
+      })),
+    });
+  } catch (err) {
+    console.error('[NewsAPI] Arama hatası:', err);
+    return res.status(500).json({ error: 'Arama başarısız' });
+  }
+});
+
+// GET /api/news/trending-topics - Son 48 saatteki en fazla haber üretilen kategoriler
+router.get('/trending-topics', async (_req: Request, res: Response) => {
+  try {
+    const result = await query<any>(
+      `SELECT category AS tag, COUNT(*)::int AS count
+       FROM articles
+       WHERE published_at > NOW() - INTERVAL '48 hours'
+         AND category IS NOT NULL AND category <> ''
+       GROUP BY category
+       ORDER BY count DESC
+       LIMIT 15`
+    );
+    return res.json({ topics: result.rows });
+  } catch (err) {
+    console.error('[NewsAPI] Trending topics hatası:', err);
+    return res.status(500).json({ error: 'Trending konular alınamadı' });
+  }
+});
+
 // GET /api/news - Tüm haberleri getir (filtreli + opsiyonel kişiselleştirme).
 //
 // Guests: query string filtreleri (category, language, source) çalışır.
