@@ -61,6 +61,7 @@ router.get("/:articleId", async (req: Request, res: Response) => {
           a.title,
           a.description,
           a.source_name,
+          a.source_url,
           a.url,
           a.published_at,
           a.image_url,
@@ -82,7 +83,7 @@ router.get("/:articleId", async (req: Request, res: Response) => {
         similarity_score,
         kind,
         entity_overlap,
-        id, title, description, source_name, url, published_at, image_url, category, language
+        id, title, description, source_name, source_url, url, published_at, image_url, category, language
       FROM ranked_matches
       WHERE source_rank = 1
       ORDER BY similarity_score DESC, published_at DESC
@@ -138,7 +139,7 @@ router.get("/:articleId", async (req: Request, res: Response) => {
         FROM candidate_scores
       )
       SELECT similarity_score, 'related'::text AS kind, NULL::int AS entity_overlap,
-             id, title, description, source_name, url, published_at, image_url, category, language
+             id, title, description, source_name, source_url, url, published_at, image_url, category, language
       FROM ranked
       WHERE source_rank = 1
         AND (title_similarity >= 0.58

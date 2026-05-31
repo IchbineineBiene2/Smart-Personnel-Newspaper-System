@@ -26,6 +26,7 @@ export interface ApiArticle {
   };
   category?: string;
   language: string;
+  viewCount?: number;
 }
 
 export interface ArticleAiAnalysis {
@@ -51,12 +52,28 @@ interface FetchNewsParams {
 // Backend kategori → Uygulama kategorisi eşleşmesi (sadece özgün kategoriler)
 const CATEGORY_MAP: Record<string, ContentCategory> = {
   technology: 'Teknoloji',
+  tech: 'Teknoloji',
   science: 'Teknoloji',
   sports: 'Spor',
+  sport: 'Spor',
   business: 'Ekonomi',
+  economy: 'Ekonomi',
+  finance: 'Ekonomi',
+  markets: 'Ekonomi',
   health: 'Saglik',
+  healthcare: 'Saglik',
   entertainment: 'Magazin',
+  lifestyle: 'Magazin',
+  magazine: 'Magazin',
+  celebrity: 'Magazin',
   politics: 'Siyaset',
+  political: 'Siyaset',
+  world: 'Siyaset',
+  culture: 'Kultur',
+  arts: 'Kultur',
+  accident: 'Kaza',
+  disaster: 'Kaza',
+  earthquake: 'Deprem',
   general: 'Ekonomi', // Genel haberler ekonomi'ye yönlendir, Siyaset'e değil
 };
 
@@ -1283,30 +1300,252 @@ const CATEGORY_KEYWORDS: Record<ContentCategory, string[]> = {
   ],
 };
 
-function inferCategoryFromText(title: string, description: string): ContentCategory {
-  const text = `${title} ${description}`.toLowerCase();
-  let bestCat: ContentCategory = 'Ekonomi'; // genel haberler için nötr varsayılan
-  let bestScore = 0;
-  
-  // Kategori önceliği: En spesifik kategoriler önce (Kaza/Deprem yüksek, Magazin en düşük)
-  const priorityOrder: ContentCategory[] = ['Siyaset', 'Kaza', 'Deprem', 'Spor', 'Saglik', 'Teknoloji', 'Kultur', 'Ekonomi', 'Magazin'];
-  
-  for (const [cat, keywords] of Object.entries(CATEGORY_KEYWORDS) as [ContentCategory, string[]][]) {
-    const score = keywords.filter((kw) => text.includes(kw)).length;
-    if (score > bestScore || (score === bestScore && score > 0 && priorityOrder.indexOf(cat as ContentCategory) < priorityOrder.indexOf(bestCat))) {
-      bestScore = score;
-      bestCat = cat as ContentCategory;
-    }
-  }
-  return bestCat;
+type CategoryContext = {
+  content?: string;
+  language?: string;
+  sourceName?: string;
+  sourceUrl?: string;
+};
+
+const GENERIC_BACKEND_CATEGORIES = new Set(['', 'general', 'breaking', 'top', 'news', 'latest', 'world']);
+
+const CATEGORY_PRIORITY: ContentCategory[] = [
+  'Deprem',
+  'Kaza',
+  'Siyaset',
+  'Spor',
+  'Saglik',
+  'Teknoloji',
+  'Ekonomi',
+  'Kultur',
+  'Magazin',
+];
+
+const BACKEND_CATEGORY_WEIGHT: Partial<Record<ContentCategory, number>> = {
+  Deprem: 14,
+  Kaza: 12,
+  Spor: 10,
+  Saglik: 10,
+  Teknoloji: 10,
+  Siyaset: 9,
+  Ekonomi: 8,
+  Kultur: 7,
+  Magazin: 5,
+};
+
+const CATEGORY_STRONG_SIGNALS: Record<ContentCategory, string[]> = {
+  Siyaset: [
+    'cumhurbaşkanı', 'başbakan', 'bakan', 'meclis', 'tbmm', 'parti', 'seçim', 'oylama',
+    'hükümet', 'muhalefet', 'belediye başkanı', 'dışişleri', 'beyaz saray', 'white house',
+    'president', 'prime minister', 'minister', 'parliament', 'election', 'government',
+    'trump', 'biden', 'erdoğan', 'putin', 'zelenski', 'netanyahu',
+  ],
+  Ekonomi: [
+    'merkez bankası', 'faiz kararı', 'enflasyon', 'borsa', 'döviz', 'asgari ücret',
+    'emekli maaşı', 'kredi', 'vergi', 'zam', 'akaryakıt fiyat', 'piyasa', 'yatırım',
+    'stock market', 'interest rate', 'inflation', 'central bank', 'mortgage', 'debt',
+    'budget', 'revenue', 'profit', 'tax', 'market slump',
+  ],
+  Saglik: [
+    'sağlık bakanlığı', 'hastane', 'doktor', 'tedavi', 'kanser', 'diyabet', 'aşı',
+    'ilaç', 'beslenme', 'vitamin', 'fayda', 'faydaları', 'hastalık', 'medical',
+    'health', 'hospital', 'doctor', 'treatment', 'disease', 'vaccine', 'nutrition',
+    'benefits', 'cancer', 'diabetes',
+  ],
+  Teknoloji: [
+    'yapay zeka', 'ai', 'iphone', 'android', 'uygulama', 'siber', 'çip', 'robot',
+    'teknoloji', 'software', 'artificial intelligence', 'cyber', 'chip', 'app',
+    'startup', 'tesla', 'spacex', 'openai',
+  ],
+  Spor: [
+    'süper lig', 'şampiyonlar ligi', 'maç', 'gol', 'futbol', 'basketbol', 'transfer',
+    'formula 1', 'tenis', 'voleybol', 'football', 'soccer', 'nba', 'premier league',
+    'match', 'goal', 'tournament',
+  ],
+  Kultur: [
+    'kitap', 'roman', 'film festivali', 'tiyatro', 'sergi', 'müze', 'edebiyat',
+    'sinema', 'konser', 'festival', 'book', 'novel', 'theatre', 'museum',
+    'exhibition', 'cinema', 'concert',
+  ],
+  Magazin: [
+    'ünlü', 'oyuncu', 'şarkıcı', 'evlilik', 'boşanma', 'ilişki', 'kırmızı halı',
+    'celebrity', 'actor', 'actress', 'singer', 'wedding', 'divorce', 'relationship',
+  ],
+  Kaza: [
+    'kaza', 'çarpıştı', 'yaralandı', 'hayatını kaybetti', 'patlama', 'yangın',
+    'enkaz', 'acil durum', 'accident', 'crash', 'explosion', 'fire', 'injured',
+  ],
+  Deprem: [
+    'deprem', 'artçı', 'sarsıntı', 'fay hattı', 'richter', 'earthquake',
+    'aftershock', 'seismic', 'magnitude',
+  ],
+};
+
+const CATEGORY_NEGATIVE_SIGNALS: Partial<Record<ContentCategory, string[]>> = {
+  Magazin: ['başkan', 'cumhurbaşkanı', 'bakan', 'hükümet', 'seçim', 'president', 'minister', 'government'],
+  Ekonomi: ['maç', 'gol', 'futbol', 'spor', 'match', 'goal', 'football'],
+  Saglik: ['maç', 'transfer', 'gol', 'election', 'seçim'],
+  Kultur: ['borsa', 'faiz', 'enflasyon', 'seçim', 'deprem'],
+};
+
+function normalizeCategoryKey(value?: string): string {
+  return String(value ?? '')
+    .toLocaleLowerCase('tr-TR')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/ğ/g, 'g')
+    .replace(/ü/g, 'u')
+    .replace(/ş/g, 's')
+    .replace(/ı/g, 'i')
+    .replace(/ö/g, 'o')
+    .replace(/ç/g, 'c')
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim();
 }
 
-export function mapToContentCategory(backendCategory?: string, title = '', description = ''): ContentCategory {
-  // 'general' ve 'breaking' için metin analizine güven, spesifik kategoriler için haritayı kullan
-  if (backendCategory && backendCategory !== 'general' && backendCategory !== 'breaking') {
-    return CATEGORY_MAP[backendCategory.toLowerCase()] ?? inferCategoryFromText(title, description);
+function normalizeCategoryText(value?: string): string {
+  return ` ${String(value ?? '')
+    .toLocaleLowerCase('tr-TR')
+    .normalize('NFC')
+    .replace(/[’'`]/g, ' ')
+    .replace(/[^a-z0-9ığüşöçäöüß\s-]/gi, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()} `;
+}
+
+function termOccurrences(text: string, rawTerm: string): number {
+  const term = normalizeCategoryText(rawTerm).trim();
+  if (!term) return 0;
+
+  let count = 0;
+  let index = text.indexOf(` ${term} `);
+  while (index !== -1) {
+    count += 1;
+    index = text.indexOf(` ${term} `, index + term.length);
   }
-  return inferCategoryFromText(title, description);
+  return count;
+}
+
+function scoreTerms(text: string, terms: string[], baseWeight: number): number {
+  let score = 0;
+  const seen = new Set<string>();
+
+  for (const rawTerm of terms) {
+    const term = normalizeCategoryText(rawTerm).trim();
+    if (!term || seen.has(term)) continue;
+    seen.add(term);
+
+    const occurrences = termOccurrences(text, term);
+    if (!occurrences) continue;
+
+    const phraseBonus = term.includes(' ') ? 1.6 : 1;
+    const cappedOccurrences = Math.min(occurrences, 3);
+    score += baseWeight * phraseBonus * cappedOccurrences;
+  }
+
+  return score;
+}
+
+function mappedBackendCategory(backendCategory?: string): ContentCategory | undefined {
+  const key = normalizeCategoryKey(backendCategory);
+  if (!key || GENERIC_BACKEND_CATEGORIES.has(key)) return undefined;
+  return CATEGORY_MAP[key] ?? CATEGORY_MAP[key.replace(/\s+/g, '')];
+}
+
+function inferCategoryFromSignals(
+  backendCategory: string | undefined,
+  title: string,
+  description: string,
+  context: CategoryContext = {},
+): ContentCategory {
+  const mappedBackend = mappedBackendCategory(backendCategory);
+  const titleText = normalizeCategoryText(title);
+  const descText = normalizeCategoryText(description);
+  const contentText = normalizeCategoryText(context.content ?? '');
+  const sourceText = normalizeCategoryText(`${context.sourceName ?? ''} ${context.sourceUrl ?? ''}`);
+  const scores = new Map<ContentCategory, number>();
+
+  for (const cat of Object.keys(CATEGORY_KEYWORDS) as ContentCategory[]) {
+    let score = 0;
+    if (mappedBackend === cat) score += BACKEND_CATEGORY_WEIGHT[cat] ?? 6;
+
+    score += scoreTerms(titleText, CATEGORY_KEYWORDS[cat], 4);
+    score += scoreTerms(descText, CATEGORY_KEYWORDS[cat], 2);
+    score += scoreTerms(contentText, CATEGORY_KEYWORDS[cat], 0.6);
+    score += scoreTerms(titleText, CATEGORY_STRONG_SIGNALS[cat], 8);
+    score += scoreTerms(descText, CATEGORY_STRONG_SIGNALS[cat], 4);
+    score += scoreTerms(sourceText, CATEGORY_STRONG_SIGNALS[cat], 2);
+
+    const negativeTerms = CATEGORY_NEGATIVE_SIGNALS[cat] ?? [];
+    score -= scoreTerms(titleText, negativeTerms, 5);
+    score -= scoreTerms(descText, negativeTerms, 2);
+
+    scores.set(cat, score);
+  }
+
+  const ranked = [...scores.entries()].sort((a, b) => {
+    const scoreDiff = b[1] - a[1];
+    if (Math.abs(scoreDiff) > 0.01) return scoreDiff;
+    return CATEGORY_PRIORITY.indexOf(a[0]) - CATEGORY_PRIORITY.indexOf(b[0]);
+  });
+
+  const [bestCat, bestScore] = ranked[0] ?? ['Ekonomi', 0];
+  const backendScore = mappedBackend ? scores.get(mappedBackend) ?? 0 : 0;
+
+  if (mappedBackend && backendScore >= 6 && bestScore - backendScore < 6) {
+    return mappedBackend;
+  }
+
+  if (bestScore > 0) return bestCat;
+  return mappedBackend ?? 'Ekonomi';
+}
+
+function inferCategoryFromText(title: string, description: string): ContentCategory {
+  return inferCategoryFromSignals(undefined, title, description);
+}
+
+export function mapToContentCategory(
+  backendCategory?: string,
+  title = '',
+  description = '',
+  context: CategoryContext = {},
+): ContentCategory {
+  return inferCategoryFromSignals(backendCategory, title, description, context);
+}
+
+export function mapArticleToContentCategory(
+  article: Pick<ApiArticle, 'category' | 'title' | 'description' | 'content' | 'language' | 'source'>,
+): ContentCategory {
+  return mapToContentCategory(article.category, article.title, article.description, {
+    content: article.content,
+    language: article.language,
+    sourceName: article.source?.name,
+    sourceUrl: article.source?.url,
+  });
+}
+
+function stripArticleText(value?: string | null): string {
+  return String(value ?? '')
+    .replace(/<style[\s\S]*?>[\s\S]*?<\/style>/gi, ' ')
+    .replace(/<script[\s\S]*?>[\s\S]*?<\/script>/gi, ' ')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&amp;/gi, '&')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+export function isSubstantialArticle(
+  article: Pick<ApiArticle, 'description' | 'content'>,
+  minChars = 220,
+): boolean {
+  const contentLength = stripArticleText(article.content).length;
+  const descriptionLength = stripArticleText(article.description).length;
+  return Math.max(contentLength, descriptionLength) >= minChars;
+}
+
+function filterSubstantialArticles<T extends Pick<ApiArticle, 'description' | 'content'>>(articles: T[]): T[] {
+  return articles.filter((article) => isSubstantialArticle(article));
 }
 
 function unwrapProxiedImageUrl(input: string): string {
@@ -1384,7 +1623,7 @@ export async function fetchArticles(
   const res = await fetch(`${API_BASE}/api/news?${query.toString()}`, { headers });
   if (!res.ok) throw new Error(`API hatası: ${res.status}`);
   const data: { total: number; articles: ApiArticle[] } = await res.json();
-  return data.articles;
+  return filterSubstantialArticles(data.articles);
 }
 
 /**
@@ -1392,7 +1631,7 @@ export async function fetchArticles(
  * cold=true dönerse kullanıcının henüz like/view'i yok → trending fallback.
  */
 /**
- * Bir makalenin görüntülendiğini server'a bildir. Auth gerekli (token yoksa no-op).
+ * Bir makalenin görüntülendiğini server'a bildir. Token varsa kullanıcı geçmişi de yazılır.
  * Idempotent — UPSERT'tir; dwellMs ve scrollPct daha büyükle değiştirilir.
  *
  * Fire-and-forget: çağırırken `await` etme; UI'yi tutma.
@@ -1400,15 +1639,14 @@ export async function fetchArticles(
 export async function recordArticleView(
   articleId: string,
   token: string | null,
-  opts: { dwellMs?: number; scrollPct?: number; sourceCtx?: string } = {},
+  opts: { dwellMs?: number; scrollPct?: number; sourceCtx?: string; countView?: boolean } = {},
 ): Promise<void> {
-  if (!token) return;
   try {
     await fetch(`${API_BASE}/api/news/${encodeURIComponent(articleId)}/view`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        Authorization: `Bearer ${token}`,
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
       },
       body: JSON.stringify(opts),
     });
@@ -1425,7 +1663,7 @@ export async function fetchRecentViews(token: string, limit = 10): Promise<any[]
     });
     if (!res.ok) return [];
     const data = await res.json();
-    return data.articles ?? [];
+    return filterSubstantialArticles(data.articles ?? []);
   } catch {
     return [];
   }
@@ -1447,6 +1685,7 @@ export interface ForYouResponse {
     language?: string | null;
     source_name: string;
     source_url: string;
+    view_count?: number;
     interest_score?: number;
   }>;
 }
@@ -1456,7 +1695,11 @@ export async function fetchForYouArticles(token: string, limit = 30, days = 3): 
     headers: { Authorization: `Bearer ${token}` },
   });
   if (!res.ok) return null;
-  return (await res.json()) as ForYouResponse;
+  const data = (await res.json()) as ForYouResponse;
+  return {
+    ...data,
+    articles: filterSubstantialArticles(data.articles ?? []),
+  };
 }
 
 export async function fetchArticleById(id: string): Promise<ApiArticle> {
@@ -1482,7 +1725,7 @@ export async function fetchTrendingArticles(limit = 10): Promise<ApiArticle[]> {
     const res = await fetch(`${API_BASE}/api/news/trending?limit=${limit}`);
     if (!res.ok) return [];
     const data: { articles: ApiArticle[] } = await res.json();
-    return data.articles ?? [];
+    return filterSubstantialArticles(data.articles ?? []);
   } catch {
     return [];
   }
@@ -1493,7 +1736,7 @@ export async function fetchBreakingArticles(limit = 8): Promise<ApiArticle[]> {
     const res = await fetch(`${API_BASE}/api/news/breaking?limit=${limit}`);
     if (!res.ok) return [];
     const data: { articles: ApiArticle[] } = await res.json();
-    return data.articles ?? [];
+    return filterSubstantialArticles(data.articles ?? []);
   } catch {
     return [];
   }
@@ -1532,7 +1775,7 @@ export async function fetchSimilarArticlesFromDb(
   const res = await fetch(`${API_BASE}/api/similarity/${encodeURIComponent(id)}?${params}`);
   if (!res.ok) return [];
   const rows = await res.json();
-  return rows.map((r: any) => ({
+  return filterSubstantialArticles(rows.map((r: any) => ({
     id: r.id,
     title: r.title,
     description: r.description ?? '',
@@ -1541,9 +1784,9 @@ export async function fetchSimilarArticlesFromDb(
     imageUrl: r.image_url,
     category: r.category,
     language: r.language,
-    source: { name: r.source_name },
+    source: { name: r.source_name, url: r.source_url ?? '' },
     similarityScore: r.similarity_score,
     kind: r.kind ?? 'same_event',
     entityOverlap: r.entity_overlap ?? null,
-  }));
+  })));
 }

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Animated,
@@ -24,6 +24,18 @@ import { buildPublisherDataset } from '@/services/publisherProfiles';
 import { getToken } from '@/services/auth';
 
 const RECENT_KEY = 'recent-searches';
+const GENERATED_SEARCH_TERMS = new Set([
+  'general',
+  'sports',
+  'politics',
+  'entertainment',
+  'technology',
+  'business',
+  'health',
+  'science',
+  'breaking',
+  'economy',
+]);
 
 type SearchScope = 'all' | 'news' | 'publishers' | 'users' | 'tags';
 type UserResult = { id: number; username: string; full_name?: string; email: string };
@@ -53,6 +65,22 @@ function normalizeSearchText(value: string): string {
     .trim();
 }
 
+function cleanRecentSearches(values: unknown): string[] {
+  if (!Array.isArray(values)) return [];
+  const seen = new Set<string>();
+  const out: string[] = [];
+
+  values.forEach((value) => {
+    const term = String(value ?? '').trim();
+    const normalized = normalizeSearchText(term);
+    if (!term || term.length < 2 || GENERATED_SEARCH_TERMS.has(normalized) || seen.has(normalized)) return;
+    seen.add(normalized);
+    out.push(term);
+  });
+
+  return out.slice(0, 6);
+}
+
 export default function SearchTab() {
   const router = useRouter();
   const { colors } = useTheme();
@@ -69,6 +97,7 @@ export default function SearchTab() {
   const [backendSearchResults, setBackendSearchResults] = useState<any[]>([]);
   const [backendSearchLoading, setBackendSearchLoading] = useState(false);
   const inputRef = useRef<TextInput>(null);
+  const skipAutoSaveRef = useRef(false);
 
   const headerFade = useRef(new Animated.Value(0)).current;
   const listFade = useRef(new Animated.Value(0)).current;
@@ -84,7 +113,12 @@ export default function SearchTab() {
     AsyncStorage.getItem(RECENT_KEY).then((raw) => {
       if (raw) {
         try {
-          setRecentLocal(JSON.parse(raw));
+          const parsed = JSON.parse(raw);
+          const cleaned = cleanRecentSearches(parsed);
+          setRecentLocal(cleaned);
+          if (!Array.isArray(parsed) || cleaned.length !== parsed.length) {
+            void AsyncStorage.setItem(RECENT_KEY, JSON.stringify(cleaned));
+          }
         } catch {
           setRecentLocal([]);
         }
@@ -225,18 +259,41 @@ export default function SearchTab() {
   }, [activeScope, localQuery]);
 
   const handleQueryChange = (value: string) => {
+    skipAutoSaveRef.current = false;
     setLocalQuery(value);
     updateFilter('query', value);
   };
+
+  const persistRecentSearch = useCallback((q: string) => {
+    const term = q.trim();
+    if (!term) return;
+    const normalizedTerm = normalizeSearchText(term);
+    if (term.length < 2 || GENERATED_SEARCH_TERMS.has(normalizedTerm)) return;
+
+    setRecentLocal((prev) => {
+      const updated = [term, ...prev.filter((r) => normalizeSearchText(r) !== normalizedTerm)].slice(0, 6);
+      void AsyncStorage.setItem(RECENT_KEY, JSON.stringify(updated));
+      return updated;
+    });
+  }, []);
 
   const handleSearch = async (q: string) => {
     const term = q.trim();
     if (!term) return;
     updateFilter('query', term);
-    const updated = [term, ...recentLocal.filter((r) => r !== term)].slice(0, 6);
-    setRecentLocal(updated);
-    await AsyncStorage.setItem(RECENT_KEY, JSON.stringify(updated));
+    persistRecentSearch(term);
   };
+
+  useEffect(() => {
+    const term = localQuery.trim();
+    if (skipAutoSaveRef.current || term.length < 2) return;
+
+    const timer = setTimeout(() => {
+      persistRecentSearch(term);
+    }, 900);
+
+    return () => clearTimeout(timer);
+  }, [localQuery, persistRecentSearch]);
 
   const clearQuery = () => {
     setLocalQuery('');
@@ -382,7 +439,9 @@ export default function SearchTab() {
                     key={item.tag}
                     style={[styles.tagResult, { backgroundColor: colors.surface, borderColor: colors.borderSubtle }]}
                     onPress={() => {
-                      handleQueryChange(item.tag);
+                      skipAutoSaveRef.current = true;
+                      setLocalQuery(item.tag);
+                      updateFilter('query', item.tag);
                       setActiveScope('news');
                     }}
                   >
@@ -438,8 +497,9 @@ export default function SearchTab() {
                       { backgroundColor: pressed ? colors.surfaceHigh : colors.surface, borderColor: colors.borderSubtle },
                     ]}
                     onPress={() => {
+                      skipAutoSaveRef.current = true;
                       setLocalQuery(q);
-                      handleSearch(q);
+                      updateFilter('query', q);
                     }}
                   >
                     <Text style={[styles.recentText, { color: colors.textPrimary }]}>{q}</Text>
@@ -462,8 +522,9 @@ export default function SearchTab() {
                     key={tag}
                     style={[styles.tag, { backgroundColor: colors.accent + '15', borderColor: colors.accent + '30' }]}
                     onPress={() => {
+                      skipAutoSaveRef.current = true;
                       setLocalQuery(tag);
-                      handleSearch(tag);
+                      updateFilter('query', tag);
                     }}
                   >
                     <Text style={[styles.tagText, { color: colors.accent }]}>#{tag}</Text>

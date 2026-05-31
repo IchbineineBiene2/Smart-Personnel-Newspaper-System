@@ -15,6 +15,7 @@ interface ArticleRow {
   source_url: string | null;
   source_type: string;
   is_scraped: boolean;
+  view_count: number;
 }
 
 function rowToArticle(row: ArticleRow): Article {
@@ -33,6 +34,7 @@ function rowToArticle(row: ArticleRow): Article {
       url: row.source_url ?? '',
       type: row.source_type as Article['source']['type'],
     },
+    viewCount: Number(row.view_count ?? 0),
   };
 }
 
@@ -195,6 +197,10 @@ export async function getArticles(params: {
     values.push(mutedSources);
   }
 
+  conditions.push(`GREATEST(
+    LENGTH(REGEXP_REPLACE(COALESCE(content, ''), '<[^>]+>|[[:space:]]+', ' ', 'g')),
+    LENGTH(REGEXP_REPLACE(COALESCE(description, ''), '<[^>]+>|[[:space:]]+', ' ', 'g'))
+  ) >= 220`);
   conditions.push(`published_at <= NOW() + INTERVAL '5 minutes'`);
 
   const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';

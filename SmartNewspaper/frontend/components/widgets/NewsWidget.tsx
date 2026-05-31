@@ -159,7 +159,7 @@ function popularityScore(article: ApiArticle): number {
   const impactTerms = ['breaking', 'son dakika', 'champion', 'win', 'election', 'market', 'crisis', 'transfer', 'minister', 'president'];
   const impact = impactTerms.reduce((score, term) => score + (text.includes(term) ? 12 : 0), 0);
 
-  return recency + media + sourceBoost + impact + stableEngagement(article.id);
+  return (article.viewCount ?? 0) * 100 + recency + media + sourceBoost + impact + stableEngagement(article.id);
 }
 
 function analysisScore(article: ApiArticle): number {

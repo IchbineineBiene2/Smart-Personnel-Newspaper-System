@@ -25,11 +25,10 @@ import { useBookmarks } from '@/hooks/useBookmarks';
 import { useTheme } from '@/hooks/useTheme';
 import {
   ApiArticle,
-  ArticleAiAnalysis,
-  fetchArticleAiAnalysis,
   fetchArticleById,
   fetchArticleFullContent,
   fetchSimilarArticlesFromDb,
+  mapArticleToContentCategory,
   mapToContentCategory,
   proxyPageUrl,
   proxyImageUrl,
@@ -213,22 +212,38 @@ function resolveSourceDomainFromName(sourceName: string): string | undefined {
 }
 
 function buildPublisherLogoUrl(sourceName: string, sourceUrl?: string): string | undefined {
+  const mappedDomain = resolveSourceDomainFromName(sourceName);
+
   try {
     if (sourceUrl) {
-      const origin = new URL(sourceUrl).origin;
+      const parsed = new URL(sourceUrl);
+      const origin = parsed.origin;
+      if (!parsed.hostname.includes('news.google.') && !parsed.hostname.includes('google.com')) {
+        return `https://www.google.com/s2/favicons?sz=128&domain_url=${encodeURIComponent(origin)}`;
+      }
+      if (mappedDomain) {
+        return `https://www.google.com/s2/favicons?sz=128&domain_url=${encodeURIComponent(mappedDomain)}`;
+      }
       return `https://www.google.com/s2/favicons?sz=128&domain_url=${encodeURIComponent(origin)}`;
     }
   } catch {
     // Fall through to source-name domain mapping.
   }
 
-  const domain = resolveSourceDomainFromName(sourceName);
-  if (!domain) return undefined;
-  return `https://www.google.com/s2/favicons?sz=128&domain_url=${encodeURIComponent(domain)}`;
+  if (!mappedDomain) return undefined;
+  return `https://www.google.com/s2/favicons?sz=128&domain_url=${encodeURIComponent(mappedDomain)}`;
 }
 
 // ─── Benzer Haber Skorlama ───────────────────────────────────────────────────
-type ArticleLike = { id: string; category?: string; title: string; language: string; description: string; source: { name: string }; publishedAt: string; imageUrl?: string; similarityScore?: number };
+type ArticleLike = { id: string; category?: string; title: string; language: string; description: string; url?: string; source: { name: string; url?: string }; publishedAt: string; imageUrl?: string; similarityScore?: number };
+
+function getArticleDisplayCategory(article: ArticleLike): string {
+  return mapToContentCategory(article.category, article.title, article.description ?? '', {
+    language: article.language,
+    sourceName: article.source?.name,
+    sourceUrl: article.source?.url || article.url,
+  });
+}
 
 type UserProfile = {
   id: number;
@@ -285,30 +300,46 @@ function getSimilarArticles(
   const titleWords = getMatchWords(currentTitle, currentDescription);
   const currentSource = normalizeSourceNameForMatch(currentSourceName);
 
-  return allArticles
-    .filter((a) => a.id !== currentId && normalizeSourceNameForMatch(a.source?.name) !== currentSource)
+  const candidates = allArticles
+    .filter((a) =>
+      a.id !== currentId &&
+      normalizeSourceNameForMatch(a.source?.name) !== currentSource &&
+      getArticleDisplayCategory(a) === currentCategory
+    )
     .map((a) => {
       let wordMatches = 0;
       const aWords = getMatchWords(a.title, a.description ?? '');
       titleWords.forEach((w) => { if (aWords.some((aw) => aw.startsWith(w) || w.startsWith(aw))) wordMatches += 1; });
-      const categoryBoost = a.category === currentCategory ? 8 : 0;
       const languageBoost = currentLanguage && a.language === currentLanguage ? 4 : 0;
-      const score = wordMatches * 10 + categoryBoost + languageBoost;
+      const score = wordMatches * 10 + languageBoost;
       return { article: a, score };
     })
-    .filter((s) => s.score >= 24)
-    .sort((a, b) => b.score - a.score || new Date(b.article.publishedAt).getTime() - new Date(a.article.publishedAt).getTime())
+    .sort((a, b) =>
+      b.score - a.score ||
+      new Date(b.article.publishedAt).getTime() - new Date(a.article.publishedAt).getTime()
+    );
+
+  const textMatched = candidates.filter((s) => s.score >= 10);
+  return (textMatched.length > 0 ? textMatched : candidates)
     .slice(0, count)
     .map((s) => s.article);
 }
 
 // ─── Yatay Öneri Kartı ───────────────────────────────────────────────────────
 function RelatedArticleCard({ article, onPress, colors, isSidebar = false }: { article: ArticleLike; onPress: () => void; colors: any, isSidebar?: boolean }) {
-  const cat = mapToContentCategory(article.category, article.title, article.description ?? '');
+  const cat = getArticleDisplayCategory(article);
   const diff = Date.now() - new Date(article.publishedAt).getTime();
   const mins = Math.floor(diff / 60000);
   const timeLabel = mins < 60 ? `${mins}dk` : mins < 1440 ? `${Math.floor(mins / 60)}sa` : `${Math.floor(mins / 1440)}g`;
   const imgUrl = article.imageUrl ? proxyImageUrl(article.imageUrl) : undefined;
+  const publisherLogoUrl = buildPublisherLogoUrl(article.source.name, article.source.url || article.url);
+  const publisherInitials = article.source.name
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0])
+    .join('')
+    .toUpperCase() || article.source.name.slice(0, 2).toUpperCase();
 
   return (
     <Pressable
@@ -327,24 +358,32 @@ function RelatedArticleCard({ article, onPress, colors, isSidebar = false }: { a
           <Text style={relatedStyles.thumbEmoji}>📰</Text>
         </View>
       )}
-      
-      {article.similarityScore ? (
-        <View style={[relatedStyles.similarityBadge, { backgroundColor: 'rgba(20,83,45,0.85)' }]}>
-          <Text style={relatedStyles.similarityText}>
-            %{Math.round(article.similarityScore * 100)} AYNI
-          </Text>
-        </View>
-      ) : null}
 
       <View style={[relatedStyles.cardBody, isSidebar && { flex: 1, padding: 12, gap: 6 }]}>
+        <View style={relatedStyles.sourceRow}>
+          <View style={[relatedStyles.sourceLogo, { backgroundColor: colors.surfaceInput, borderColor: colors.borderSubtle }]}>
+            {publisherLogoUrl ? (
+              <Image source={{ uri: publisherLogoUrl }} style={relatedStyles.sourceLogoImage} resizeMode="cover" />
+            ) : (
+              <Text style={[relatedStyles.sourceLogoText, { color: colors.accent }]}>
+                {publisherInitials}
+              </Text>
+            )}
+          </View>
+          <View style={relatedStyles.sourceTextWrap}>
+            <Text style={[relatedStyles.sourceName, { color: colors.textPrimary }]} numberOfLines={1}>
+              {article.source.name}
+            </Text>
+            <Text style={[relatedStyles.sourceTime, { color: colors.textMuted }]} numberOfLines={1}>
+              {timeLabel}
+            </Text>
+          </View>
+        </View>
         <View style={[relatedStyles.catBadge, { backgroundColor: colors.accent + '1A' }]}>
           <Text style={[relatedStyles.catText, { color: colors.accent }]}>{cat}</Text>
         </View>
         <Text style={[relatedStyles.cardTitle, { color: colors.textPrimary }]} numberOfLines={3}>
           {article.title}
-        </Text>
-        <Text style={[relatedStyles.cardMeta, { color: colors.textMuted }]}>
-          {article.source.name} · {timeLabel}
         </Text>
       </View>
     </Pressable>
@@ -352,17 +391,21 @@ function RelatedArticleCard({ article, onPress, colors, isSidebar = false }: { a
 }
 
 const relatedStyles = StyleSheet.create({
-  card:             { width: 220, borderRadius: Radius.lg, borderWidth: 1, overflow: 'hidden', position: 'relative' },
-  thumb:            { width: '100%', height: 112 },
-  thumbPlaceholder: { width: '100%', height: 112, alignItems: 'center', justifyContent: 'center' },
+  card:             { width: 268, borderRadius: Radius.lg, borderWidth: 1, overflow: 'hidden', position: 'relative' },
+  thumb:            { width: '100%', height: 142 },
+  thumbPlaceholder: { width: '100%', height: 142, alignItems: 'center', justifyContent: 'center' },
   thumbEmoji:       { fontSize: 24 },
-  similarityBadge:  { position: 'absolute', top: 8, right: 8, backgroundColor: 'rgba(0,0,0,0.7)', paddingHorizontal: 6, paddingVertical: 3, borderRadius: 6, zIndex: 10, backdropFilter: 'blur(4px)' },
-  similarityText:   { color: '#5EEAD4', fontSize: 10, fontWeight: '800', letterSpacing: 0.5 },
-  cardBody:         { padding: Spacing.sm, gap: 5 },
+  sourceRow:        { flexDirection: 'row', alignItems: 'center', gap: 9 },
+  sourceLogo:       { width: 42, height: 42, borderRadius: 21, borderWidth: 1, overflow: 'hidden', alignItems: 'center', justifyContent: 'center' },
+  sourceLogoImage:  { width: '100%', height: '100%' },
+  sourceLogoText:   { fontSize: 13, fontWeight: '900' },
+  sourceTextWrap:   { flex: 1, minWidth: 0 },
+  sourceName:       { fontSize: 12, fontWeight: '800' },
+  sourceTime:       { fontSize: 11, marginTop: 1 },
+  cardBody:         { padding: 12, gap: 8 },
   catBadge:         { alignSelf: 'flex-start', paddingHorizontal: 7, paddingVertical: 2, borderRadius: Radius.full },
   catText:          { fontSize: 10, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.3 },
-  cardTitle:        { fontSize: 13, fontWeight: '700', lineHeight: 18 },
-  cardMeta:         { fontSize: 11 },
+  cardTitle:        { fontSize: 14, fontWeight: '800', lineHeight: 20 },
 });
 
 export default function NewsDetailPage() {
@@ -406,15 +449,14 @@ export default function NewsDetailPage() {
   const [commentError, setCommentError] = useState<string | null>(null);
   const [likeError, setLikeError] = useState<string | null>(null);
   const [likeLoading, setLikeLoading] = useState(false);
-  const [aiAnalysis, setAiAnalysis] = useState<ArticleAiAnalysis | null>(null);
-  const [aiAnalysisLoading, setAiAnalysisLoading] = useState(false);
-  const [aiAnalysisError, setAiAnalysisError] = useState<string | null>(null);
   const leftCarouselRef = useRef<ScrollView | null>(null);
   const rightCarouselRef = useRef<ScrollView | null>(null);
   const scrollViewRef = useRef<ScrollView | null>(null);
   const commentSectionRef = useRef<View | null>(null);
   const commentInputRef = useRef<TextInput | null>(null);
   const [commentSectionY, setCommentSectionY] = useState(0);
+  const sameStoryScrollRef = useRef<ScrollView | null>(null);
+  const [sameStoryScrollX, setSameStoryScrollX] = useState(0);
   const relatedScrollRef = useRef<ScrollView | null>(null);
   const [relatedScrollX, setRelatedScrollX] = useState(0);
   const params = useLocalSearchParams<{
@@ -472,21 +514,21 @@ export default function NewsDetailPage() {
   // Read history tracking — kullanıcı bu makaleyi açtığında server'a haber ver.
   // Mount'ta initial view, unmount'ta final dwell_ms gönderir. UPSERT en uzun değeri tutar.
   useEffect(() => {
-    if (!params.id || !messageToken) return;
+    if (!params.id) return;
     const t0 = Date.now();
     let firstReported = false;
 
     // Bounce-savar: en az 1.5 saniye sayfada kal, sonra "okudu" olarak işaretle.
     const initialTimer = setTimeout(() => {
       firstReported = true;
-      void recordArticleView(params.id!, messageToken, { dwellMs: 0, sourceCtx: 'detail' });
+      void recordArticleView(params.id!, messageToken || null, { dwellMs: 0, sourceCtx: 'detail', countView: true });
     }, 1500);
 
     return () => {
       clearTimeout(initialTimer);
       if (firstReported) {
         const dwell = Date.now() - t0;
-        void recordArticleView(params.id!, messageToken, { dwellMs: dwell, sourceCtx: 'detail' });
+        void recordArticleView(params.id!, messageToken || null, { dwellMs: dwell, sourceCtx: 'detail', countView: false });
       }
     };
   }, [params.id, messageToken]);
@@ -569,20 +611,22 @@ export default function NewsDetailPage() {
   const rawContent = fullContent ?? safeFallbackContent ?? '';
   const body = stripHtml(rawContent);
   const hasUsableBody = isLikelyArticleBody(body);
-  const category = mapToContentCategory(
-    articleFromCache?.category ?? params.category,
-    resolvedTitle,
-    resolvedSummary
-  );
   const sourceName = articleFromCache?.source?.name ?? params.source ?? 'Kaynak bilinmiyor';
   const sourceUrl = articleFromCache?.source?.url;
   const sourceArticleUrl = articleFromCache?.url ?? params.url;
   const sourcePreviewUrl = useMemo(() => proxyPageUrl(sourceArticleUrl), [sourceArticleUrl]);
   const currentLanguage = articleFromCache?.language;
+  const category = articleFromCache
+    ? mapArticleToContentCategory(articleFromCache)
+    : mapToContentCategory(params.category, resolvedTitle, resolvedSummary, {
+        content: body,
+        language: currentLanguage,
+        sourceName,
+        sourceUrl,
+      });
 
   const [exactMatches, setExactMatches] = useState<ArticleLike[]>([]);
   const [relatedArticles, setRelatedArticles] = useState<ArticleLike[]>([]);
-  const [loadingMatches, setLoadingMatches] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -599,7 +643,6 @@ export default function NewsDetailPage() {
     );
     setRelatedArticles(fallbackSimilar);
     setExactMatches([]);
-    setLoadingMatches(true);
 
     // v2 API: 'same_event' = duplicate + same_event birlikte → "aynı haber farklı kaynaklarda"
     fetchSimilarArticlesFromDb(params.id, { kind: 'same_event', limit: 12 })
@@ -611,11 +654,6 @@ export default function NewsDetailPage() {
       })
       .catch((err) => {
         // ignore
-      })
-      .finally(() => {
-        if (active) {
-          setLoadingMatches(false);
-        }
       });
 
     return () => {
@@ -623,29 +661,6 @@ export default function NewsDetailPage() {
     };
   }, [params.id, category, resolvedTitle, resolvedSummary, currentLanguage, sourceName, articles]);
 
-  useEffect(() => {
-    let active = true;
-    if (!params.id) return;
-
-    setAiAnalysis(null);
-    setAiAnalysisError(null);
-    setAiAnalysisLoading(true);
-
-    fetchArticleAiAnalysis(params.id)
-      .then((analysis) => {
-        if (active) setAiAnalysis(analysis);
-      })
-      .catch(() => {
-        if (active) setAiAnalysisError('AI analiz şu anda üretilemedi.');
-      })
-      .finally(() => {
-        if (active) setAiAnalysisLoading(false);
-      });
-
-    return () => {
-      active = false;
-    };
-  }, [params.id]);
   const publisherLogoUrl = useMemo(
     () => buildPublisherLogoUrl(sourceName, sourceUrl),
     [sourceName, sourceUrl]
@@ -760,8 +775,11 @@ export default function NewsDetailPage() {
   }, [exactMatches, params.id, sourceName]);
   const generalRelatedArticles = useMemo(() => {
     const alternateIds = new Set(alternateSourceArticles.map((article) => article.id));
-    return relatedArticles.filter((article) => !alternateIds.has(article.id));
-  }, [alternateSourceArticles, relatedArticles]);
+    return relatedArticles.filter((article) =>
+      !alternateIds.has(article.id) &&
+      getArticleDisplayCategory(article) === category
+    );
+  }, [alternateSourceArticles, category, relatedArticles]);
 
   const openPublisherProfile = () => {
     const publisherId = getPublisherIdFromSourceName(sourceName);
@@ -1047,93 +1065,72 @@ export default function NewsDetailPage() {
     relatedScrollRef.current.scrollTo({ x: targetX, animated: true });
   };
 
+  const scrollSameStory = (direction: 'left' | 'right') => {
+    if (!sameStoryScrollRef.current) return;
+    const step = 284;
+    const targetX = direction === 'left' ? Math.max(0, sameStoryScrollX - step) : sameStoryScrollX + step;
+    sameStoryScrollRef.current.scrollTo({ x: targetX, animated: true });
+  };
+
   const leftImageHeight = leftSlotHeight > 18 ? leftSlotHeight - 18 : leftSlotHeight;
   const rightImageHeight = rightSlotHeight > 18 ? rightSlotHeight - 18 : rightSlotHeight;
 
-  const renderAiAnalysisCard = () => (
-    <View style={styles(colors).aiAnalysisCard}>
-      <View style={styles(colors).aiAnalysisHeader}>
-        <View style={styles(colors).aiAnalysisTitleWrap}>
-          <View style={styles(colors).aiAnalysisIcon}>
-            <Ionicons name="sparkles-outline" size={18} color={colors.accent} />
+  const renderSameStoryPanel = () => {
+    if (alternateSourceArticles.length === 0) return null;
+
+    return (
+      <View style={styles(colors).sameStoryPanel}>
+        <View style={styles(colors).sameStoryHeader}>
+          <View style={styles(colors).relatedHeader}>
+            <View style={[styles(colors).relatedDot, { backgroundColor: colors.accent }]} />
+            <Text style={styles(colors).relatedTitle}>AYNI HABER, FARKLI KAYNAKLAR</Text>
           </View>
-          <View style={{ flex: 1, minWidth: 0 }}>
-            <Text style={styles(colors).aiAnalysisTitle}>AI Yorum ve Analiz</Text>
-            <Text style={styles(colors).aiAnalysisSubtitle}>Haber metninden çıkarılan kısa değerlendirme</Text>
-          </View>
+          {alternateSourceArticles.length > 1 ? (
+            <View style={styles(colors).sameStoryNav}>
+              <Pressable
+                style={({ pressed }) => [
+                  styles(colors).scrollNavBtn,
+                  pressed && { opacity: 0.7 },
+                ]}
+                onPress={() => scrollSameStory('left')}
+              >
+                <Ionicons name="chevron-back" size={16} color={colors.textPrimary} />
+              </Pressable>
+              <Pressable
+                style={({ pressed }) => [
+                  styles(colors).scrollNavBtn,
+                  pressed && { opacity: 0.7 },
+                ]}
+                onPress={() => scrollSameStory('right')}
+              >
+                <Ionicons name="chevron-forward" size={16} color={colors.textPrimary} />
+              </Pressable>
+            </View>
+          ) : null}
         </View>
-        {aiAnalysis?.available ? (
-          <Text style={styles(colors).aiConfidenceBadge}>
-            {aiAnalysis.confidence === 'high' ? 'GÜÇLÜ' : aiAnalysis.confidence === 'medium' ? 'ORTA' : 'DÜŞÜK'}
-          </Text>
-        ) : null}
+        <Text style={styles(colors).sameStoryHint}>
+          Farklı ifadeler ve bakış açılarıyla yayımlanan yakın haberler
+        </Text>
+        <ScrollView
+          ref={sameStoryScrollRef}
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles(colors).sameStoryHorizontalList}
+          onScroll={(event) => setSameStoryScrollX(event.nativeEvent.contentOffset.x)}
+          scrollEventThrottle={16}
+        >
+          {alternateSourceArticles.map((item) => (
+            <RelatedArticleCard
+              key={`same-story-${item.id}`}
+              article={item}
+              colors={colors}
+              onPress={() => router.push({ pathname: '/news/[id]', params: { id: item.id } })}
+            />
+          ))}
+        </ScrollView>
       </View>
-
-      <ScrollView
-        style={styles(colors).aiAnalysisScroll}
-        contentContainerStyle={styles(colors).aiAnalysisScrollContent}
-        nestedScrollEnabled
-        showsVerticalScrollIndicator={false}
-      >
-        {aiAnalysisLoading ? (
-          <View style={styles(colors).aiAnalysisState}>
-            <ActivityIndicator color={colors.accent} />
-            <Text style={styles(colors).statusText}>AI analiz hazırlanıyor...</Text>
-          </View>
-        ) : aiAnalysisError ? (
-          <Text style={styles(colors).aiUnavailableText}>{aiAnalysisError}</Text>
-        ) : aiAnalysis && !aiAnalysis.available ? (
-          <Text style={styles(colors).aiUnavailableText}>
-            {aiAnalysis.message || 'Bu haber için analiz üretmeye yetecek bağlam bulunamadı.'}
-          </Text>
-        ) : aiAnalysis ? (
-          <View style={styles(colors).aiAnalysisBody}>
-            <Text style={styles(colors).aiSummaryText}>{aiAnalysis.summary}</Text>
-
-            {aiAnalysis.keyPoints.length > 0 ? (
-              <View style={styles(colors).aiSection}>
-                <Text style={styles(colors).aiSectionTitle}>Öne çıkanlar</Text>
-                {aiAnalysis.keyPoints.map((point, index) => (
-                  <View key={`ai-point-${index}`} style={styles(colors).aiBulletRow}>
-                    <View style={styles(colors).aiBullet} />
-                    <Text style={styles(colors).aiBulletText}>{point}</Text>
-                  </View>
-                ))}
-              </View>
-            ) : null}
-
-            {!!aiAnalysis.context && (
-              <View style={styles(colors).aiCallout}>
-                <Text style={styles(colors).aiCalloutLabel}>Bağlam</Text>
-                <Text style={styles(colors).aiCalloutText}>{aiAnalysis.context}</Text>
-              </View>
-            )}
-
-            {aiAnalysis.perspectives.length > 0 ? (
-              <View style={styles(colors).aiSection}>
-                <Text style={styles(colors).aiSectionTitle}>Olası bakış açıları</Text>
-                {aiAnalysis.perspectives.map((item, index) => (
-                  <Text key={`ai-perspective-${index}`} style={styles(colors).aiMutedLine}>
-                    {index + 1}. {item}
-                  </Text>
-                ))}
-              </View>
-            ) : null}
-
-            {aiAnalysis.questions.length > 0 ? (
-              <View style={styles(colors).aiSection}>
-                <Text style={styles(colors).aiSectionTitle}>Okurken sorulacak sorular</Text>
-                {aiAnalysis.questions.map((item, index) => (
-                  <Text key={`ai-question-${index}`} style={styles(colors).aiMutedLine}>• {item}</Text>
-                ))}
-              </View>
-            ) : null}
-          </View>
-        ) : null}
-      </ScrollView>
-
-    </View>
-  );
+    );
+  };
 
   // Late-return: tüm hook'lar yukarıda kayıtsız şartsız çalıştı; burada güvenle ekran seçilebilir.
   if (params.id && !params.title && !articleFromCache && (loading || remoteLoading)) {
@@ -1295,6 +1292,8 @@ export default function NewsDetailPage() {
           </Text>
         )}
       </View>
+
+      {renderSameStoryPanel()}
 
       <Modal
         visible={messagePanelVisible}
@@ -1722,47 +1721,6 @@ export default function NewsDetailPage() {
         </View>
         )}
 
-        {isWeb && (
-          <View style={[styles(colors).mediaCol, styles(colors).mediaColWeb]}>
-            <View style={styles(colors).sameStoryPanel}>
-              <View style={styles(colors).relatedHeader}>
-                <View style={[styles(colors).relatedDot, { backgroundColor: colors.accent }]} />
-                <Text style={styles(colors).relatedTitle}>AYNI HABER, FARKLI KAYNAKLAR</Text>
-              </View>
-              <Text style={styles(colors).sameStoryHint}>
-                Farklı ifadeler ve bakış açılarıyla yayımlanan yakın haberler
-              </Text>
-              {loadingMatches && alternateSourceArticles.length === 0 ? (
-                <View style={styles(colors).sameStoryLoading}>
-                  <ActivityIndicator color={colors.accent} />
-                  <Text style={styles(colors).statusText}>Alternatif kaynaklar aranıyor...</Text>
-                </View>
-              ) : alternateSourceArticles.length > 0 ? (
-                <View style={styles(colors).sameStoryList}>
-                  {alternateSourceArticles.map((item) => (
-                    <RelatedArticleCard
-                      key={`same-story-web-${item.id}`}
-                      article={item}
-                      colors={colors}
-                      isSidebar={true}
-                      onPress={() => router.push({ pathname: '/news/[id]', params: { id: item.id } })}
-                    />
-                  ))}
-                </View>
-              ) : (
-                <View style={styles(colors).sameStoryEmpty}>
-                  <Ionicons name="newspaper-outline" size={26} color={colors.textMuted} />
-                  <Text style={styles(colors).sameStoryEmptyTitle}>Birebir eşleşme bulunamadı</Text>
-                  <Text style={styles(colors).sameStoryEmptyText}>
-                    Bu haber için farklı bir kaynakta aynı habere ait güvenilir bir eşleşme yok.
-                  </Text>
-                </View>
-              )}
-            </View>
-
-            {renderAiAnalysisCard()}
-          </View>
-        )}
       </View>
 
       <View
@@ -1877,32 +1835,6 @@ export default function NewsDetailPage() {
           ) : null}
         </View>
       </View>
-
-      {!isWeb && (
-        <View style={styles(colors).relatedSection}>
-          <View style={styles(colors).relatedHeader}>
-            <View style={[styles(colors).relatedDot, { backgroundColor: colors.accent }]} />
-            <Text style={styles(colors).relatedTitle}>Aynı Haber, Farklı Kaynaklar</Text>
-          </View>
-          {alternateSourceArticles.length > 0 ? (
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles(colors).relatedList}>
-              {alternateSourceArticles.map((item) => (
-                <RelatedArticleCard
-                  key={`same-story-mob-${item.id}`}
-                  article={item}
-                  colors={colors}
-                  onPress={() => router.push({ pathname: '/news/[id]', params: { id: item.id } })}
-                />
-              ))}
-            </ScrollView>
-          ) : (
-            <Text style={styles(colors).sameStoryMobileEmpty}>
-              Bu haber için farklı bir kaynakta birebir eşleşme bulunamadı.
-            </Text>
-          )}
-          {renderAiAnalysisCard()}
-        </View>
-      )}
 
       {generalRelatedArticles.length > 0 && (
         <View style={styles(colors).relatedSection}>
@@ -2157,137 +2089,6 @@ const styles = (colors: any) =>
       padding: 26,
       gap: 18,
     },
-    aiAnalysisCard: {
-      borderWidth: 1,
-      borderColor: colors.borderSubtle,
-      backgroundColor: colors.surface,
-      borderRadius: 20,
-      padding: 14,
-      gap: 12,
-    },
-    aiAnalysisScroll: {
-      maxHeight: 420,
-      overflow: 'hidden',
-    },
-    aiAnalysisScrollContent: {
-      gap: 14,
-      paddingBottom: 4,
-    },
-    aiAnalysisHeader: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      justifyContent: 'space-between',
-      gap: 12,
-    },
-    aiAnalysisTitleWrap: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: 12,
-      flex: 1,
-      minWidth: 0,
-    },
-    aiAnalysisIcon: {
-      width: 40,
-      height: 40,
-      borderRadius: 20,
-      backgroundColor: colors.accent + '18',
-      alignItems: 'center',
-      justifyContent: 'center',
-    },
-    aiAnalysisTitle: {
-      color: colors.textPrimary,
-      fontSize: 18,
-      fontWeight: '900',
-    },
-    aiAnalysisSubtitle: {
-      color: colors.textMuted,
-      fontSize: 12,
-      marginTop: 2,
-    },
-    aiConfidenceBadge: {
-      color: colors.accent,
-      backgroundColor: colors.accent + '16',
-      borderRadius: 999,
-      overflow: 'hidden',
-      paddingHorizontal: 10,
-      paddingVertical: 5,
-      fontSize: 10,
-      fontWeight: '900',
-      letterSpacing: 0.8,
-    },
-    aiAnalysisState: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: Spacing.sm,
-      paddingVertical: Spacing.sm,
-    },
-    aiUnavailableText: {
-      color: colors.textMuted,
-      fontSize: 14,
-      lineHeight: 20,
-    },
-    aiAnalysisBody: {
-      gap: 14,
-    },
-    aiSummaryText: {
-      color: colors.textPrimary,
-      fontSize: 16,
-      lineHeight: 24,
-      fontWeight: '700',
-    },
-    aiSection: {
-      gap: 8,
-    },
-    aiSectionTitle: {
-      color: colors.textPrimary,
-      fontSize: 13,
-      fontWeight: '900',
-      textTransform: 'uppercase',
-      letterSpacing: 0.7,
-    },
-    aiBulletRow: {
-      flexDirection: 'row',
-      alignItems: 'flex-start',
-      gap: 9,
-    },
-    aiBullet: {
-      width: 6,
-      height: 6,
-      borderRadius: 3,
-      backgroundColor: colors.accent,
-      marginTop: 8,
-    },
-    aiBulletText: {
-      flex: 1,
-      color: colors.textSecondary,
-      fontSize: 14,
-      lineHeight: 21,
-    },
-    aiCallout: {
-      borderLeftWidth: 3,
-      borderLeftColor: colors.accent,
-      backgroundColor: colors.accent + '10',
-      borderRadius: 12,
-      padding: 12,
-      gap: 4,
-    },
-    aiCalloutLabel: {
-      color: colors.accent,
-      fontSize: 11,
-      fontWeight: '900',
-      textTransform: 'uppercase',
-      letterSpacing: 0.7,
-    },
-    aiCalloutText: {
-      color: colors.textSecondary,
-      fontSize: 14,
-      lineHeight: 21,
-    },
-    aiMutedLine: {
-      color: colors.textSecondary,
-      fontSize: 14,
-      lineHeight: 21,
-    },
     bodyText: {
       color: colors.textSecondary,
       fontSize: 16,
@@ -2498,6 +2299,17 @@ const styles = (colors: any) =>
       borderRadius: 20,
       padding: 12,
     },
+    sameStoryHeader: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      gap: Spacing.sm,
+    },
+    sameStoryNav: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 8,
+    },
     sameStoryHint: {
       color: colors.textMuted,
       fontSize: 12,
@@ -2508,30 +2320,17 @@ const styles = (colors: any) =>
       gap: 12,
       marginTop: 6,
     },
+    sameStoryHorizontalList: {
+      gap: Spacing.sm,
+      paddingHorizontal: Spacing.xs,
+      paddingTop: Spacing.sm,
+      paddingBottom: Spacing.xs,
+    },
     sameStoryLoading: {
       alignItems: 'center',
       justifyContent: 'center',
       gap: Spacing.sm,
       paddingVertical: Spacing.xl,
-    },
-    sameStoryEmpty: {
-      alignItems: 'center',
-      justifyContent: 'center',
-      gap: Spacing.sm,
-      paddingVertical: Spacing.xl,
-      paddingHorizontal: Spacing.md,
-    },
-    sameStoryEmptyTitle: {
-      color: colors.textPrimary,
-      fontSize: Typography.fontSize.sm,
-      fontWeight: '800',
-      textAlign: 'center',
-    },
-    sameStoryEmptyText: {
-      color: colors.textMuted,
-      fontSize: 12,
-      lineHeight: 17,
-      textAlign: 'center',
     },
     sameStoryMobileEmpty: {
       color: colors.textMuted,

@@ -2,7 +2,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { ContentCategory } from '@/services/content';
-import { ApiArticle, mapToContentCategory, proxyImageUrl } from '@/services/newsApi';
+import { ApiArticle, mapArticleToContentCategory, proxyImageUrl } from '@/services/newsApi';
 
 // useNews.ts'deki modül-seviyesi cache'e erişim
 let _cachedRef: ApiArticle[] = [];
@@ -15,6 +15,18 @@ export function getArticleCache(): ApiArticle[] {
 
 const RECENT_SEARCHES_KEY = 'recent-searches';
 const MAX_RECENT = 8;
+const GENERATED_RECENT_SEARCH_TERMS = new Set([
+  'general',
+  'sports',
+  'politics',
+  'entertainment',
+  'technology',
+  'business',
+  'health',
+  'science',
+  'breaking',
+  'economy',
+]);
 
 export type SortOption = 'newest' | 'oldest' | 'popular';
 
@@ -34,11 +46,11 @@ export const DEFAULT_FILTERS: SearchFilters = {
   sortBy: 'newest',
 };
 
-// Popülerlik skoru: beğeni + yorum + güncellik
+// Popülerlik skoru: DB tıklanma sayısı + güncellik
 function popularityScore(article: ApiArticle): number {
   const age = Date.now() - new Date(article.publishedAt).getTime();
   const hoursOld = age / (1000 * 60 * 60);
-  return Math.max(0, 100 - hoursOld * 0.5);
+  return (article.viewCount ?? 0) * 100 + Math.max(0, 100 - hoursOld * 0.5);
 }
 
 // Trend haberleri: son 24 saatte en yeni ve öne çıkan
@@ -66,6 +78,31 @@ function normTr(s: string): string {
     .replace(/[̀-ͯ]/g, '');
 }
 
+function normalizeRecentTerm(term: string): string {
+  return normTr(term)
+    .replace(/[^a-z0-9\s&-]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function cleanRecentSearches(values: unknown): string[] {
+  if (!Array.isArray(values)) return [];
+  const seen = new Set<string>();
+  const cleaned: string[] = [];
+
+  values.forEach((value) => {
+    const term = String(value ?? '').trim();
+    const normalized = normalizeRecentTerm(term);
+    if (!term || term.length < 2 || GENERATED_RECENT_SEARCH_TERMS.has(normalized) || seen.has(normalized)) {
+      return;
+    }
+    seen.add(normalized);
+    cleaned.push(term);
+  });
+
+  return cleaned.slice(0, MAX_RECENT);
+}
+
 function matchesQuery(article: ApiArticle, q: string): boolean {
   if (!q) return true;
   const norm = normTr(q);
@@ -85,7 +122,13 @@ export function useSearch(articles: ApiArticle[]) {
   // Recent searches yükle
   useEffect(() => {
     AsyncStorage.getItem(RECENT_SEARCHES_KEY).then((raw) => {
-      if (raw) setRecentSearches(JSON.parse(raw) as string[]);
+      if (!raw) return;
+      const parsed = JSON.parse(raw);
+      const cleaned = cleanRecentSearches(parsed);
+      setRecentSearches(cleaned);
+      if (!Array.isArray(parsed) || cleaned.length !== parsed.length) {
+        void AsyncStorage.setItem(RECENT_SEARCHES_KEY, JSON.stringify(cleaned));
+      }
     });
   }, []);
 
@@ -104,10 +147,12 @@ export function useSearch(articles: ApiArticle[]) {
     async (term: string) => {
       const trimmed = term.trim();
       if (!trimmed || trimmed.length < 2) return;
-      const next = [trimmed, ...recentSearches.filter((s) => s !== trimmed)].slice(
-        0,
-        MAX_RECENT
-      );
+      const normalized = normalizeRecentTerm(trimmed);
+      if (GENERATED_RECENT_SEARCH_TERMS.has(normalized)) return;
+      const next = [
+        trimmed,
+        ...recentSearches.filter((s) => normalizeRecentTerm(s) !== normalized),
+      ].slice(0, MAX_RECENT);
       setRecentSearches(next);
       await AsyncStorage.setItem(RECENT_SEARCHES_KEY, JSON.stringify(next));
     },
@@ -137,7 +182,7 @@ export function useSearch(articles: ApiArticle[]) {
     if (filters.category) {
       pool = pool.filter(
         (a) =>
-          mapToContentCategory(a.category, a.title, a.description) === filters.category
+          mapArticleToContentCategory(a) === filters.category
       );
     }
 

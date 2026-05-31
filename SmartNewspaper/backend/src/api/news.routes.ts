@@ -223,22 +223,26 @@ router.get('/market-rates', async (_req: Request, res: Response) => {
 });
 
 
-// GET /api/news/trending - "En çok okunanlar" için son 24 saatteki en güncel/popüler haberler
-// Popülerlik proxy'si: yayın tarihi yakınlığı + içerik zenginliği (image var mı, content uzunluğu)
+// GET /api/news/trending - "En çok okunanlar"; global tıklama sayısı ana sinyaldir.
 router.get('/trending', async (req: Request, res: Response) => {
   try {
     const limit = Math.min(Number(req.query.limit ?? 10), 50);
     const result = await query<any>(
       `SELECT *,
          (
-           CASE WHEN image_url IS NOT NULL THEN 30 ELSE 0 END
-           + CASE WHEN content IS NOT NULL AND LENGTH(content) > 400 THEN 25 ELSE 0 END
-           + GREATEST(0, 100 - EXTRACT(EPOCH FROM (NOW() - published_at)) / 3600)
+           (COALESCE(view_count, 0) * 100)
+           + CASE WHEN image_url IS NOT NULL THEN 20 ELSE 0 END
+           + CASE WHEN content IS NOT NULL AND LENGTH(content) > 400 THEN 15 ELSE 0 END
+           + GREATEST(0, 48 - EXTRACT(EPOCH FROM (NOW() - published_at)) / 3600)
          ) AS score
        FROM articles
-       WHERE published_at > NOW() - INTERVAL '48 hours'
+       WHERE published_at > NOW() - INTERVAL '7 days'
          AND published_at <= NOW() + INTERVAL '5 minutes'
-       ORDER BY score DESC, published_at DESC
+         AND GREATEST(
+           LENGTH(REGEXP_REPLACE(COALESCE(content, ''), '<[^>]+>|[[:space:]]+', ' ', 'g')),
+           LENGTH(REGEXP_REPLACE(COALESCE(description, ''), '<[^>]+>|[[:space:]]+', ' ', 'g'))
+         ) >= 220
+       ORDER BY COALESCE(view_count, 0) DESC, score DESC, published_at DESC
        LIMIT $1`,
       [limit]
     );
@@ -253,6 +257,7 @@ router.get('/trending', async (req: Request, res: Response) => {
       language: r.language,
       category: r.category ?? undefined,
       source: { name: r.source_name, url: r.source_url ?? '', type: r.source_type },
+      viewCount: Number(r.view_count ?? 0),
     }));
     res.json({ articles });
   } catch (err) {
@@ -283,6 +288,7 @@ router.get('/breaking', async (req: Request, res: Response) => {
       language: r.language,
       category: r.category ?? undefined,
       source: { name: r.source_name, url: r.source_url ?? '', type: r.source_type },
+      viewCount: Number(r.view_count ?? 0),
     }));
     res.json({ articles });
   } catch (err) {
@@ -315,7 +321,7 @@ router.get('/for-you', authMiddleware, async (req: Request, res: Response) => {
     if (!interest.vector || interest.sampleCount === 0) {
       const fallback = await query<any>(
         `SELECT id, title, description, content, url, image_url, published_at,
-                category, language, source_name, source_url
+                category, language, source_name, source_url, view_count
            FROM articles
           WHERE published_at >= NOW() - INTERVAL '${lookbackDays} days'
             AND embedding_v2 IS NOT NULL
@@ -339,7 +345,7 @@ router.get('/for-you', authMiddleware, async (req: Request, res: Response) => {
 
     const personalized = await query<any>(
       `SELECT id, title, description, content, url, image_url, published_at,
-              category, language, source_name, source_url,
+              category, language, source_name, source_url, view_count,
               embedding_v2::text AS embedding_text,
               (1 - (embedding_v2 <=> $1::vector)) AS interest_score
          FROM articles
@@ -375,35 +381,56 @@ router.get('/for-you', authMiddleware, async (req: Request, res: Response) => {
 
 // (route stays above the /:id catch-all routes so it isn't shadowed)
 // POST /api/news/:id/view - Bir makalenin görüntülendiğini kaydet.
-// Body: { dwellMs?: number, scrollPct?: number (0-100), sourceCtx?: 'feed'|'similar'|'search'|... }
+// Body: { dwellMs?: number, scrollPct?: number (0-100), sourceCtx?: 'feed'|'similar'|'search'|..., countView?: boolean }
 // Aynı (user, article) çifti için UPSERT — yeniden açılırsa viewed_at güncellenir,
 // dwellMs/scrollPct verildiyse mevcut değerle MAX alınır (sayfada en uzun kalma).
-router.post('/:id/view', authMiddleware, async (req: Request, res: Response) => {
+router.post('/:id/view', optionalAuth, async (req: Request, res: Response) => {
   try {
-    if (!req.user) return res.status(401).json({ error: 'auth required' });
     const articleId = req.params.id;
     const dwellMs = Number.isFinite(Number(req.body?.dwellMs)) ? Math.max(0, Math.floor(Number(req.body.dwellMs))) : null;
     const scrollPct = Number.isFinite(Number(req.body?.scrollPct))
       ? Math.max(0, Math.min(100, Math.floor(Number(req.body.scrollPct))))
       : null;
     const sourceCtx = typeof req.body?.sourceCtx === 'string' ? req.body.sourceCtx.slice(0, 50) : null;
+    const shouldCountView = req.body?.countView !== false;
+    let viewCount: number | null = null;
 
-    const r = await query(
-      `INSERT INTO article_views (user_id, article_id, viewed_at, dwell_ms, scroll_pct, source_ctx)
-       VALUES ($1, $2, NOW(), $3, $4, $5)
-       ON CONFLICT (user_id, article_id) DO UPDATE
-         SET viewed_at  = NOW(),
-             dwell_ms   = GREATEST(COALESCE(article_views.dwell_ms, 0), COALESCE(EXCLUDED.dwell_ms, 0)),
-             scroll_pct = GREATEST(COALESCE(article_views.scroll_pct, 0), COALESCE(EXCLUDED.scroll_pct, 0)),
-             source_ctx = COALESCE(EXCLUDED.source_ctx, article_views.source_ctx)
-       RETURNING id`,
-      [req.user.userId, articleId, dwellMs, scrollPct, sourceCtx],
-    );
+    if (shouldCountView) {
+      const counted = await query<{ view_count: number }>(
+        `UPDATE articles
+            SET view_count = COALESCE(view_count, 0) + 1
+          WHERE id = $1
+          RETURNING view_count`,
+        [articleId],
+      );
+      if (counted.rowCount === 0) return res.status(404).json({ error: 'Makale bulunamadı' });
+      viewCount = Number(counted.rows[0].view_count ?? 0);
+    } else {
+      const exists = await query<{ view_count: number }>('SELECT view_count FROM articles WHERE id = $1', [articleId]);
+      if (exists.rowCount === 0) return res.status(404).json({ error: 'Makale bulunamadı' });
+      viewCount = Number(exists.rows[0].view_count ?? 0);
+    }
 
-    // user.last_seen_at de güncelle (cheap, single row)
-    void query(`UPDATE users SET last_seen_at = NOW() WHERE id = $1`, [req.user.userId]).catch(() => {});
+    let viewId: number | undefined;
+    if (req.user) {
+      const r = await query(
+        `INSERT INTO article_views (user_id, article_id, viewed_at, dwell_ms, scroll_pct, source_ctx)
+         VALUES ($1, $2, NOW(), $3, $4, $5)
+         ON CONFLICT (user_id, article_id) DO UPDATE
+           SET viewed_at  = NOW(),
+               dwell_ms   = GREATEST(COALESCE(article_views.dwell_ms, 0), COALESCE(EXCLUDED.dwell_ms, 0)),
+               scroll_pct = GREATEST(COALESCE(article_views.scroll_pct, 0), COALESCE(EXCLUDED.scroll_pct, 0)),
+               source_ctx = COALESCE(EXCLUDED.source_ctx, article_views.source_ctx)
+         RETURNING id`,
+        [req.user.userId, articleId, dwellMs, scrollPct, sourceCtx],
+      );
+      viewId = r.rows[0]?.id;
 
-    return res.json({ ok: true, viewId: r.rows[0]?.id });
+      // user.last_seen_at de güncelle (cheap, single row)
+      void query(`UPDATE users SET last_seen_at = NOW() WHERE id = $1`, [req.user.userId]).catch(() => {});
+    }
+
+    return res.json({ ok: true, viewId, viewCount });
   } catch (err) {
     console.error('[NewsAPI] view kaydı hatası:', err);
     return res.status(500).json({ error: 'View kaydedilemedi' });
@@ -464,7 +491,7 @@ router.get('/search', async (req: Request, res: Response) => {
     const limit = Math.min(Number(req.query.limit ?? 20), 50);
 
     const result = await query<any>(
-      `SELECT id, title, description, url, image_url, published_at, language, category, source_name, source_url
+      `SELECT id, title, description, url, image_url, published_at, language, category, source_name, source_url, view_count
        FROM articles
        WHERE translate(lower(title), 'çğışöü', 'cgisou') ILIKE '%' || translate(lower($1), 'çğışöü', 'cgisou') || '%'
           OR translate(lower(COALESCE(description, '')), 'çğışöü', 'cgisou') ILIKE '%' || translate(lower($1), 'çğışöü', 'cgisou') || '%'
@@ -486,6 +513,7 @@ router.get('/search', async (req: Request, res: Response) => {
         language: r.language,
         category: r.category ?? undefined,
         source: { name: r.source_name, url: r.source_url ?? '', type: 'rss' },
+        viewCount: Number(r.view_count ?? 0),
       })),
     });
   } catch (err) {
@@ -498,12 +526,20 @@ router.get('/search', async (req: Request, res: Response) => {
 router.get('/trending-topics', async (_req: Request, res: Response) => {
   try {
     const result = await query<any>(
-      `SELECT category AS tag, COUNT(*)::int AS count
+      `SELECT category AS tag,
+              GREATEST(SUM(COALESCE(view_count, 0))::int, COUNT(*)::int) AS count,
+              COUNT(*)::int AS article_count,
+              MAX(published_at) AS latest_at
        FROM articles
-       WHERE published_at > NOW() - INTERVAL '48 hours'
-         AND category IS NOT NULL AND category <> ''
+       WHERE published_at > NOW() - INTERVAL '7 days'
+          AND published_at <= NOW() + INTERVAL '5 minutes'
+          AND category IS NOT NULL AND category <> ''
+          AND GREATEST(
+            LENGTH(REGEXP_REPLACE(COALESCE(content, ''), '<[^>]+>|[[:space:]]+', ' ', 'g')),
+            LENGTH(REGEXP_REPLACE(COALESCE(description, ''), '<[^>]+>|[[:space:]]+', ' ', 'g'))
+          ) >= 220
        GROUP BY category
-       ORDER BY count DESC
+       ORDER BY SUM(COALESCE(view_count, 0)) DESC, article_count DESC, latest_at DESC
        LIMIT 15`
     );
     return res.json({ topics: result.rows });

@@ -56,6 +56,12 @@ function timeAgo(iso: string): string {
   return `${Math.floor(h / 24)} gün`;
 }
 
+function formatReadCount(count?: number): string | null {
+  const value = Number(count ?? 0);
+  if (!Number.isFinite(value) || value <= 0) return null;
+  return `${value.toLocaleString('tr-TR')} okunma`;
+}
+
 export default function ExploreScreen() {
   const { colors } = useTheme();
   const router = useRouter();
@@ -471,6 +477,7 @@ export default function ExploreScreen() {
                             <Text style={[styles.miniCatText, { color: getCategoryColor(cat) }]}>{getCategoryLabel(cat)}</Text>
                           </View>
                           <Text style={[styles.rankMeta, { color: colors.textMuted }]}>
+                            {formatReadCount(a.viewCount) ? `${formatReadCount(a.viewCount)} • ` : ''}
                             {a.source.name} • {timeAgo(a.publishedAt)}
                           </Text>
                         </View>

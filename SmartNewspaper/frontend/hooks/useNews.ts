@@ -1,5 +1,5 @@
 import { useEffect, useState, useRef } from 'react';
-import { ApiArticle, fetchArticles, mapToContentCategory, proxyImageUrl } from '@/services/newsApi';
+import { ApiArticle, fetchArticles, mapArticleToContentCategory, proxyImageUrl } from '@/services/newsApi';
 import { ContentCategory, NewsItem } from '@/services/content';
 import { injectArticleCache } from '@/hooks/useSearch';
 
@@ -187,7 +187,7 @@ export function useNews(): { news: NewsItem[]; loading: boolean; error: string |
     id: a.id,
     title: a.title,
     excerpt: a.description,
-    category: mapToContentCategory(a.category, a.title, a.description),
+    category: mapArticleToContentCategory(a),
   }));
 
   return { news, loading, error };
@@ -231,8 +231,8 @@ export function usePersonalizedNews() {
       source: a.source.name,
       sourceUrl: a.source.url,
       publicationDate: a.publishedAt,
-      category: mapToContentCategory(a.category, a.title, a.description),
-      popularity: Math.max(10, 100 - Math.floor(age / (60 * 60 * 1000))),
+      category: mapArticleToContentCategory(a),
+      popularity: (a.viewCount ?? 0) * 10 + Math.max(10, 100 - Math.floor(age / (60 * 60 * 1000))),
       relevance: 50 + (i % 50),
       period,
       url: a.url,
