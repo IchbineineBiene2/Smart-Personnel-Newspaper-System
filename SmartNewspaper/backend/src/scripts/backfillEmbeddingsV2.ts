@@ -99,7 +99,8 @@ async function main() {
   await testConnection();
 
   const missing = await getMissingCount(args.workerId, args.workerCount, args.sinceDays, args.olderThanDays);
-  const tag = args.workerCount > 1 ? `w${args.workerId}/${args.workerCount}` : 'single';
+  const tierTag = args.sinceDays ? `recent${args.sinceDays}d` : (args.olderThanDays ? `older${args.olderThanDays}d` : 'all');
+  const tag = args.workerCount > 1 ? `w${args.workerId}/${args.workerCount}|${tierTag}` : `single|${tierTag}`;
   console.log(`[Backfill ${tag}] Bu shard'da eksik makale: ${missing}`);
 
   if (missing === 0) {

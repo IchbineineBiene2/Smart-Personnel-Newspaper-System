@@ -601,7 +601,8 @@ export default function NewsDetailPage() {
     setExactMatches([]);
     setLoadingMatches(true);
 
-    fetchSimilarArticlesFromDb(params.id, 0.82)
+    // v2 API: 'same_event' = duplicate + same_event birlikte → "aynı haber farklı kaynaklarda"
+    fetchSimilarArticlesFromDb(params.id, { kind: 'same_event', limit: 12 })
       .then((dbSimilar) => {
         if (!active) return;
         if (dbSimilar && dbSimilar.length > 0) {
