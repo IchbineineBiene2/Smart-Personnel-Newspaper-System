@@ -97,6 +97,7 @@ async function fetchFeed(source: RssSource): Promise<Article[]> {
         name: source.name,
         url: source.url,
         type: 'rss' as const,
+        logoUrl: source.logoUrl,
       },
       category: source.category,
       language: source.language,

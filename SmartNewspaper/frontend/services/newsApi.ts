@@ -23,9 +23,33 @@ export interface ApiArticle {
     name: string;
     url: string;
     type: 'newsapi' | 'rss' | 'scraper';
+    logoUrl?: string;
   };
   category?: string;
   language: string;
+}
+
+export function decodeHtmlEntities(text?: string | null): string {
+  if (!text) return '';
+  return text
+    .replace(/&apos;/g, "'")
+    .replace(/&quot;/g, '"')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&#39;/g, "'")
+    .replace(/&#039;/g, "'")
+    .replace(/&#34;/g, '"')
+    .replace(/&#034;/g, '"');
+}
+
+export function cleanArticle<T extends { title?: string; description?: string }>(a: T): T {
+  if (!a) return a;
+  return {
+    ...a,
+    title: decodeHtmlEntities(a.title) as any,
+    description: decodeHtmlEntities(a.description) as any,
+  };
 }
 
 export interface ArticleAiAnalysis {
@@ -1384,7 +1408,7 @@ export async function fetchArticles(
   const res = await fetch(`${API_BASE}/api/news?${query.toString()}`, { headers });
   if (!res.ok) throw new Error(`API hatası: ${res.status}`);
   const data: { total: number; articles: ApiArticle[] } = await res.json();
-  return data.articles;
+  return data.articles.map(cleanArticle);
 }
 
 /**
@@ -1425,7 +1449,7 @@ export async function fetchRecentViews(token: string, limit = 10): Promise<any[]
     });
     if (!res.ok) return [];
     const data = await res.json();
-    return data.articles ?? [];
+    return (data.articles ?? []).map(cleanArticle);
   } catch {
     return [];
   }
@@ -1456,13 +1480,15 @@ export async function fetchForYouArticles(token: string, limit = 30, days = 3): 
     headers: { Authorization: `Bearer ${token}` },
   });
   if (!res.ok) return null;
-  return (await res.json()) as ForYouResponse;
+  const data = (await res.json()) as ForYouResponse;
+  data.articles = data.articles.map(cleanArticle);
+  return data;
 }
 
 export async function fetchArticleById(id: string): Promise<ApiArticle> {
   const res = await fetch(`${API_BASE}/api/news/${encodeURIComponent(id)}`);
   if (!res.ok) throw new Error(`API hatası: ${res.status}`);
-  return (await res.json()) as ApiArticle;
+  return cleanArticle(await res.json() as ApiArticle);
 }
 
 export async function fetchArticleFullContent(id: string): Promise<{ content: string | null; images?: string[]; fromSource: boolean; available?: boolean }> {
@@ -1482,7 +1508,7 @@ export async function fetchTrendingArticles(limit = 10): Promise<ApiArticle[]> {
     const res = await fetch(`${API_BASE}/api/news/trending?limit=${limit}`);
     if (!res.ok) return [];
     const data: { articles: ApiArticle[] } = await res.json();
-    return data.articles ?? [];
+    return (data.articles ?? []).map(cleanArticle);
   } catch {
     return [];
   }
@@ -1493,7 +1519,7 @@ export async function fetchBreakingArticles(limit = 8): Promise<ApiArticle[]> {
     const res = await fetch(`${API_BASE}/api/news/breaking?limit=${limit}`);
     if (!res.ok) return [];
     const data: { articles: ApiArticle[] } = await res.json();
-    return data.articles ?? [];
+    return (data.articles ?? []).map(cleanArticle);
   } catch {
     return [];
   }
@@ -1532,7 +1558,7 @@ export async function fetchSimilarArticlesFromDb(
   const res = await fetch(`${API_BASE}/api/similarity/${encodeURIComponent(id)}?${params}`);
   if (!res.ok) return [];
   const rows = await res.json();
-  return rows.map((r: any) => ({
+  return rows.map((r: any) => cleanArticle({
     id: r.id,
     title: r.title,
     description: r.description ?? '',

@@ -106,6 +106,31 @@ const SITE_RULES: SiteRule[] = [
     contentSelector: '.content-text, .article-content, .news-content',
     removeSelectors: ['script', 'style', '.tags', '.share-bar', '.ad-box'],
   },
+  {
+    domain: 'haberler.com',
+    contentSelector: 'main article, .haber_metni, .hb-content',
+    removeSelectors: ['script', 'style', '.hb-tags', '.reklam', '.related-news', '.share-bar'],
+  },
+  {
+    domain: 'onedio.com',
+    contentSelector: 'article .entry-content, .article-detail, .article-body',
+    removeSelectors: ['script', 'style', '.social-share', '.related-articles', '.advertisement'],
+  },
+  {
+    domain: 't24.com.tr',
+    contentSelector: '._3zL6w, .news-content, article',
+    removeSelectors: ['script', 'style', '.tags', '.share-box', '._3K1Vf'],
+  },
+  {
+    domain: 'sozcu.com.tr',
+    contentSelector: '.article-body, .news-content, .content-text, article',
+    removeSelectors: ['script', 'style', '.tags', '.share-links', '.reklam', '.related-news'],
+  },
+  {
+    domain: 'bloomberght.com',
+    contentSelector: '.article-content, .news-detail-content',
+    removeSelectors: ['script', 'style', '.tags', '.share-buttons', '.reklam'],
+  },
   // ── İngilizce ───────────────────────────────────────────────────────────
   {
     domain: 'bbc.com',
@@ -496,15 +521,38 @@ function extractJsonLdArticleBodies($: ReturnType<typeof cheerio.load>): string[
   return results;
 }
 
-function pickBestArticleText(candidates: string[]): string | null {
+function pickBestArticleText(candidates: string[], context?: { title?: string; description?: string }): string | null {
   const unique = [...new Set(candidates.map(cleanText).filter(Boolean))];
   const valid = unique.filter(isLikelyArticleContent);
   if (!valid.length) return null;
 
+  const titleTokens = context?.title ? tokenize(context.title) : [];
+
   return valid.sort((a, b) => {
+    let aScore = 0;
+    let bScore = 0;
+
     const aParagraphs = a.split(/\n\n+/).length;
     const bParagraphs = b.split(/\n\n+/).length;
-    return bParagraphs * 120 + b.length - (aParagraphs * 120 + a.length);
+    
+    // Uzunluk ve paragraf sayısı (temel skor)
+    aScore += aParagraphs * 120 + a.length;
+    bScore += bParagraphs * 120 + b.length;
+
+    // Başlık uyumluluğu skoru (İçeriğin yanlış habere ait olmasını önler)
+    if (titleTokens.length > 0) {
+      const aTokens = new Set(tokenize(a));
+      const bTokens = new Set(tokenize(b));
+      
+      const aMatches = titleTokens.filter(t => aTokens.has(t)).length;
+      const bMatches = titleTokens.filter(t => bTokens.has(t)).length;
+      
+      // Başlıktaki kelimelerin eşleşmesi için devasa bonus
+      aScore += aMatches * 5000;
+      bScore += bMatches * 5000;
+    }
+
+    return bScore - aScore;
   })[0];
 }
 
@@ -810,7 +858,7 @@ export async function scrapeArticleDetails(url: string, context?: { title?: stri
     console.log(`[Scraper] ${url.substring(0, 60)}: collected ${scoredCandidates.length} candidates, filtered to ${images.length} images`);
 
     // Çok kısa teaser metinleri eleyip, kısa haberleri de kaçırmamak için eşik düşük tutulur.
-    const safeText = pickBestArticleText([text, ...jsonLdTexts]);
+    const safeText = pickBestArticleText([text, ...jsonLdTexts], context);
 
     if (text && !safeText) {
       console.warn('[Scraper] Rejected non-article content for URL:', url);

@@ -16,4 +16,5 @@ export interface ArticleSource {
   name: string;
   url: string;
   type: 'newsapi' | 'rss' | 'scraper';
+  logoUrl?: string;
 }

@@ -17,7 +17,7 @@ function getArticleSignature(articles: ApiArticle[]): string {
 async function loadArticles(): Promise<ApiArticle[]> {
   if (pendingFetch) return pendingFetch;
 
-  pendingFetch = fetchArticles({ limit: 50 }).then((data) => {
+  pendingFetch = fetchArticles({ limit: 500 }).then((data) => {
     console.log('[useNews] fetchArticles success:', { count: data.length, firstTitle: data[0]?.title });
     cachedArticles = data;
     injectArticleCache(data);
@@ -75,7 +75,7 @@ async function loadArticlesForLanguages(languages: string[], force = false): Pro
       const cached = languageCache.get(language);
       if (cached && !force) return cached;
 
-      const request = fetchArticles({ language, limit: 50 }).then((data) => {
+      const request = fetchArticles({ language, limit: 500 }).then((data) => {
         languageCache.set(language, data);
         injectArticleCache(data);
         languagePendingFetch.delete(language);

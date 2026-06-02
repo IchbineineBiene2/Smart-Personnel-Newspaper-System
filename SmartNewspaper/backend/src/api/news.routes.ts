@@ -237,7 +237,7 @@ router.get('/trending', async (req: Request, res: Response) => {
          ) AS score
        FROM articles
        WHERE published_at > NOW() - INTERVAL '48 hours'
-         AND published_at <= NOW() + INTERVAL '5 minutes'
+         AND published_at <= NOW() + INTERVAL '6 hours'
        ORDER BY score DESC, published_at DESC
        LIMIT $1`,
       [limit]
@@ -252,12 +252,72 @@ router.get('/trending', async (req: Request, res: Response) => {
       publishedAt: r.published_at,
       language: r.language,
       category: r.category ?? undefined,
-      source: { name: r.source_name, url: r.source_url ?? '', type: r.source_type },
+      source: { name: r.source_name, url: r.source_url ?? '', type: r.source_type, logoUrl: r.source_logo_url ?? undefined },
     }));
     res.json({ articles });
   } catch (err) {
     console.error('[NewsAPI] Trending hatası:', err);
     res.status(500).json({ error: 'Trend haberler alınamadı' });
+  }
+});
+
+// GET /api/news/trending-topics - Son 48 saatteki haber başlıklarından en çok geçen kelimeleri/etiketleri çıkar
+router.get('/trending-topics', async (_req: Request, res: Response) => {
+  try {
+    const result = await query<{ title: string; category: string | null }>(
+      `SELECT title, category
+       FROM articles
+       WHERE published_at > NOW() - INTERVAL '48 hours'`
+    );
+
+    const stopWords = new Set([
+      'bir', 've', 'ile', 'için', 'bu', 'da', 'de', 'olarak', 'daha', 'en',
+      'son', 'olan', 'göre', 'kadar', 'var', 'yok', 'sonra', 'önce', 'gibi',
+      'çok', 'ne', 'ise', 'ya', 'ki', 'her', 'hiç', 'neden', 'nasıl', 'hangi',
+      'kim', 'şimdi', 'artık', 'yeni', 'büyük', 'ilk', 'tek', 'aynı', 'kendi',
+      'böyle', 'şöyle', 'başka', 'bazı', 'tüm', 'bütün', 'biz', 'siz', 'onlar',
+      'ben', 'sen', 'o', 'şu', 'içinde', 'arasında', 'tarafından', 'üzerine',
+      'zaman', 'gün', 'yıl', 'ay', 'hafta', 'saat', 'dakika', 'an', 'yer',
+      'kişi', 'oldu', 'olacak', 'yaptı', 'yapacak', 'dedi', 'diye', 'etti',
+      'haber', 'gündem', 'detaylar', 'açıklaması', 'açıkladı', 'geldi', 'gitti',
+      'yoksa', 'mi', 'mı', 'mu', 'mü', 'nin', 'nın', 'ın', 'in', 'un', 'ün',
+      'den', 'dan', 'ten', 'tan', 'ye', 'ya', 'e', 'a', 'ı', 'i', 'u', 'ü',
+      'günü', 'yılı', 'ayı', 'haftası', 'sonu', 'başı', 'iç', 'dış', 'karşı',
+      'hakkında', 'ilgili', 'nedeniyle', 'birlikte', 'dolayı', 'rağmen',
+      'olduğu', 'yaptığı', 'edecek', 'ediyor', 'edildi', 'yapıldı', 'çıktı',
+      'kaldı', 'girdi', 'başladı', 'bitti', 'verdi', 'aldı', 'istedi', 'bekliyor',
+      'apos', 'quot', 'amp'
+    ]);
+
+    const counts = new Map<string, number>();
+
+    for (const row of result.rows) {
+      if (row.category) {
+        const cat = row.category.toLowerCase().replace(/[^a-z0-9çğıöşü]/g, '');
+        if (cat.length > 2) {
+          counts.set(cat, (counts.get(cat) || 0) + 2);
+        }
+      }
+
+      if (row.title) {
+        const words = row.title.toLocaleLowerCase('tr-TR').match(/[a-z0-9çğıöşü]{4,}/g) || [];
+        for (const w of words) {
+          if (!stopWords.has(w) && !Number(w)) {
+            counts.set(w, (counts.get(w) || 0) + 1);
+          }
+        }
+      }
+    }
+
+    const topics = Array.from(counts.entries())
+      .map(([tag, count]) => ({ tag, count }))
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 15);
+
+    res.json({ topics });
+  } catch (err) {
+    console.error('[NewsAPI] Trending topics hatası:', err);
+    res.status(500).json({ error: 'Trend konular alınamadı' });
   }
 });
 
@@ -268,7 +328,7 @@ router.get('/breaking', async (req: Request, res: Response) => {
     const result = await query<any>(
       `SELECT * FROM articles
        WHERE published_at > NOW() - INTERVAL '12 hours'
-         AND published_at <= NOW() + INTERVAL '5 minutes'
+         AND published_at <= NOW() + INTERVAL '6 hours'
        ORDER BY published_at DESC
        LIMIT $1`,
       [limit]
@@ -282,7 +342,7 @@ router.get('/breaking', async (req: Request, res: Response) => {
       publishedAt: r.published_at,
       language: r.language,
       category: r.category ?? undefined,
-      source: { name: r.source_name, url: r.source_url ?? '', type: r.source_type },
+      source: { name: r.source_name, url: r.source_url ?? '', type: r.source_type, logoUrl: r.source_logo_url ?? undefined },
     }));
     res.json({ articles });
   } catch (err) {
@@ -327,7 +387,18 @@ router.get('/for-you', authMiddleware, async (req: Request, res: Response) => {
       return res.json({
         cold: true,
         sampleCount: 0,
-        articles: fallback.rows,
+        articles: fallback.rows.map((r) => ({
+          id: r.id,
+          title: r.title,
+          description: r.description ?? '',
+          content: r.content ?? undefined,
+          url: r.url,
+          imageUrl: r.image_url ?? undefined,
+          publishedAt: r.published_at,
+          language: r.language,
+          category: r.category ?? undefined,
+          source: { name: r.source_name, url: r.source_url ?? '', type: 'rss', logoUrl: r.source_logo_url ?? undefined },
+        })),
       });
     }
 
@@ -365,7 +436,19 @@ router.get('/for-you', authMiddleware, async (req: Request, res: Response) => {
       sampleCount: interest.sampleCount,
       freshness: interest.freshness,
       mmr: mmrEnabled,
-      articles: ranked,
+      articles: ranked.map((r) => ({
+        id: r.id,
+        title: r.title,
+        description: r.description ?? '',
+        content: r.content ?? undefined,
+        url: r.url,
+        imageUrl: r.image_url ?? undefined,
+        publishedAt: r.published_at,
+        language: r.language,
+        category: r.category ?? undefined,
+        source: { name: r.source_name, url: r.source_url ?? '', type: 'rss', logoUrl: r.source_logo_url ?? undefined },
+        interestScore: r.interest_score,
+      })),
     });
   } catch (err) {
     console.error('[NewsAPI] for-you hatası:', err);
@@ -426,7 +509,20 @@ router.get('/recent-views', authMiddleware, async (req: Request, res: Response) 
         LIMIT $2`,
       [req.user.userId, limit],
     );
-    return res.json({ articles: r.rows });
+    return res.json({ articles: r.rows.map((r) => ({
+      id: r.id,
+      title: r.title,
+      description: r.description ?? '',
+      url: r.url,
+      imageUrl: r.image_url ?? undefined,
+      publishedAt: r.published_at,
+      language: r.language,
+      category: r.category ?? undefined,
+      source: { name: r.source_name, url: r.source_url ?? '', type: 'rss', logoUrl: r.source_logo_url ?? undefined },
+      viewedAt: r.viewed_at,
+      dwellMs: r.dwell_ms,
+      scrollPct: r.scroll_pct,
+    }))});
   } catch (err) {
     console.error('[NewsAPI] recent-views hatası:', err);
     return res.status(500).json({ error: 'Görüntülenen haberler alınamadı' });
@@ -442,7 +538,7 @@ router.get('/sources', async (_req: Request, res: Response) => {
               MAX(published_at) AS latest_at
        FROM articles
        WHERE published_at > NOW() - INTERVAL '7 days'
-         AND published_at <= NOW() + INTERVAL '5 minutes'
+         AND published_at <= NOW() + INTERVAL '6 hours'
        GROUP BY source_name, source_url
        ORDER BY latest_at DESC
        LIMIT 24`
@@ -464,7 +560,7 @@ router.get('/search', async (req: Request, res: Response) => {
     const limit = Math.min(Number(req.query.limit ?? 20), 50);
 
     const result = await query<any>(
-      `SELECT id, title, description, url, image_url, published_at, language, category, source_name, source_url
+      `SELECT id, title, description, url, image_url, published_at, language, category, source_name, source_url, source_logo_url
        FROM articles
        WHERE translate(lower(title), 'çğışöü', 'cgisou') ILIKE '%' || translate(lower($1), 'çğışöü', 'cgisou') || '%'
           OR translate(lower(COALESCE(description, '')), 'çğışöü', 'cgisou') ILIKE '%' || translate(lower($1), 'çğışöü', 'cgisou') || '%'
@@ -485,7 +581,7 @@ router.get('/search', async (req: Request, res: Response) => {
         publishedAt: r.published_at,
         language: r.language,
         category: r.category ?? undefined,
-        source: { name: r.source_name, url: r.source_url ?? '', type: 'rss' },
+        source: { name: r.source_name, url: r.source_url ?? '', type: 'rss', logoUrl: r.source_logo_url ?? undefined },
       })),
     });
   } catch (err) {

@@ -130,6 +130,7 @@ export function buildPublisherDataset(apiArticles: ApiArticle[]): {
 
     const sourceName = sortedByNewest[0]?.source?.name?.trim() || 'Unknown Source';
     const sourceUrl = sortedByNewest[0]?.source?.url;
+    const sourceLogoUrl = sortedByNewest[0]?.source?.logoUrl;
     const category = deriveCategory(sortedByNewest) as Publisher['category'];
 
     const articleCount = sortedByNewest.length;
@@ -139,7 +140,7 @@ export function buildPublisherDataset(apiArticles: ApiArticle[]): {
       id: publisherId,
       name: sourceName,
       logoText: getLogoText(sourceName),
-      logoUrl: buildSourceLogoUrl(sourceUrl),
+      logoUrl: sourceLogoUrl || buildSourceLogoUrl(sourceUrl),
       description: `${sourceName} kaynagindan toplanan guncel haber akisi.`,
       category,
       readers: formatCompact(Math.max(500, articleCount * 700)),

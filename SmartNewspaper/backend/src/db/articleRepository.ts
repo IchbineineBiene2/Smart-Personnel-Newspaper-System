@@ -13,6 +13,7 @@ interface ArticleRow {
   category: string | null;
   source_name: string;
   source_url: string | null;
+  source_logo_url: string | null;
   source_type: string;
   is_scraped: boolean;
 }
@@ -32,6 +33,7 @@ function rowToArticle(row: ArticleRow): Article {
       name: row.source_name,
       url: row.source_url ?? '',
       type: row.source_type as Article['source']['type'],
+      logoUrl: row.source_logo_url ?? undefined,
     },
   };
 }
@@ -51,18 +53,19 @@ export async function upsertArticle(article: Article): Promise<void> {
   await query(
     `INSERT INTO articles
        (id, title, description, content, url, image_url, published_at,
-        language, category, source_name, source_url, source_type,
+        language, category, source_name, source_url, source_logo_url, source_type,
         is_scraped, scraped_at, updated_at)
      VALUES
-       ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,
-        CASE WHEN $13 THEN NOW() ELSE NULL END,
+       ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,
+        CASE WHEN $14 THEN NOW() ELSE NULL END,
         NOW())
      ON CONFLICT (id) DO UPDATE SET
-       content      = COALESCE(EXCLUDED.content, articles.content),
-       image_url    = COALESCE(EXCLUDED.image_url, articles.image_url),
-       is_scraped   = EXCLUDED.is_scraped OR articles.is_scraped,
-       scraped_at   = CASE WHEN EXCLUDED.is_scraped THEN NOW() ELSE articles.scraped_at END,
-       updated_at   = NOW()`,
+       content         = COALESCE(EXCLUDED.content, articles.content),
+       image_url       = COALESCE(EXCLUDED.image_url, articles.image_url),
+       source_logo_url = COALESCE(EXCLUDED.source_logo_url, articles.source_logo_url),
+       is_scraped      = EXCLUDED.is_scraped OR articles.is_scraped,
+       scraped_at      = CASE WHEN EXCLUDED.is_scraped THEN NOW() ELSE articles.scraped_at END,
+       updated_at      = NOW()`,
     [
       article.id,
       article.title,
@@ -75,6 +78,7 @@ export async function upsertArticle(article: Article): Promise<void> {
       article.category ?? null,
       article.source.name,
       article.source.url,
+      article.source.logoUrl ?? null,
       // 'scraper' DB constraint'te yok — RSS zenginleştirmesi olduğu için 'rss' olarak kaydedilir
       article.source.type === 'scraper' ? 'rss' : article.source.type,
       Boolean(article.content && article.content.length > 200),
@@ -195,7 +199,7 @@ export async function getArticles(params: {
     values.push(mutedSources);
   }
 
-  conditions.push(`published_at <= NOW() + INTERVAL '5 minutes'`);
+  conditions.push(`published_at <= NOW() + INTERVAL '6 hours'`);
 
   const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
 

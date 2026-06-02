@@ -225,7 +225,8 @@ export default function FeedScreen() {
 
   // ── Article helpers ───────────────────────────────────────────────────────
 
-  function buildPublisherLogo(source: { name?: string; url?: string } | undefined) {
+  function buildPublisherLogo(source: { name?: string; url?: string; logoUrl?: string } | undefined) {
+    if (source?.logoUrl) return source.logoUrl;
     if (source?.url) {
       try {
         const host = new URL(source.url).origin;
