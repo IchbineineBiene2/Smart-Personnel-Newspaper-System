@@ -165,11 +165,112 @@ function imageQualityScore(input: string): number {
   return score;
 }
 
+function normalizeImageText(value: string): string {
+  return decodeURIComponent(value)
+    .toLocaleLowerCase('tr-TR')
+    .replace(/[^a-z0-9ğüşıöçĞÜŞİÖÇ\s/-]/gi, ' ')
+    .replace(/[-_/]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function getArticleImageKeywords(...values: Array<string | undefined>): string[] {
+  const localStopWords = new Set([
+    'haber', 'haberi', 'news', 'article', 'photo', 'image', 'gallery', 'with',
+    'from', 'that', 'this', 'have', 'will', 'they', 'their', 'about', 'after',
+    'before', 'over', 'into', 'icin', 'için', 'olan', 'gibi', 'daha', 'sonra',
+    'once', 'önce', 'bir', 'the', 'and', 'for',
+  ]);
+
+  return [...new Set(
+    values
+      .filter(Boolean)
+      .join(' ')
+      .toLocaleLowerCase('tr-TR')
+      .replace(/[^a-z0-9ğüşıöçĞÜŞİÖÇ\s]/gi, ' ')
+      .split(/\s+/)
+      .map((word) => word.trim())
+      .filter((word) => word.length >= 4 && !localStopWords.has(word))
+  )].slice(0, 14);
+}
+
+function getRelevantArticleImages(
+  mainImage: string | undefined,
+  candidates: string[],
+  title: string,
+  summary: string,
+  sourceName: string
+): string[] {
+  const images = mainImage ? [mainImage] : [];
+  const fingerprints = new Set(images.map((img) => imageFingerprint(img)));
+  const keywords = getArticleImageKeywords(title, summary, sourceName);
+
+  const relevant = candidates
+    .filter((img) => {
+      const fingerprint = imageFingerprint(img);
+      if (fingerprints.has(fingerprint)) return false;
+
+      const haystack = normalizeImageText(unwrapImageUrl(img));
+      const keywordHits = keywords.filter((keyword) => haystack.includes(keyword)).length;
+      const hasTitleSignal = keywords.slice(0, 8).some((keyword) => haystack.includes(keyword));
+      const looksDecorative =
+        /\b(cartoon|comic|newsletter|podcast|banner|avatar|logo|icon|squarespace|squires|thumbnail)\b/.test(haystack);
+
+      if (looksDecorative && keywordHits < 3) return false;
+      return keywordHits >= 2 || (hasTitleSignal && keywordHits >= 1 && imageQualityScore(img) > 120_000);
+    })
+    .sort((a, b) => imageQualityScore(b) - imageQualityScore(a))
+    .slice(0, 3);
+
+  relevant.forEach((img) => {
+    const fingerprint = imageFingerprint(img);
+    if (!fingerprints.has(fingerprint)) {
+      fingerprints.add(fingerprint);
+      images.push(img);
+    }
+  });
+
+  return images;
+}
+
 function textToParagraphs(value: string): string[] {
   return value
     .split(/\n\n+/)
     .map((p) => p.trim())
     .filter(Boolean);
+}
+
+function cleanEditorialParagraphs(paragraphs: string[]): string[] {
+  const blocked = [
+    'quote of the day',
+    'football daily letters',
+    'recommended looking',
+    'recommended listening',
+    'recommended subscribing',
+    'like father, like son',
+    'news, bits and bobs',
+    'still want more?',
+    'memory lane',
+    'most viewed',
+  ];
+  const seen = new Set<string>();
+
+  return paragraphs.filter((paragraph) => {
+    const normalized = paragraph.toLocaleLowerCase('tr-TR').replace(/\s+/g, ' ').trim();
+    const words = paragraph.split(/\s+/).filter(Boolean);
+    const uppercaseLetters = paragraph.replace(/[^A-ZĞÜŞİÖÇ]/g, '').length;
+    const letters = paragraph.replace(/[^A-Za-zĞÜŞİÖÇğüşıöç]/g, '').length;
+    const uppercaseRatio = letters ? uppercaseLetters / letters : 0;
+    const sentenceCount = (paragraph.match(/[.!?](\s|$)/g) ?? []).length;
+
+    if (!normalized || seen.has(normalized)) return false;
+    if (blocked.some((item) => normalized === item || normalized.startsWith(`${item} `))) return false;
+    if (words.length < 14 && sentenceCount === 0) return false;
+    if (words.length <= 8 && uppercaseRatio > 0.65) return false;
+
+    seen.add(normalized);
+    return true;
+  });
 }
 
 function findSafeCutIndex(text: string, maxChars: number): number {
@@ -343,7 +444,7 @@ function RelatedArticleCard({ article, onPress, colors, isSidebar = false }: { a
         <Text style={[relatedStyles.cardTitle, { color: colors.textPrimary }]} numberOfLines={3}>
           {article.title}
         </Text>
-        <Text style={[relatedStyles.cardMeta, { color: colors.textMuted }]}>
+        <Text style={[relatedStyles.cardMeta, { color: 'rgba(255,255,255,0.72)' }]}>
           {article.source.name} · {timeLabel}
         </Text>
       </View>
@@ -677,9 +778,10 @@ export default function NewsDetailPage() {
       .map((item) => item.url);
   }, [imageUrl, proxiedExtraImages]);
   const mainImage = useMemo(() => {
+    if (imageUrl) return imageUrl;
     if (!galleryImages.length) return undefined;
     return [...galleryImages].sort((a, b) => imageQualityScore(b) - imageQualityScore(a))[0];
-  }, [galleryImages]);
+  }, [galleryImages, imageUrl]);
 
   const secondaryImages = useMemo(
     () => galleryImages.filter((img) => img !== mainImage),
@@ -716,10 +818,22 @@ export default function NewsDetailPage() {
     () => (hasUsableBody ? body.split(/\n\n+/).map((p) => p.trim()).filter(Boolean) : []),
     [body, hasUsableBody]
   );
-  const articleImages = useMemo(
-    () => (mainImage ? [mainImage, ...secondaryImages] : [...secondaryImages]),
-    [mainImage, secondaryImages]
+  const editorialParagraphs = useMemo(
+    () => cleanEditorialParagraphs(paragraphs),
+    [paragraphs]
   );
+  const articleImages = useMemo(
+    () => getRelevantArticleImages(mainImage, secondaryImages, resolvedTitle, resolvedSummary, sourceName),
+    [mainImage, secondaryImages, resolvedTitle, resolvedSummary, sourceName]
+  );
+  const editorialLeadParagraph = editorialParagraphs[0] ?? resolvedSummary;
+  const editorialBodyParagraphs = editorialParagraphs.slice(1);
+  const editorialPullQuote =
+    editorialBodyParagraphs.find((paragraph) => paragraph.length >= 120) ?? editorialLeadParagraph;
+  const editorialMainParagraphs = editorialBodyParagraphs.filter((paragraph) => paragraph !== editorialPullQuote);
+  const editorialSplitIndex = Math.ceil(editorialMainParagraphs.length / 2);
+  const editorialLeftParagraphs = editorialMainParagraphs.slice(0, editorialSplitIndex);
+  const editorialRightParagraphs = editorialMainParagraphs.slice(editorialSplitIndex);
   const halfImageIndex = Math.ceil(articleImages.length / 2);
   const firstHalfImages = useMemo(() => articleImages.slice(0, halfImageIndex), [articleImages, halfImageIndex]);
   const secondHalfImages = useMemo(() => articleImages.slice(halfImageIndex), [articleImages, halfImageIndex]);
@@ -1135,6 +1249,55 @@ export default function NewsDetailPage() {
     </View>
   );
 
+  const renderEditorialArticleBody = () => (
+    <View style={styles(colors).editorialPage}>
+      <View style={styles(colors).editorialIntroGrid}>
+        <View style={styles(colors).editorialLeadBlock}>
+          <Text style={styles(colors).editorialLeadText}>{editorialLeadParagraph}</Text>
+        </View>
+
+        {articleImages.length > 0 ? (
+          <View style={styles(colors).editorialMosaic}>
+            <Image source={{ uri: articleImages[0] }} style={styles(colors).editorialMosaicMain} resizeMode="cover" />
+            {articleImages.length > 1 ? (
+              <View style={styles(colors).editorialMosaicSide}>
+                {articleImages.slice(1, 3).map((img, idx) => (
+                  <Image key={`mosaic-${idx}`} source={{ uri: img }} style={styles(colors).editorialMosaicThumb} resizeMode="cover" />
+                ))}
+              </View>
+            ) : null}
+          </View>
+        ) : null}
+      </View>
+
+      <View style={styles(colors).editorialAccentRow}>
+        <View style={styles(colors).editorialQuoteCard}>
+          <Text style={styles(colors).editorialQuoteMark}>"</Text>
+          <Text style={styles(colors).editorialQuoteText}>{editorialPullQuote}</Text>
+        </View>
+
+        {articleImages[1] ? (
+          <Image source={{ uri: articleImages[1] }} style={styles(colors).editorialFeatureImage} resizeMode="cover" />
+        ) : null}
+      </View>
+
+      <View style={styles(colors).editorialColumns}>
+        <View style={styles(colors).editorialColumn}>
+          {editorialLeftParagraphs.map((paragraph, idx) => (
+            <Text key={`editorial-left-${idx}`} style={styles(colors).bodyText}>{paragraph}</Text>
+          ))}
+        </View>
+        <View style={styles(colors).editorialColumn}>
+          {editorialRightParagraphs.map((paragraph, idx) => (
+            <Text key={`editorial-right-${idx}`} style={idx === 0 ? styles(colors).editorialEmphasisText : styles(colors).bodyText}>
+              {paragraph}
+            </Text>
+          ))}
+        </View>
+      </View>
+    </View>
+  );
+
   // Late-return: tüm hook'lar yukarıda kayıtsız şartsız çalıştı; burada güvenle ekran seçilebilir.
   if (params.id && !params.title && !articleFromCache && (loading || remoteLoading)) {
     return (
@@ -1477,9 +1640,12 @@ export default function NewsDetailPage() {
                 <ActivityIndicator color={colors.accent} />
                 <Text style={styles(colors).statusText}>Kaynak içeriği yükleniyor...</Text>
               </View>
-            ) : hasUsableBody && paragraphs.length ? (
+            ) : hasUsableBody && (isWeb ? editorialParagraphs.length : paragraphs.length) ? (
               isWeb ? (
                 <>
+                  {renderEditorialArticleBody()}
+                  {false && (
+                    <View style={{ display: 'none' }}>
                   <View style={styles(colors).webFlowRow}>
                     <View style={[styles(colors).imageSlot, styles(colors).imageSlotLeft]}>
                       <View
@@ -1686,6 +1852,8 @@ export default function NewsDetailPage() {
                     </View>
                   )}
 
+                    </View>
+                  )}
                 </>
               ) : (
                 paragraphs.map((paragraph, idx) => (
@@ -1966,11 +2134,12 @@ const styles = (colors: any) =>
     },
     content: {
       width: '100%' as any,
-      maxWidth: 1180,
+      maxWidth: 1960,
       alignSelf: 'center',
-      padding: 24,
-      gap: 18,
-      paddingBottom: 56,
+      paddingHorizontal: Platform.OS === 'web' ? 20 : 18,
+      paddingTop: Platform.OS === 'web' ? 22 : 18,
+      gap: Platform.OS === 'web' ? 20 : 16,
+      paddingBottom: 64,
     },
     centerWrap: {
       flex: 1,
@@ -1981,7 +2150,7 @@ const styles = (colors: any) =>
       padding: Spacing.lg,
     },
     statusText: {
-      color: colors.textSecondary,
+      color: 'rgba(255,255,255,0.78)',
       fontSize: Typography.fontSize.base,
       textAlign: 'center',
     },
@@ -1991,8 +2160,8 @@ const styles = (colors: any) =>
       fontWeight: Typography.fontWeight.bold,
     },
     articleHero: {
-      minHeight: 420,
-      borderRadius: 32,
+      minHeight: Platform.OS === 'web' ? 500 : 340,
+      borderRadius: Platform.OS === 'web' ? 26 : 22,
       borderWidth: 1,
       borderColor: colors.borderSubtle,
       backgroundColor: colors.surface,
@@ -2006,13 +2175,13 @@ const styles = (colors: any) =>
     },
     articleHeroScrim: {
       ...StyleSheet.absoluteFillObject,
-      backgroundColor: 'rgba(0,0,0,0.52)',
+      backgroundColor: 'rgba(0,0,0,0.48)',
     },
     articleHeroContent: {
       flex: 1,
       justifyContent: 'flex-end',
-      gap: 14,
-      padding: 30,
+      gap: 16,
+      padding: Platform.OS === 'web' ? 42 : 24,
     },
     articleHeroTop: {
       flexDirection: 'row',
@@ -2029,28 +2198,28 @@ const styles = (colors: any) =>
       paddingVertical: 6,
       fontSize: 10,
       fontWeight: '900',
-      letterSpacing: 1.6,
+      letterSpacing: 0,
       overflow: 'hidden',
     },
     articleMetaLight: {
-      color: 'rgba(255,255,255,0.72)',
+      color: 'rgba(255,255,255,0.88)',
       fontSize: 12,
       fontWeight: '800',
     },
     articleTitle: {
       color: '#fff',
-      fontSize: 42,
-      lineHeight: 48,
+      fontSize: Platform.OS === 'web' ? 44 : 30,
+      lineHeight: Platform.OS === 'web' ? 52 : 36,
       fontWeight: '900',
-      letterSpacing: -0.8,
-      maxWidth: 980,
+      letterSpacing: 0,
+      maxWidth: 1120,
     },
     articleSummary: {
-      color: 'rgba(255,255,255,0.78)',
-      fontSize: 16,
-      lineHeight: 24,
+      color: 'rgba(255,255,255,0.9)',
+      fontSize: Platform.OS === 'web' ? 17 : 15,
+      lineHeight: Platform.OS === 'web' ? 26 : 23,
       fontWeight: '600',
-      maxWidth: 820,
+      maxWidth: 920,
     },
     detailToolbar: {
       flexDirection: 'row',
@@ -2073,7 +2242,7 @@ const styles = (colors: any) =>
       justifyContent: 'center',
     },
     heroPlaceholderText: {
-      color: colors.textMuted,
+      color: 'rgba(255,255,255,0.72)',
       fontSize: Typography.fontSize.sm,
       letterSpacing: 1,
       fontWeight: Typography.fontWeight.bold,
@@ -2096,11 +2265,11 @@ const styles = (colors: any) =>
       gap: Spacing.xs,
     },
     metaText: {
-      color: colors.textMuted,
+      color: 'rgba(255,255,255,0.72)',
       fontSize: Typography.fontSize.sm,
     },
     metaDot: {
-      color: colors.textMuted,
+      color: 'rgba(255,255,255,0.72)',
       fontSize: Typography.fontSize.sm,
     },
     publisherCard: {
@@ -2134,7 +2303,7 @@ const styles = (colors: any) =>
       fontSize: Typography.fontSize.xs,
     },
     publisherLabel: {
-      color: colors.textMuted,
+      color: 'rgba(255,255,255,0.72)',
       fontSize: Typography.fontSize.xs,
       textTransform: 'uppercase',
       letterSpacing: 1,
@@ -2153,9 +2322,9 @@ const styles = (colors: any) =>
       borderWidth: 1,
       borderColor: colors.borderSubtle,
       backgroundColor: colors.surface,
-      borderRadius: 28,
-      padding: 26,
-      gap: 18,
+      borderRadius: Platform.OS === 'web' ? 20 : 22,
+      padding: Platform.OS === 'web' ? 28 : 20,
+      gap: Platform.OS === 'web' ? 26 : 16,
     },
     aiAnalysisCard: {
       borderWidth: 1,
@@ -2200,7 +2369,7 @@ const styles = (colors: any) =>
       fontWeight: '900',
     },
     aiAnalysisSubtitle: {
-      color: colors.textMuted,
+      color: 'rgba(255,255,255,0.72)',
       fontSize: 12,
       marginTop: 2,
     },
@@ -2222,7 +2391,7 @@ const styles = (colors: any) =>
       paddingVertical: Spacing.sm,
     },
     aiUnavailableText: {
-      color: colors.textMuted,
+      color: 'rgba(255,255,255,0.78)',
       fontSize: 14,
       lineHeight: 20,
     },
@@ -2259,7 +2428,7 @@ const styles = (colors: any) =>
     },
     aiBulletText: {
       flex: 1,
-      color: colors.textSecondary,
+      color: 'rgba(255,255,255,0.82)',
       fontSize: 14,
       lineHeight: 21,
     },
@@ -2279,19 +2448,129 @@ const styles = (colors: any) =>
       letterSpacing: 0.7,
     },
     aiCalloutText: {
-      color: colors.textSecondary,
+      color: 'rgba(255,255,255,0.82)',
       fontSize: 14,
       lineHeight: 21,
     },
     aiMutedLine: {
-      color: colors.textSecondary,
+      color: 'rgba(255,255,255,0.82)',
       fontSize: 14,
       lineHeight: 21,
     },
     bodyText: {
-      color: colors.textSecondary,
-      fontSize: 16,
-      lineHeight: 27,
+      color: 'rgba(255,255,255,0.86)',
+      fontSize: Platform.OS === 'web' ? 18 : 16,
+      lineHeight: Platform.OS === 'web' ? 31 : 27,
+    },
+    editorialPage: {
+      gap: 28,
+    },
+    editorialIntroGrid: {
+      flexDirection: 'row',
+      alignItems: 'stretch',
+      gap: 28,
+    },
+    editorialLeadBlock: {
+      flex: 0.9,
+      minWidth: 0,
+      borderTopWidth: 3,
+      borderBottomWidth: 1,
+      borderTopColor: colors.accent,
+      borderBottomColor: colors.borderSubtle,
+      paddingVertical: 22,
+      paddingRight: 8,
+      justifyContent: 'center',
+      gap: 14,
+    },
+    editorialLeadText: {
+      color: colors.textPrimary,
+      fontSize: 28,
+      lineHeight: 38,
+      fontWeight: '800',
+    },
+    editorialMosaic: {
+      flex: 1.15,
+      minHeight: 430,
+      flexDirection: 'row',
+      gap: 12,
+    },
+    editorialMosaicMain: {
+      flex: 1.35,
+      height: '100%',
+      borderRadius: 18,
+      borderWidth: 1,
+      borderColor: colors.borderSubtle,
+      backgroundColor: colors.surfaceInput,
+    },
+    editorialMosaicSide: {
+      width: 210,
+      gap: 12,
+    },
+    editorialMosaicThumb: {
+      flex: 1,
+      width: '100%',
+      borderRadius: 16,
+      borderWidth: 1,
+      borderColor: colors.borderSubtle,
+      backgroundColor: colors.surfaceInput,
+    },
+    editorialAccentRow: {
+      flexDirection: 'row',
+      alignItems: 'stretch',
+      gap: 24,
+    },
+    editorialQuoteCard: {
+      flex: 1,
+      minHeight: 230,
+      borderRadius: 18,
+      backgroundColor: colors.accent + '16',
+      borderWidth: 1,
+      borderColor: colors.accent + '35',
+      padding: 24,
+      justifyContent: 'center',
+      gap: 8,
+    },
+    editorialQuoteMark: {
+      color: colors.accent,
+      fontSize: 58,
+      lineHeight: 50,
+      fontWeight: '900',
+    },
+    editorialQuoteText: {
+      color: colors.textPrimary,
+      fontSize: 23,
+      lineHeight: 32,
+      fontWeight: '900',
+    },
+    editorialFeatureImage: {
+      flex: 1,
+      minHeight: 230,
+      borderRadius: 18,
+      borderWidth: 1,
+      borderColor: colors.borderSubtle,
+      backgroundColor: colors.surfaceInput,
+    },
+    editorialColumns: {
+      flexDirection: 'row',
+      alignItems: 'flex-start',
+      gap: 34,
+      borderTopWidth: 1,
+      borderTopColor: colors.borderSubtle,
+      paddingTop: 24,
+    },
+    editorialColumn: {
+      flex: 1,
+      minWidth: 0,
+      gap: 16,
+    },
+    editorialEmphasisText: {
+      color: colors.textPrimary,
+      fontSize: 22,
+      lineHeight: 33,
+      fontWeight: '800',
+      borderLeftWidth: 3,
+      borderLeftColor: colors.accent,
+      paddingLeft: 16,
     },
     contentUnavailableBox: {
       alignItems: 'center',
@@ -2309,7 +2588,7 @@ const styles = (colors: any) =>
       textAlign: 'center',
     },
     contentUnavailableText: {
-      color: colors.textMuted,
+      color: 'rgba(255,255,255,0.74)',
       fontSize: 14,
       lineHeight: 21,
       textAlign: 'center',
@@ -2324,8 +2603,8 @@ const styles = (colors: any) =>
     webFlowRow: {
       flexDirection: 'row',
       alignItems: 'flex-start',
-      gap: Spacing.md,
-      marginBottom: Spacing.sm,
+      gap: Platform.OS === 'web' ? 24 : Spacing.md,
+      marginBottom: Platform.OS === 'web' ? 18 : Spacing.sm,
     },
     inlineTextOnly: {
       marginBottom: Spacing.sm,
@@ -2334,12 +2613,12 @@ const styles = (colors: any) =>
     webTextCol: {
       flex: 1,
       minWidth: 0,
-      gap: Spacing.sm,
+      gap: Platform.OS === 'web' ? 14 : Spacing.sm,
     },
     sideTextSlot: {
       flex: 1,
       minWidth: 0,
-      height: 320,
+      height: Platform.OS === 'web' ? 380 : 320,
       borderRadius: Radius.md,
       overflow: 'hidden',
     },
@@ -2348,8 +2627,8 @@ const styles = (colors: any) =>
       paddingRight: Spacing.xs,
     },
     imageSlot: {
-      width: '42%',
-      height: 320,
+      width: Platform.OS === 'web' ? '40%' : '42%',
+      height: Platform.OS === 'web' ? 380 : 320,
       borderRadius: Radius.md,
       borderWidth: 1,
       borderColor: colors.borderSubtle,
@@ -2477,6 +2756,7 @@ const styles = (colors: any) =>
     detailLayoutWeb: {
       flexDirection: 'row',
       alignItems: 'flex-start',
+      gap: 24,
     },
     bodyCol: {
       flex: 1,
@@ -2487,19 +2767,20 @@ const styles = (colors: any) =>
       gap: Spacing.sm,
     },
     mediaColWeb: {
-      width: 360,
+      width: 430,
       position: 'sticky' as any,
       top: 16,
+      gap: 16,
     },
     sameStoryPanel: {
       borderWidth: 1,
       borderColor: colors.borderSubtle,
       backgroundColor: colors.surface,
-      borderRadius: 20,
-      padding: 12,
+      borderRadius: 18,
+      padding: 16,
     },
     sameStoryHint: {
-      color: colors.textMuted,
+      color: 'rgba(255,255,255,0.72)',
       fontSize: 12,
       lineHeight: 17,
       paddingHorizontal: Spacing.xs,
@@ -2528,13 +2809,13 @@ const styles = (colors: any) =>
       textAlign: 'center',
     },
     sameStoryEmptyText: {
-      color: colors.textMuted,
+      color: 'rgba(255,255,255,0.72)',
       fontSize: 12,
       lineHeight: 17,
       textAlign: 'center',
     },
     sameStoryMobileEmpty: {
-      color: colors.textMuted,
+      color: 'rgba(255,255,255,0.72)',
       fontSize: Typography.fontSize.sm,
       lineHeight: 19,
       paddingHorizontal: Spacing.xs,
@@ -2555,8 +2836,8 @@ const styles = (colors: any) =>
       alignSelf: 'flex-end',
     },
     relatedSection: {
-      marginTop: Spacing.sm,
-      gap: Spacing.sm,
+      marginTop: Platform.OS === 'web' ? 4 : Spacing.sm,
+      gap: 12,
     },
     relatedHeader: {
       flexDirection: 'row' as const,
@@ -2596,16 +2877,17 @@ const styles = (colors: any) =>
       flexDirection: 'row',
       gap: 10,
       flexWrap: 'wrap',
+      flex: Platform.OS === 'web' ? 2 : undefined,
     },
     actionButton: {
       flexDirection: 'row',
       alignItems: 'center',
       justifyContent: 'center',
       gap: 7,
-      paddingVertical: 14,
-      paddingHorizontal: 18,
-      borderRadius: 18,
-      minWidth: 132,
+      paddingVertical: 13,
+      paddingHorizontal: 16,
+      borderRadius: 14,
+      minWidth: Platform.OS === 'web' ? 122 : 132,
     },
     actionButtonText: {
       fontSize: 18,
@@ -2618,8 +2900,8 @@ const styles = (colors: any) =>
       borderWidth: 1,
       borderColor: colors.borderSubtle,
       backgroundColor: colors.surface,
-      borderRadius: 22,
-      padding: 18,
+      borderRadius: 18,
+      padding: Platform.OS === 'web' ? 22 : 18,
       gap: 14,
       width: '100%',
     },
@@ -2635,7 +2917,7 @@ const styles = (colors: any) =>
       fontWeight: '800',
     },
     commentsSubtitle: {
-      color: colors.textMuted,
+      color: 'rgba(255,255,255,0.72)',
       fontSize: 12,
       marginTop: 3,
     },
@@ -2662,7 +2944,7 @@ const styles = (colors: any) =>
       gap: 10,
     },
     replyingText: {
-      color: colors.textSecondary,
+      color: 'rgba(255,255,255,0.78)',
       fontSize: 12,
       flex: 1,
     },
@@ -2736,11 +3018,11 @@ const styles = (colors: any) =>
       fontWeight: '800',
     },
     commentTime: {
-      color: colors.textMuted,
+      color: 'rgba(255,255,255,0.68)',
       fontSize: 11,
     },
     commentContent: {
-      color: colors.textSecondary,
+      color: 'rgba(255,255,255,0.84)',
       fontSize: 14,
       lineHeight: 20,
     },
@@ -2783,7 +3065,7 @@ const styles = (colors: any) =>
       gap: 4,
     },
     noCommentsText: {
-      color: colors.textMuted,
+      color: 'rgba(255,255,255,0.72)',
       fontSize: 13,
       textAlign: 'center',
       paddingVertical: 12,
@@ -2820,7 +3102,7 @@ const styles = (colors: any) =>
       fontWeight: '800',
     },
     messagePanelSubtitle: {
-      color: colors.textMuted,
+      color: 'rgba(255,255,255,0.72)',
       fontSize: 12,
       marginTop: 3,
     },
@@ -2857,7 +3139,7 @@ const styles = (colors: any) =>
       fontWeight: '900',
     },
     sourcePreviewSubtitle: {
-      color: colors.textMuted,
+      color: 'rgba(255,255,255,0.72)',
       fontSize: 12,
       marginTop: 2,
     },
@@ -2901,7 +3183,7 @@ const styles = (colors: any) =>
       maxHeight: 300,
     },
     recipientSectionTitle: {
-      color: colors.textMuted,
+      color: 'rgba(255,255,255,0.72)',
       fontSize: 11,
       fontWeight: '800',
       textTransform: 'uppercase',
@@ -2936,12 +3218,12 @@ const styles = (colors: any) =>
       fontWeight: '700',
     },
     recipientEmail: {
-      color: colors.textMuted,
+      color: 'rgba(255,255,255,0.7)',
       fontSize: 12,
       marginTop: 2,
     },
     panelStatusText: {
-      color: colors.textMuted,
+      color: 'rgba(255,255,255,0.74)',
       fontSize: 13,
       textAlign: 'center',
       paddingVertical: 16,
