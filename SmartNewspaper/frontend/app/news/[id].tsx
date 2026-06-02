@@ -647,8 +647,8 @@ export default function NewsDetailPage() {
     };
   }, [params.id]);
   const publisherLogoUrl = useMemo(
-    () => buildPublisherLogoUrl(sourceName, sourceUrl),
-    [sourceName, sourceUrl]
+    () => articleFromCache?.source?.logoUrl ?? buildPublisherLogoUrl(sourceName, sourceUrl),
+    [articleFromCache?.source?.logoUrl, sourceName, sourceUrl]
   );
   const publishedLabel = articleFromCache?.publishedAt
     ? new Date(articleFromCache.publishedAt).toLocaleDateString('tr-TR')

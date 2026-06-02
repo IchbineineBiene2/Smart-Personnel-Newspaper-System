@@ -8,6 +8,7 @@ import {
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   View,
   useWindowDimensions,
 } from 'react-native';
@@ -72,6 +73,8 @@ export default function ExploreScreen() {
   const [token, setToken] = useState('');
   const [currentUserId, setCurrentUserId] = useState(0);
   const [socialOpen, setSocialOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [realTrendingTopics, setRealTrendingTopics] = useState<{tag: string; count: number}[]>([]);
 
   const headerFade = useRef(new Animated.Value(0)).current;
   const heroFade = useRef(new Animated.Value(0)).current;
@@ -90,6 +93,15 @@ export default function ExploreScreen() {
     fetchBreakingArticles(8).then(setBreaking).catch(() => {});
     fetchTrendingArticles(10).then(setTrending).catch(() => {});
     fetchNewsSources().then(setSources).catch(() => {});
+    
+    fetch('http://localhost:3000/api/news/trending-topics')
+      .then((r) => r.json())
+      .then((data) => {
+        if (data.topics && data.topics.length > 0) {
+          setRealTrendingTopics(data.topics);
+        }
+      })
+      .catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -268,6 +280,23 @@ export default function ExploreScreen() {
         <Text style={[styles.subtitle, { color: colors.textMuted }]}>
           Tüm kaynaklardan derlenmiş, editöryel bakışla seçilmiş öne çıkanlar.
         </Text>
+
+        <View style={[styles.searchWrap, { backgroundColor: colors.surface, borderColor: colors.borderSubtle }]}>
+          <Ionicons name="search-outline" size={18} color={colors.textMuted} />
+          <TextInput
+            style={[styles.searchInput, { color: colors.textPrimary }]}
+            placeholder="Haber, etiket veya konu ara..."
+            placeholderTextColor={colors.textMuted}
+            value={searchQuery}
+            onChangeText={setSearchQuery}
+            returnKeyType="search"
+            onSubmitEditing={() => {
+              if (searchQuery.trim().length > 0) {
+                router.push({ pathname: '/(tabs)/search', params: { q: searchQuery.trim() } });
+              }
+            }}
+          />
+        </View>
       </Animated.View>
 
       {/* ─────────────────────────── CATEGORY CHIPS ─────────────────────────── */}
@@ -501,9 +530,10 @@ export default function ExploreScreen() {
               colors={colors}
             >
               <View style={styles.tagCloud}>
-                {TRENDING_TOPICS.map((t, i) => (
+                {(realTrendingTopics.length > 0 ? realTrendingTopics : TRENDING_TOPICS.map((t, i) => ({ tag: t, count: 120 - i * 11 }))).map((topic) => (
                   <Pressable
-                    key={t}
+                    key={topic.tag}
+                    onPress={() => router.push({ pathname: '/(tabs)/search', params: { q: topic.tag } })}
                     style={({ pressed }) => [
                       styles.tag,
                       {
@@ -514,9 +544,9 @@ export default function ExploreScreen() {
                     ]}
                   >
                     <Text style={[styles.tagHash, { color: colors.accent }]}>#</Text>
-                    <Text style={[styles.tagText, { color: colors.textPrimary }]}>{t}</Text>
+                    <Text style={[styles.tagText, { color: colors.textPrimary }]}>{topic.tag}</Text>
                     <Text style={[styles.tagCount, { color: colors.textMuted }]}>
-                      {120 - i * 11}
+                      {topic.count}
                     </Text>
                   </Pressable>
                 ))}
@@ -1149,4 +1179,15 @@ const styles = StyleSheet.create({
     zIndex: 30,
   },
   socialSidebarSlot: { width: 260, flexShrink: 0, alignSelf: 'stretch' },
+  searchWrap: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    marginTop: 20,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderRadius: 16,
+    borderWidth: 1,
+  },
+  searchInput: { flex: 1, fontSize: 15, fontWeight: '500' },
 });

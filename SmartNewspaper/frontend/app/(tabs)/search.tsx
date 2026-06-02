@@ -10,6 +10,7 @@ import {
   Text,
   TextInput,
   View,
+  useWindowDimensions,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
@@ -59,7 +60,7 @@ export default function SearchTab() {
   const { colors } = useTheme();
   const { articles } = useApiNews();
   const { savedIds, toggleSaved } = useBookmarks();
-  const { results, updateFilter } = useSearch(articles);
+  const { results, updateFilter, debouncedQuery } = useSearch(articles);
 
   const [localQuery, setLocalQuery] = useState('');
   const [recentLocal, setRecentLocal] = useState<string[]>([]);
@@ -74,7 +75,7 @@ export default function SearchTab() {
   const headerFade = useRef(new Animated.Value(0)).current;
   const listFade = useRef(new Animated.Value(0)).current;
   const isWeb = Platform.OS === 'web';
-  const normalizedQuery = normalizeSearchText(localQuery.trim());
+  const normalizedQuery = normalizeSearchText(debouncedQuery.trim());
   const routeQuery = Array.isArray(q) ? q[0] : q;
 
   useEffect(() => {
@@ -334,16 +335,13 @@ export default function SearchTab() {
               </SearchSection>
             ) : articleResults.length > 0 ? (
               <SearchSection title="Haberler" colors={colors}>
-                {articleResults.slice(0, activeScope === 'all' ? 5 : 14).map((item) => (
-                  <ArticleRow
-                    key={item.id}
-                    article={item}
-                    colors={colors}
-                    isSaved={savedIds.includes(item.id)}
-                    onPress={() => router.push({ pathname: '/news/[id]', params: { id: item.id } })}
-                    onSave={() => toggleSaved(item.id)}
-                  />
-                ))}
+                <NewspaperGrid
+                  articles={articleResults.slice(0, activeScope === 'all' ? 5 : 14)}
+                  colors={colors}
+                  savedIds={savedIds}
+                  onPress={(id) => router.push({ pathname: '/news/[id]', params: { id } })}
+                  onSave={toggleSaved}
+                />
               </SearchSection>
             ) : null
           ) : null}
@@ -408,16 +406,13 @@ export default function SearchTab() {
 
           {(activeScope === 'tags' || activeScope === 'all') && tagArticleResults.length > 0 ? (
             <SearchSection title="Etikete Uyan Haberler" colors={colors}>
-              {tagArticleResults.slice(0, activeScope === 'all' ? 5 : 18).map((item) => (
-                <ArticleRow
-                  key={`tag-article-${item.id}`}
-                  article={item}
-                  colors={colors}
-                  isSaved={savedIds.includes(item.id)}
-                  onPress={() => router.push({ pathname: '/news/[id]', params: { id: item.id } })}
-                  onSave={() => toggleSaved(item.id)}
-                />
-              ))}
+              <NewspaperGrid
+                articles={tagArticleResults.slice(0, activeScope === 'all' ? 5 : 18)}
+                colors={colors}
+                savedIds={savedIds}
+                onPress={(id) => router.push({ pathname: '/news/[id]', params: { id } })}
+                onSave={toggleSaved}
+              />
             </SearchSection>
           ) : null}
 
@@ -524,6 +519,124 @@ function SearchSection({ title, colors, children }: { title: string; colors: any
   );
 }
 
+function NewspaperGrid({
+  articles,
+  colors,
+  savedIds,
+  onPress,
+  onSave,
+}: {
+  articles: any[];
+  colors: any;
+  savedIds: string[];
+  onPress: (id: string) => void;
+  onSave: (id: string) => void;
+}) {
+  const { width } = useWindowDimensions();
+  const isWide = Platform.OS === 'web' && width > 768;
+
+  if (articles.length === 0) return null;
+
+  const hero = articles[0];
+  const sideBySide = articles.slice(1, 3);
+  const rest = articles.slice(3);
+
+  return (
+    <View style={{ gap: 24 }}>
+      {/* Hero Article */}
+      <Pressable
+        style={({ pressed }) => [
+          { borderBottomWidth: 1, borderBottomColor: colors.borderSubtle, paddingBottom: 24, opacity: pressed ? 0.7 : 1 },
+        ]}
+        onPress={() => onPress(hero.id)}
+      >
+        {hero.imageUrl && (
+          <Image
+            source={{ uri: proxyImageUrl(hero.imageUrl) }}
+            style={{ width: '100%', height: isWide ? 400 : 220, borderRadius: 8, marginBottom: 16 }}
+          />
+        )}
+        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+          <View style={{ flex: 1, paddingRight: 16 }}>
+            <Text style={[styles.articleCat, { color: colors.accent, marginBottom: 8 }]}>
+              {hero.category?.toUpperCase() ?? 'GENEL'}
+            </Text>
+            <Text style={[styles.articleTitle, { color: colors.textPrimary, fontSize: isWide ? 32 : 24, lineHeight: isWide ? 38 : 30, marginBottom: 12 }]}>
+              {hero.title}
+            </Text>
+            {!!hero.description && (
+              <Text style={[{ color: colors.textMuted, fontSize: 14, lineHeight: 22, marginBottom: 12 }]} numberOfLines={3}>
+                {hero.description}
+              </Text>
+            )}
+            <Text style={[styles.articleMeta, { color: colors.textMuted }]}>
+              {hero.source?.name}
+            </Text>
+          </View>
+          <Pressable onPress={() => onSave(hero.id)} hitSlop={12} style={{ marginTop: 4 }}>
+            <Ionicons name={savedIds.includes(hero.id) ? 'bookmark' : 'bookmark-outline'} size={22} color={savedIds.includes(hero.id) ? colors.accent : colors.textMuted} />
+          </Pressable>
+        </View>
+      </Pressable>
+
+      {/* Side by side (if available) */}
+      {sideBySide.length > 0 && (
+        <View style={{ flexDirection: isWide ? 'row' : 'column', gap: 24, borderBottomWidth: 1, borderBottomColor: colors.borderSubtle, paddingBottom: 24 }}>
+          {sideBySide.map((a, i) => (
+            <Pressable
+              key={a.id}
+              style={({ pressed }) => [
+                { flex: 1, opacity: pressed ? 0.7 : 1 },
+                isWide && i === 0 && { paddingRight: 24, borderRightWidth: 1, borderRightColor: colors.borderSubtle }
+              ]}
+              onPress={() => onPress(a.id)}
+            >
+              {a.imageUrl && (
+                <Image
+                  source={{ uri: proxyImageUrl(a.imageUrl) }}
+                  style={{ width: '100%', height: 160, borderRadius: 6, marginBottom: 12 }}
+                />
+              )}
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                <View style={{ flex: 1, paddingRight: 12 }}>
+                  <Text style={[styles.articleCat, { color: colors.accent, marginBottom: 6 }]}>
+                    {a.category?.toUpperCase() ?? 'GENEL'}
+                  </Text>
+                  <Text style={[styles.articleTitle, { color: colors.textPrimary, fontSize: 18, lineHeight: 24, marginBottom: 8 }]} numberOfLines={3}>
+                    {a.title}
+                  </Text>
+                  <Text style={[styles.articleMeta, { color: colors.textMuted }]}>
+                    {a.source?.name}
+                  </Text>
+                </View>
+                <Pressable onPress={() => onSave(a.id)} hitSlop={12}>
+                  <Ionicons name={savedIds.includes(a.id) ? 'bookmark' : 'bookmark-outline'} size={18} color={savedIds.includes(a.id) ? colors.accent : colors.textMuted} />
+                </Pressable>
+              </View>
+            </Pressable>
+          ))}
+        </View>
+      )}
+
+      {/* Standard Rows */}
+      {rest.length > 0 && (
+        <View style={{ gap: 0 }}>
+          {rest.map((a) => (
+            <ArticleRow
+              key={a.id}
+              article={a}
+              colors={colors}
+              isSaved={savedIds.includes(a.id)}
+              onPress={() => onPress(a.id)}
+              onSave={() => onSave(a.id)}
+            />
+          ))}
+        </View>
+      )}
+    </View>
+  );
+}
+
 function ArticleRow({
   article,
   colors,
@@ -542,7 +655,7 @@ function ArticleRow({
     <Pressable
       style={({ pressed }) => [
         styles.articleRow,
-        { backgroundColor: pressed ? colors.surfaceHigh : colors.surface, borderColor: colors.borderSubtle },
+        { borderBottomColor: colors.borderSubtle, opacity: pressed ? 0.6 : 1 },
       ]}
       onPress={onPress}
     >
@@ -572,14 +685,14 @@ function PublisherRow({ publisher, colors, onPress }: { publisher: any; colors: 
     <Pressable
       style={({ pressed }) => [
         styles.articleRow,
-        { backgroundColor: pressed ? colors.surfaceHigh : colors.surface, borderColor: colors.borderSubtle },
+        { borderBottomColor: colors.borderSubtle, opacity: pressed ? 0.6 : 1, alignItems: 'center' },
       ]}
       onPress={onPress}
     >
       {publisher.logoUrl ? (
-        <Image source={{ uri: publisher.logoUrl }} style={[styles.articleThumb, { backgroundColor: colors.surfaceHigh }]} />
+        <Image source={{ uri: publisher.logoUrl }} style={[styles.publisherThumb, { backgroundColor: colors.surfaceHigh }]} />
       ) : (
-        <View style={[styles.articleThumb, styles.centerThumb, { backgroundColor: colors.accent + '18' }]}>
+        <View style={[styles.publisherThumb, styles.centerThumb, { backgroundColor: colors.accent + '18' }]}>
           <Text style={[styles.publisherLogoText, { color: colors.accent }]}>{publisher.logoText}</Text>
         </View>
       )}
@@ -599,11 +712,11 @@ function UserRow({ user, colors, onPress }: { user: UserResult; colors: any; onP
     <Pressable
       style={({ pressed }) => [
         styles.articleRow,
-        { backgroundColor: pressed ? colors.surfaceHigh : colors.surface, borderColor: colors.borderSubtle },
+        { borderBottomColor: colors.borderSubtle, opacity: pressed ? 0.6 : 1, alignItems: 'center' },
       ]}
       onPress={onPress}
     >
-      <View style={[styles.articleThumb, styles.centerThumb, { backgroundColor: colors.accent + '18' }]}>
+      <View style={[styles.publisherThumb, styles.centerThumb, { backgroundColor: colors.accent + '18' }]}>
         <Text style={[styles.publisherLogoText, { color: colors.accent }]}>{display.slice(0, 2).toUpperCase()}</Text>
       </View>
       <View style={styles.articleText}>
@@ -676,22 +789,22 @@ const styles = StyleSheet.create({
   tagResultHash: { fontSize: 18, fontWeight: '900' },
   tagResultText: { fontSize: 13, fontWeight: '800' },
   tagResultCount: { fontSize: 11, marginTop: 2 },
-  articleList: { gap: 8 },
+  articleList: { gap: 4 },
   articleRow: {
     flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    padding: 14,
-    borderRadius: 16,
-    borderWidth: 1,
+    alignItems: 'flex-start',
+    gap: 16,
+    paddingVertical: 18,
+    borderBottomWidth: 1,
   },
-  articleThumb: { width: 52, height: 52, borderRadius: 10 },
+  articleThumb: { width: 120, height: 85, borderRadius: 6 },
+  publisherThumb: { width: 60, height: 60, borderRadius: 30 },
   centerThumb: { alignItems: 'center', justifyContent: 'center' },
-  publisherLogoText: { fontSize: 13, fontWeight: '900' },
-  articleText: { flex: 1, gap: 4, minWidth: 0 },
-  articleCat: { fontSize: 9, fontWeight: '900', letterSpacing: 1.2 },
-  articleTitle: { fontSize: 13, fontWeight: '600', lineHeight: 18 },
-  articleMeta: { fontSize: 11, fontWeight: '600' },
+  publisherLogoText: { fontSize: 16, fontWeight: '900' },
+  articleText: { flex: 1, gap: 6, minWidth: 0, justifyContent: 'center' },
+  articleCat: { fontSize: 10, fontWeight: '800', letterSpacing: 1.5 },
+  articleTitle: { fontSize: 16, fontWeight: '800', lineHeight: 22 },
+  articleMeta: { fontSize: 12, fontWeight: '500' },
   noResult: { paddingVertical: 40, alignItems: 'center', gap: 10 },
   noResultText: { fontSize: 14, fontWeight: '600' },
   emptySectionText: { fontSize: 13, lineHeight: 19, paddingVertical: 8 },
