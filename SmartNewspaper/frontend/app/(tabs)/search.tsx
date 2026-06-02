@@ -12,7 +12,7 @@ import {
   View,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import { useApiNews } from '@/hooks/useNews';
@@ -55,6 +55,7 @@ function normalizeSearchText(value: string): string {
 
 export default function SearchTab() {
   const router = useRouter();
+  const { q } = useLocalSearchParams<{ q?: string | string[] }>();
   const { colors } = useTheme();
   const { articles } = useApiNews();
   const { savedIds, toggleSaved } = useBookmarks();
@@ -74,6 +75,7 @@ export default function SearchTab() {
   const listFade = useRef(new Animated.Value(0)).current;
   const isWeb = Platform.OS === 'web';
   const normalizedQuery = normalizeSearchText(localQuery.trim());
+  const routeQuery = Array.isArray(q) ? q[0] : q;
 
   useEffect(() => {
     Animated.stagger(100, [
@@ -96,6 +98,13 @@ export default function SearchTab() {
       .then((data) => setTrendingTopics(data.topics || []))
       .catch(() => {});
   }, [headerFade, listFade]);
+
+  useEffect(() => {
+    const incoming = routeQuery?.trim();
+    if (!incoming || incoming === localQuery) return;
+    setLocalQuery(incoming);
+    updateFilter('query', incoming);
+  }, [localQuery, routeQuery, updateFilter]);
 
   const { publishers } = useMemo(() => buildPublisherDataset(articles), [articles]);
 

@@ -4,6 +4,7 @@ import {
   Alert,
   Animated,
   Image,
+  Modal,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -14,6 +15,8 @@ import {
   View,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { CameraView } from 'expo-camera';
+import * as ImagePicker from 'expo-image-picker';
 import { useFocusEffect } from '@react-navigation/native';
 import { useRouter } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -113,6 +116,11 @@ export default function ProfileScreen() {
   const [autoNightMode, setAutoNightMode] = useState(false);
   const [profilePhotoUri, setProfilePhotoUri] = useState<string | null>(null);
   const [photoMenuOpen, setPhotoMenuOpen] = useState(false);
+  const [photoPreviewOpen, setPhotoPreviewOpen] = useState(false);
+  const [cameraOpen, setCameraOpen] = useState(false);
+  const [cameraReady, setCameraReady] = useState(false);
+  const [cameraDraftUri, setCameraDraftUri] = useState<string | null>(null);
+  const [cameraSaving, setCameraSaving] = useState(false);
   const [showPasswordChange, setShowPasswordChange] = useState(false);
   const [oldPassword, setOldPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
@@ -123,6 +131,7 @@ export default function ProfileScreen() {
   const headerFade = useRef(new Animated.Value(0)).current;
   const contentFade = useRef(new Animated.Value(0)).current;
   const friendSearchRequestId = useRef(0);
+  const cameraRef = useRef<CameraView | null>(null);
 
   const isWeb = Platform.OS === 'web';
   const bg = colors.background;
@@ -180,6 +189,12 @@ export default function ProfileScreen() {
     setEditName(userProfile?.name ?? '');
     setEditEmail(userProfile?.email ?? '');
   }, [userProfile]);
+
+  useEffect(() => {
+    AsyncStorage.getItem(PROFILE_PHOTO_STORAGE_KEY)
+      .then((uri) => setProfilePhotoUri(uri))
+      .catch(() => {});
+  }, []);
 
   const handleLogout = async () => {
     await logoutUser();
@@ -435,14 +450,94 @@ export default function ProfileScreen() {
     }
   };
 
-  const openPhotoPicker = async (source: 'camera' | 'library') => {
-    // TODO: Implement photo picker
-    console.log('Photo picker called:', source);
+  const saveProfilePhoto = async (uri: string) => {
+    setProfilePhotoUri(uri);
+    setPhotoMenuOpen(false);
+    setCameraDraftUri(null);
+    setCameraOpen(false);
+    await AsyncStorage.setItem(PROFILE_PHOTO_STORAGE_KEY, uri);
+  };
+
+  const openCamera = async () => {
+    try {
+      const permission = await ImagePicker.requestCameraPermissionsAsync();
+
+      if (!permission.granted) {
+        Alert.alert(
+          'İzin gerekli',
+          'Fotoğraf çekmek için kamera izni vermen gerekiyor.'
+        );
+        return;
+      }
+
+      setPhotoMenuOpen(false);
+      setCameraDraftUri(null);
+      setCameraReady(false);
+      setCameraOpen(true);
+    } catch {
+      Alert.alert('Hata', 'Kamera açılamadı.');
+    }
+  };
+
+  const takeCameraPhoto = async () => {
+    if (!cameraRef.current || !cameraReady || cameraSaving) return;
+
+    try {
+      setCameraSaving(true);
+      const photo = await cameraRef.current.takePictureAsync({
+        quality: 0.9,
+        base64: Platform.OS === 'web',
+      });
+
+      if (photo?.uri) {
+        setCameraDraftUri(photo.uri);
+      }
+    } catch {
+      Alert.alert('Hata', 'Fotoğraf çekilemedi.');
+    } finally {
+      setCameraSaving(false);
+    }
+  };
+
+  const closeCamera = () => {
+    setCameraOpen(false);
+    setCameraDraftUri(null);
+    setCameraReady(false);
+    setCameraSaving(false);
+  };
+
+  const openPhotoPicker = async () => {
+    try {
+      const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+
+      if (!permission.granted) {
+        Alert.alert(
+          'İzin gerekli',
+          'Fotoğraf seçmek için galeri izni vermen gerekiyor.'
+        );
+        return;
+      }
+
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ['images'],
+        allowsEditing: true,
+        aspect: [1, 1],
+        quality: 0.9,
+      });
+
+      if (result.canceled || !result.assets?.[0]?.uri) return;
+      await saveProfilePhoto(result.assets[0].uri);
+    } catch {
+      Alert.alert('Hata', 'Profil fotoğrafı güncellenemedi.');
+    }
   };
 
   const removeProfilePhoto = async () => {
     setProfilePhotoUri(null);
-    // TODO: Send update to backend
+    setPhotoPreviewOpen(false);
+    setPhotoMenuOpen(false);
+    setCameraDraftUri(null);
+    await AsyncStorage.removeItem(PROFILE_PHOTO_STORAGE_KEY);
   };
 
   const handleChangePassword = async () => {
@@ -481,6 +576,7 @@ export default function ProfileScreen() {
   };
 
   return (
+    <>
     <ScrollView
       style={[styles.root, { backgroundColor: bg }]}
       contentContainerStyle={[styles.content, isWeb && styles.webContent]}
@@ -492,13 +588,18 @@ export default function ProfileScreen() {
           {/* Profile Card */}
           <View style={[styles.profileCard, { backgroundColor: colors.surface, borderColor: colors.borderSubtle }]}>
             <View style={[styles.avatarWrap, { borderColor: colors.accent }]}>
-              <View style={[styles.avatar, { backgroundColor: colors.accent + '20' }]}>
+              <Pressable
+                onPress={() => {
+                  if (profilePhotoUri) setPhotoPreviewOpen(true);
+                }}
+                style={[styles.avatar, { backgroundColor: colors.accent + '20' }]}
+              >
                 {profilePhotoUri ? (
                   <Image source={{ uri: profilePhotoUri }} style={styles.avatarImage} resizeMode="cover" />
                 ) : (
                   <Ionicons name="person" size={36} color={colors.accent} />
                 )}
-              </View>
+              </Pressable>
               <Pressable
                 style={[styles.avatarEditButton, { backgroundColor: colors.accent, borderColor: colors.surface }]}
                 onPress={() => setPhotoMenuOpen((value) => !value)}
@@ -508,11 +609,11 @@ export default function ProfileScreen() {
               <View style={[styles.onlineDot, { borderColor: colors.surface }]} />
               {photoMenuOpen && (
                 <View style={[styles.photoMenu, { backgroundColor: colors.surface, borderColor: colors.borderSubtle }]}>
-                  <Pressable style={styles.photoMenuItem} onPress={() => openPhotoPicker('camera')}>
+                  <Pressable style={styles.photoMenuItem} onPress={openCamera}>
                     <Ionicons name="camera-outline" size={15} color={colors.accent} />
                     <Text style={[styles.photoMenuText, { color: colors.textPrimary }]}>Çek</Text>
                   </Pressable>
-                  <Pressable style={styles.photoMenuItem} onPress={() => openPhotoPicker('library')}>
+                  <Pressable style={styles.photoMenuItem} onPress={openPhotoPicker}>
                     <Ionicons name="image-outline" size={15} color={colors.accent} />
                     <Text style={[styles.photoMenuText, { color: colors.textPrimary }]}>Seç</Text>
                   </Pressable>
@@ -963,7 +1064,7 @@ export default function ProfileScreen() {
                                   {publisher.name}
                                 </Text>
                                 <Text style={[styles.followedMeta, { color: colors.textMuted }]} numberOfLines={1}>
-                                  {publisher.articlesCount} haber | {publisher.cadence}
+                                  {publisher.articlesCount} haber
                                 </Text>
                               </View>
                               <Pressable
@@ -1037,7 +1138,7 @@ export default function ProfileScreen() {
                                 {publisher.name}
                               </Text>
                               <Text style={[styles.followedMeta, { color: colors.textMuted }]} numberOfLines={1}>
-                                {publisher.articlesCount} haber | {publisher.cadence}
+                                {publisher.articlesCount} haber
                               </Text>
                             </View>
                             <Pressable
@@ -1636,6 +1737,102 @@ export default function ProfileScreen() {
         <Text style={[styles.footerText, { color: colors.textMuted }]}>© 2026 GazeteAI Hub v2.0</Text>
       </View>
     </ScrollView>
+
+    <Modal
+      transparent
+      animationType="slide"
+      visible={cameraOpen}
+      onRequestClose={closeCamera}
+    >
+      <View style={styles.cameraOverlay}>
+        <View style={[styles.cameraCard, { backgroundColor: colors.surface, borderColor: colors.borderSubtle }]}>
+          <View style={styles.previewHeader}>
+            <Text style={[styles.previewTitle, { color: colors.textPrimary }]}>Fotoğraf çek</Text>
+            <Pressable onPress={closeCamera} style={[styles.previewClose, { backgroundColor: colors.surfaceHigh }]}>
+              <Ionicons name="close" size={18} color={colors.textPrimary} />
+            </Pressable>
+          </View>
+
+          <View style={[styles.cameraFrame, { backgroundColor: colors.surfaceHigh }]}>
+            {cameraDraftUri ? (
+              <Image source={{ uri: cameraDraftUri }} style={styles.cameraPreviewImage} resizeMode="cover" />
+            ) : (
+              <>
+                <CameraView
+                  ref={cameraRef}
+                  style={styles.cameraView}
+                  facing="front"
+                  mode="picture"
+                  onCameraReady={() => setCameraReady(true)}
+                  onMountError={() => Alert.alert('Hata', 'Kamera başlatılamadı.')}
+                />
+                {!cameraReady && (
+                  <View style={styles.cameraLoading}>
+                    <ActivityIndicator color="#fff" />
+                  </View>
+                )}
+              </>
+            )}
+          </View>
+
+          {cameraDraftUri ? (
+            <View style={styles.cameraActions}>
+              <Pressable
+                style={[styles.cameraSecondaryBtn, { borderColor: colors.borderSubtle }]}
+                onPress={() => setCameraDraftUri(null)}
+              >
+                <Ionicons name="camera-reverse-outline" size={16} color={colors.textPrimary} />
+                <Text style={[styles.cameraSecondaryText, { color: colors.textPrimary }]}>Yeniden çek</Text>
+              </Pressable>
+              <Pressable
+                style={[styles.cameraPrimaryBtn, { backgroundColor: colors.accent }]}
+                onPress={() => saveProfilePhoto(cameraDraftUri)}
+              >
+                <Ionicons name="checkmark" size={17} color="#fff" />
+                <Text style={styles.cameraPrimaryText}>Profil resmi yap</Text>
+              </Pressable>
+            </View>
+          ) : (
+            <Pressable
+              style={[styles.cameraShutter, (!cameraReady || cameraSaving) && styles.cameraShutterDisabled]}
+              onPress={takeCameraPhoto}
+              disabled={!cameraReady || cameraSaving}
+            >
+              {cameraSaving ? (
+                <ActivityIndicator color="#fff" />
+              ) : (
+                <View style={styles.cameraShutterInner} />
+              )}
+            </Pressable>
+          )}
+        </View>
+      </View>
+    </Modal>
+
+    <Modal
+      transparent
+      animationType="fade"
+      visible={photoPreviewOpen && !!profilePhotoUri}
+      onRequestClose={() => setPhotoPreviewOpen(false)}
+    >
+      <Pressable style={styles.previewOverlay} onPress={() => setPhotoPreviewOpen(false)}>
+        <Pressable
+          style={[styles.previewCard, { backgroundColor: colors.surface, borderColor: colors.borderSubtle }]}
+          onPress={(event) => event.stopPropagation()}
+        >
+          <View style={styles.previewHeader}>
+            <Text style={[styles.previewTitle, { color: colors.textPrimary }]}>Profil fotoğrafı</Text>
+            <Pressable onPress={() => setPhotoPreviewOpen(false)} style={[styles.previewClose, { backgroundColor: colors.surfaceHigh }]}>
+              <Ionicons name="close" size={18} color={colors.textPrimary} />
+            </Pressable>
+          </View>
+          {profilePhotoUri && (
+            <Image source={{ uri: profilePhotoUri }} style={styles.previewImage} resizeMode="cover" />
+          )}
+        </Pressable>
+      </Pressable>
+    </Modal>
+    </>
   );
 }
 
@@ -1662,6 +1859,121 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
   },
   avatarImage: { width: '100%' as any, height: '100%' as any },
+  previewOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.72)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 24,
+  },
+  previewCard: {
+    width: '100%' as any,
+    maxWidth: 420,
+    borderRadius: 24,
+    borderWidth: 1,
+    padding: 16,
+    gap: 14,
+  },
+  previewHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  previewTitle: { fontSize: 15, fontWeight: '900' },
+  previewClose: {
+    width: 34,
+    height: 34,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  previewImage: {
+    width: '100%' as any,
+    aspectRatio: 1,
+    borderRadius: 20,
+  },
+  cameraOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.76)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 18,
+  },
+  cameraCard: {
+    width: '100%' as any,
+    maxWidth: 460,
+    borderRadius: 24,
+    borderWidth: 1,
+    padding: 16,
+    gap: 16,
+  },
+  cameraFrame: {
+    width: '100%' as any,
+    aspectRatio: 1,
+    borderRadius: 22,
+    overflow: 'hidden',
+    position: 'relative',
+  },
+  cameraView: {
+    ...StyleSheet.absoluteFillObject,
+  },
+  cameraPreviewImage: {
+    width: '100%' as any,
+    height: '100%' as any,
+  },
+  cameraLoading: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(0,0,0,0.35)',
+  },
+  cameraShutter: {
+    width: 72,
+    height: 72,
+    borderRadius: 36,
+    borderWidth: 4,
+    borderColor: '#fff',
+    alignItems: 'center',
+    justifyContent: 'center',
+    alignSelf: 'center',
+  },
+  cameraShutterDisabled: {
+    opacity: 0.55,
+  },
+  cameraShutterInner: {
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    backgroundColor: '#fff',
+  },
+  cameraActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  cameraSecondaryBtn: {
+    flex: 1,
+    minHeight: 46,
+    borderRadius: 14,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexDirection: 'row',
+    gap: 8,
+    paddingHorizontal: 12,
+  },
+  cameraPrimaryBtn: {
+    flex: 1,
+    minHeight: 46,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexDirection: 'row',
+    gap: 8,
+    paddingHorizontal: 12,
+  },
+  cameraSecondaryText: { fontSize: 12, fontWeight: '900' },
+  cameraPrimaryText: { color: '#fff', fontSize: 12, fontWeight: '900' },
   avatarEditButton: {
     position: 'absolute',
     left: -2,

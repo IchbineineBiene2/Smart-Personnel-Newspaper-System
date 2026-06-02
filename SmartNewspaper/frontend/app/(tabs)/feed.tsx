@@ -9,6 +9,7 @@ import {
   Share,
   StyleSheet,
   Text,
+  TextInput,
   View,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
@@ -21,7 +22,10 @@ import { usePublisherState } from '@/hooks/usePublisherState';
 import { usePreferences } from '@/hooks/usePreferences';
 import { useTheme } from '@/hooks/useTheme';
 import { mapToContentCategory, proxyImageUrl } from '@/services/newsApi';
-import { getPublisherIdFromSourceName } from '@/services/publisherProfiles';
+import { getUserProfile } from '@/services/auth';
+import { buildPublisherDataset, getPublisherIdFromSourceName } from '@/services/publisherProfiles';
+import { CurrencyWidget } from '@/components/widgets/CurrencyWidget';
+import { WeatherWidget } from '@/components/widgets/WeatherWidget';
 
 // ── Constants ──────────────────────────────────────────────────────────────────
 
@@ -47,6 +51,14 @@ const LANG_META: Record<string, { label: string; flag: string }> = {
 };
 
 const PER_PAGE_OPTIONS = [20, 40, 60];
+type FeedTool = 'currency' | 'weather';
+type SearchSuggestion = {
+  id: string;
+  title: string;
+  meta: string;
+  kind: 'Haber' | 'Site';
+  onPress: () => void;
+};
 
 // ── Component ──────────────────────────────────────────────────────────────────
 
@@ -55,11 +67,16 @@ export default function FeedScreen() {
   const { colors } = useTheme();
   const { preferredCategories, preferredNewsLanguages, reload: reloadPreferences } = usePreferences();
   const { followedIds, reload: reloadPublisherState } = usePublisherState();
+  const [profileName, setProfileName] = useState('Kullanici');
 
   useFocusEffect(
     useCallback(() => {
       reloadPreferences();
       reloadPublisherState();
+      getUserProfile().then((profile) => {
+        const name = profile?.name?.trim();
+        setProfileName(name || 'Kullanici');
+      });
     }, [reloadPreferences, reloadPublisherState])
   );
   const { savedIds, toggleSaved } = useBookmarks();
@@ -72,6 +89,9 @@ export default function FeedScreen() {
   const [perPage,    setPerPage]    = useState(40);
   const [page,       setPage]       = useState(1);
   const [sidebarVisible, setSidebarVisible] = useState(true);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchFocused, setSearchFocused] = useState(false);
+  const [activeTools, setActiveTools] = useState<FeedTool[]>([]);
   const requestedLanguages = viewMode === 'followed'
     ? selLangs
     : (selLangs.length > 0 ? selLangs : preferredNewsLanguages);
@@ -112,6 +132,42 @@ export default function FeedScreen() {
       .slice(0, 18)
       .map(([name]) => name);
   }, [visibleArticles]);
+
+  const searchSuggestions = useMemo<SearchSuggestion[]>(() => {
+    const query = searchQuery.trim().toLocaleLowerCase('tr-TR');
+    if (query.length < 2) return [];
+
+    const articleMatches: SearchSuggestion[] = articles
+      .filter((article) => {
+        const category = mapToContentCategory(article.category, article.title, article.description);
+        const haystack = `${article.title} ${article.description} ${article.source.name} ${category}`.toLocaleLowerCase('tr-TR');
+        return haystack.includes(query);
+      })
+      .slice(0, 4)
+      .map((article) => ({
+        id: `article-${article.id}`,
+        title: article.title,
+        meta: article.source.name,
+        kind: 'Haber',
+        onPress: () => router.push({ pathname: '/news/[id]', params: { id: article.id } }),
+      }));
+
+    const publisherMatches: SearchSuggestion[] = buildPublisherDataset(articles).publishers
+      .filter((publisher) => {
+        const haystack = `${publisher.name} ${publisher.category} ${publisher.description}`.toLocaleLowerCase('tr-TR');
+        return haystack.includes(query);
+      })
+      .slice(0, 3)
+      .map((publisher) => ({
+        id: `publisher-${publisher.id}`,
+        title: publisher.name,
+        meta: publisher.category,
+        kind: 'Site',
+        onPress: () => router.push(`/publisherprofile?id=${encodeURIComponent(publisher.id)}` as any),
+      }));
+
+    return [...articleMatches, ...publisherMatches].slice(0, 6);
+  }, [articles, router, searchQuery]);
 
   // ── Filtered + paginated feed ──────────────────────────────────────────────
 
@@ -202,6 +258,16 @@ export default function FeedScreen() {
     await Share.share({ title, message: `${title}\n\n${url}`, url });
   };
 
+  const openSearch = () => {
+    setSearchFocused(false);
+    const query = searchQuery.trim();
+    if (query) {
+      router.push({ pathname: '/(tabs)/search', params: { q: query } } as any);
+      return;
+    }
+    router.push('/(tabs)/search' as any);
+  };
+
   // ── Render ────────────────────────────────────────────────────────────────
 
   return (
@@ -214,34 +280,131 @@ export default function FeedScreen() {
       <Animated.View
         style={[styles.header, { opacity: entrance, transform: [{ translateY: entrance.interpolate({ inputRange: [0, 1], outputRange: [16, 0] }) }] }]}
       >
-        <View style={{ flex: 1, gap: 6 }}>
+        <View style={styles.headerLeft}>
           <Text style={[styles.title, { color: colors.textPrimary }]}>
-            Kişisel <Text style={{ color: colors.accent, fontStyle: 'italic' }}>Akış</Text>
+            Günaydın, <Text style={{ color: colors.accent, fontStyle: 'italic' }}>{profileName}.</Text>
           </Text>
           <Text style={[styles.subtitle, { color: colors.textMuted }]}>
             Tercihlerinizden öğrenen, hızlı gezilebilir haber zaman tüneli.
           </Text>
         </View>
 
-        <View style={styles.headerRight}>
-          <View style={[styles.tabRow, { backgroundColor: colors.surface, borderColor: colors.borderSubtle }]}>
-            {(['personal', 'followed'] as const).map((m) => (
-              <Pressable
-                key={m}
-                onPress={() => { setViewMode(m); setPage(1); }}
-                style={[styles.tabBtn, viewMode === m && { backgroundColor: colors.accent }]}
-              >
-                <Text style={[styles.tabText, { color: viewMode === m ? '#fff' : colors.textMuted }]}>
-                  {m === 'personal' ? 'Kişisel Akış' : 'Takip Edilenler'}
-                </Text>
-              </Pressable>
-            ))}
+        <View style={styles.searchArea}>
+          <View style={[styles.searchBox, { backgroundColor: colors.surface, borderColor: colors.accent + '55' }]}>
+            <Ionicons name="search-outline" size={17} color={colors.textPrimary} />
+            <TextInput
+              value={searchQuery}
+              onChangeText={setSearchQuery}
+              onFocus={() => {
+                setSearchFocused(true);
+                if (!isWeb) openSearch();
+              }}
+              onBlur={() => {
+                setTimeout(() => setSearchFocused(false), 120);
+              }}
+              onSubmitEditing={openSearch}
+              returnKeyType="search"
+              placeholder="Özel haber ağınızda keşfe çıkın"
+              placeholderTextColor={colors.textMuted}
+              style={[styles.searchInput, { color: colors.textPrimary }]}
+            />
           </View>
+
+          {searchFocused && searchQuery.trim().length >= 2 && (
+            <View style={[styles.searchSuggestions, { backgroundColor: colors.surface, borderColor: colors.accent + '45' }]}>
+              {searchSuggestions.length > 0 ? (
+                searchSuggestions.map((item) => (
+                  <Pressable
+                    key={item.id}
+                    onPress={() => {
+                      setSearchQuery('');
+                      setSearchFocused(false);
+                      item.onPress();
+                    }}
+                    style={({ pressed }) => [
+                      styles.searchSuggestionRow,
+                      { backgroundColor: pressed ? colors.surfaceHigh : 'transparent' },
+                    ]}
+                  >
+                    <View style={styles.searchSuggestionText}>
+                      <Text style={[styles.searchSuggestionTitle, { color: colors.textPrimary }]} numberOfLines={1}>
+                        {item.title}
+                      </Text>
+                      <Text style={[styles.searchSuggestionMeta, { color: colors.textMuted }]} numberOfLines={1}>
+                        {item.meta}
+                      </Text>
+                    </View>
+                    <View style={[styles.searchSuggestionBadge, { backgroundColor: item.kind === 'Haber' ? colors.accent + '18' : '#10b98118' }]}>
+                      <Text style={[styles.searchSuggestionBadgeText, { color: item.kind === 'Haber' ? colors.accent : '#10b981' }]}>
+                        {item.kind}
+                      </Text>
+                    </View>
+                  </Pressable>
+                ))
+              ) : (
+                <Pressable onPress={openSearch} style={styles.searchSuggestionEmpty}>
+                  <Text style={[styles.searchSuggestionMeta, { color: colors.textMuted }]}>Arama sayfasında detaylı ara</Text>
+                  <Ionicons name="arrow-forward" size={14} color={colors.textMuted} />
+                </Pressable>
+              )}
+            </View>
+          )}
+        </View>
+
+        <View style={styles.headerRight}>
+          <Pressable
+            onPress={() => router.push('/(tabs)/notifications' as any)}
+            style={({ pressed }) => [
+              styles.headerIconBtn,
+              styles.headerOutlinedBtn,
+              {
+                backgroundColor: pressed ? colors.surfaceHigh : colors.surface,
+                borderColor: colors.accent + '55',
+              },
+            ]}
+            accessibilityRole="button"
+            accessibilityLabel="Bildirimler"
+          >
+            <Ionicons name="notifications-outline" size={20} color={colors.textPrimary} />
+            <View style={styles.notificationDot} />
+          </Pressable>
+
+          <Pressable
+            onPress={() => router.push('/(tabs)/profile' as any)}
+            style={({ pressed }) => [
+              styles.headerIconBtn,
+              styles.headerOutlinedBtn,
+              {
+                backgroundColor: pressed ? colors.surfaceHigh : colors.surface,
+                borderColor: colors.accent + '55',
+              },
+            ]}
+            accessibilityRole="button"
+            accessibilityLabel="Profil"
+          >
+            <Ionicons name="person" size={20} color={colors.accent} />
+          </Pressable>
+
+          <Pressable
+            onPress={() => router.push('/(tabs)/messages' as any)}
+            style={({ pressed }) => [
+              styles.headerIconBtn,
+              styles.headerOutlinedBtn,
+              {
+                backgroundColor: pressed ? colors.surfaceHigh : colors.surface,
+                borderColor: colors.accent + '55',
+              },
+            ]}
+            accessibilityRole="button"
+            accessibilityLabel="Mesajlar"
+          >
+            <Ionicons name="chatbubble-outline" size={20} color={colors.textPrimary} />
+          </Pressable>
 
           {isWeb && (
             <Pressable
               onPress={toggleSidebar}
-              style={[styles.sidebarToggle, { backgroundColor: colors.surface, borderColor: colors.borderSubtle }]}
+              style={[styles.sidebarToggle, styles.headerOutlinedBtn, { backgroundColor: colors.surface, borderColor: colors.accent + '55' }]}
             >
               <Ionicons
                 name={sidebarVisible ? 'options-outline' : 'options'}
@@ -271,6 +434,79 @@ export default function FeedScreen() {
 
           {/* Feed column */}
           <View style={styles.feedColumn}>
+            <View style={[styles.modeTabs, styles.tabRow, { backgroundColor: colors.surface, borderColor: colors.borderSubtle }]}>
+              {(['personal', 'followed'] as const).map((m) => (
+                <Pressable
+                  key={m}
+                  onPress={() => { setViewMode(m); setPage(1); }}
+                  style={[styles.tabBtn, viewMode === m && { backgroundColor: colors.accent }]}
+                >
+                  <Text style={[styles.tabText, { color: viewMode === m ? '#fff' : colors.textMuted }]}>
+                    {m === 'personal' ? 'Kişisel Akış' : 'Takip Edilenler'}
+                  </Text>
+                </Pressable>
+              ))}
+            </View>
+
+            <View style={styles.toolTabs}>
+              {([
+                { key: 'currency', label: 'Piyasalar', icon: 'cash-outline', accent: '#10b981' },
+                { key: 'weather', label: 'Hava Durumu', icon: 'partly-sunny-outline', accent: '#38bdf8' },
+              ] as const).map((tool) => {
+                const active = activeTools.includes(tool.key);
+                return (
+                  <Pressable
+                    key={tool.key}
+                    onPress={() => setActiveTools((current) =>
+                      current.includes(tool.key)
+                        ? current.filter((item) => item !== tool.key)
+                        : [...current, tool.key]
+                    )}
+                    style={[
+                      styles.toolTab,
+                      {
+                        backgroundColor: active ? tool.accent + '18' : colors.surface,
+                        borderColor: active ? tool.accent + '70' : colors.accent + '45',
+                      },
+                    ]}
+                  >
+                    <Ionicons name={tool.icon as any} size={14} color={active ? tool.accent : colors.textMuted} />
+                    <Text style={[styles.toolTabText, { color: active ? colors.textPrimary : colors.textMuted }]}>
+                      {tool.label}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+
+            {activeTools.length > 0 && (
+              <View style={styles.toolPanels}>
+                {activeTools.map((tool) => (
+                  <View key={tool} style={[styles.toolPanel, { backgroundColor: colors.surface, borderColor: colors.accent + '45' }]}>
+                    <View style={styles.toolPanelHeader}>
+                      <View style={styles.toolPanelTitleRow}>
+                        <Ionicons
+                          name={tool === 'currency' ? 'cash-outline' : 'partly-sunny-outline'}
+                          size={16}
+                          color={tool === 'currency' ? '#10b981' : '#38bdf8'}
+                        />
+                        <Text style={[styles.toolPanelTitle, { color: colors.textPrimary }]}>
+                          {tool === 'currency' ? 'Piyasalar' : 'Hava Durumu'}
+                        </Text>
+                      </View>
+                      <Pressable
+                        onPress={() => setActiveTools((current) => current.filter((item) => item !== tool))}
+                        style={[styles.toolCloseBtn, { backgroundColor: colors.surfaceInput }]}
+                      >
+                        <Ionicons name="close" size={14} color={colors.textMuted} />
+                      </Pressable>
+                    </View>
+                    {tool === 'currency' ? <CurrencyWidget size="sm" /> : <WeatherWidget size="sm" />}
+                  </View>
+                ))}
+              </View>
+            )}
+
             {/* Result summary bar */}
             <View style={[styles.resultBar, { borderColor: colors.borderSubtle }]}>
               <Text style={[styles.resultText, { color: colors.textMuted }]}>
@@ -681,15 +917,40 @@ const styles = StyleSheet.create({
   webContent: { width: '100%' as any, maxWidth: 1320, alignSelf: 'center', paddingTop: 36 },
 
   // Header
-  header: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12 },
+  header: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', flexWrap: 'wrap', gap: 16, position: 'relative', zIndex: 100 },
+  headerLeft: { flex: 1, minWidth: 260, gap: 6 },
   title: { fontSize: 34, fontWeight: '900', letterSpacing: -0.7 },
   subtitle: { fontSize: 13, lineHeight: 19, fontWeight: '600' },
-  headerRight: { flexDirection: 'row', alignItems: 'center', gap: 10, flexShrink: 0 },
+  headerRight: { flexDirection: 'row', alignItems: 'center', gap: 10, flexShrink: 0, alignSelf: 'center' },
+  searchArea: { flex: 1.1, minWidth: 320, maxWidth: 460, alignSelf: 'center', position: 'relative', zIndex: 200 },
+  searchBox: { width: '100%', height: 52, borderRadius: 26, borderWidth: 1.5, flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 22 },
+  searchInput: { flex: 1, minWidth: 0, fontSize: 14, fontWeight: '700', outlineStyle: 'none' as any },
+  searchSuggestions: { position: 'absolute', top: 60, left: 0, right: 0, borderWidth: 1.5, borderRadius: 18, padding: 6, gap: 2, zIndex: 300 },
+  searchSuggestionRow: { flexDirection: 'row', alignItems: 'center', gap: 10, borderRadius: 13, paddingHorizontal: 12, paddingVertical: 10 },
+  searchSuggestionText: { flex: 1, minWidth: 0, gap: 3 },
+  searchSuggestionTitle: { fontSize: 13, fontWeight: '800' },
+  searchSuggestionMeta: { fontSize: 11, fontWeight: '700' },
+  searchSuggestionBadge: { minWidth: 48, alignItems: 'center', borderRadius: 999, paddingHorizontal: 8, paddingVertical: 4 },
+  searchSuggestionBadgeText: { fontSize: 10, fontWeight: '900' },
+  searchSuggestionEmpty: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderRadius: 13, paddingHorizontal: 12, paddingVertical: 11 },
+  headerIconBtn: { width: 52, height: 52, borderRadius: 16, alignItems: 'center', justifyContent: 'center', borderWidth: 1, position: 'relative' },
+  headerOutlinedBtn: { borderWidth: 1.5 },
+  notificationDot: { position: 'absolute', top: 12, right: 12, width: 7, height: 7, borderRadius: 4, backgroundColor: '#ef4444' },
+  modeTabs: { alignSelf: 'flex-start' },
   tabRow: { flexDirection: 'row', gap: 3, padding: 4, borderRadius: 14, borderWidth: 1 },
   tabBtn: { paddingHorizontal: 14, paddingVertical: 8, borderRadius: 10 },
   tabText: { fontSize: 12, fontWeight: '800' },
-  sidebarToggle: { width: 42, height: 42, borderRadius: 12, alignItems: 'center', justifyContent: 'center', borderWidth: 1, position: 'relative' },
-  filterBadge: { position: 'absolute', top: 6, right: 6, width: 14, height: 14, borderRadius: 7, alignItems: 'center', justifyContent: 'center' },
+  toolTabs: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, alignSelf: 'flex-start' },
+  toolTab: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 12, paddingVertical: 7, borderRadius: 12, borderWidth: 1.5 },
+  toolTabText: { fontSize: 11, fontWeight: '800' },
+  toolPanels: { flexDirection: 'row', flexWrap: 'wrap', gap: 12, alignItems: 'stretch' },
+  toolPanel: { flex: 1, minWidth: 260, maxWidth: 420, borderWidth: 1.5, borderRadius: 18, padding: 14, gap: 12 },
+  toolPanelHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  toolPanelTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  toolPanelTitle: { fontSize: 13, fontWeight: '900' },
+  toolCloseBtn: { width: 28, height: 28, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
+  sidebarToggle: { width: 52, height: 52, borderRadius: 16, alignItems: 'center', justifyContent: 'center', borderWidth: 1, position: 'relative' },
+  filterBadge: { position: 'absolute', top: 10, right: 10, width: 14, height: 14, borderRadius: 7, alignItems: 'center', justifyContent: 'center' },
   filterBadgeText: { fontSize: 8, fontWeight: '900', color: '#fff' },
 
   // Loading / empty
@@ -702,7 +963,7 @@ const styles = StyleSheet.create({
   emptyBtnText: { fontSize: 13, fontWeight: '800', color: '#fff' },
 
   // Layout
-  feedWrap: { flexDirection: 'column', gap: 16 },
+  feedWrap: { flexDirection: 'column', gap: 16, position: 'relative', zIndex: 1 },
   webLayout: { flexDirection: 'row', gap: 22, alignItems: 'flex-start' as any },
   feedColumn: { flex: 1, minWidth: 0, gap: 14 },
 
@@ -738,7 +999,7 @@ const styles = StyleSheet.create({
   pageBtnText: { fontSize: 13, fontWeight: '700' },
 
   // Sidebar
-  sidebar: { width: 300, borderWidth: 1, borderRadius: 24, overflow: 'hidden', position: 'sticky' as any, top: 20 },
+  sidebar: { width: 300, borderWidth: 1, borderRadius: 24, overflow: 'hidden', position: 'sticky' as any, top: 20, zIndex: 1 },
   sidebarHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 18, paddingBottom: 14 },
   sidebarTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   sidebarTitle: { fontSize: 15, fontWeight: '900', letterSpacing: 0.2 },

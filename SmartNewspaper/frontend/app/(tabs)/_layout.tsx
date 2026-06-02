@@ -18,7 +18,7 @@ const NAV_ROUTES: { name: string; label: string; icon: string; iconFilled: strin
   { name: 'profile',  label: 'Profil',      icon: 'person-outline',   iconFilled: 'person' },
   { name: 'notifications', label: 'Bildirimler', icon: 'notifications-outline', iconFilled: 'notifications' },
   { name: 'index',    label: 'Anasayfa',    icon: 'grid-outline',     iconFilled: 'grid' },
-  { name: 'feed',     label: 'Akış',        icon: 'reader-outline',   iconFilled: 'reader' },
+  { name: 'feed',     label: 'Anasayfa',    icon: 'reader-outline',   iconFilled: 'reader' },
   { name: 'explore',  label: 'Keşfet',      icon: 'compass-outline',  iconFilled: 'compass' },
   { name: 'newspaper', label: 'Kisisel Gazete', icon: 'newspaper-outline', iconFilled: 'newspaper' },
   { name: 'discover', label: 'Ekinlikler',  icon: 'calendar-outline', iconFilled: 'calendar' },
@@ -26,12 +26,22 @@ const NAV_ROUTES: { name: string; label: string; icon: string; iconFilled: strin
   { name: 'messages', label: 'Mesajlar',    icon: 'chatbubble-outline', iconFilled: 'chatbubble' },
 ];
 
-const HIDDEN_ROUTES = ['publisherpage', 'publisherprofile', 'pdfpreview', 'messages/[userId]'];
+const HIDDEN_ROUTES = [
+  'index',
+  'search',
+  'profile',
+  'notifications',
+  'messages',
+  'publisherpage',
+  'publisherprofile',
+  'pdfpreview',
+  'messages/[userId]',
+];
 
 const LAYOUT_I18N = {
-  tr: { home: 'Ana Sayfa', feed: 'Akış', explore: 'Keşfet', search: 'Arama', events: 'Etkinlikler', archive: 'Arşiv', profile: 'Profil' },
-  en: { home: 'Home', feed: 'Feed', explore: 'Explore', search: 'Search', events: 'Events', archive: 'Archive', profile: 'Profile' },
-  de: { home: 'Startseite', feed: 'Feed', explore: 'Entdecken', search: 'Suche', events: 'Veranstaltungen', archive: 'Archiv', profile: 'Profil' },
+  tr: { home: 'Ana Sayfa', feed: 'Anasayfa', explore: 'Keşfet', search: 'Arama', events: 'Etkinlikler', archive: 'Arşiv', profile: 'Profil' },
+  en: { home: 'Home', feed: 'Home', explore: 'Explore', search: 'Search', events: 'Events', archive: 'Archive', profile: 'Profile' },
+  de: { home: 'Startseite', feed: 'Startseite', explore: 'Entdecken', search: 'Suche', events: 'Veranstaltungen', archive: 'Archiv', profile: 'Profil' },
 } as const;
 
 function NavItem({
@@ -379,6 +389,7 @@ export default function TabLayout() {
         <Tabs.Screen
           name="index"
           options={{
+            href: null,
             title: LAYOUT_I18N[language].home,
             tabBarIcon: ({ color, size }) => (
               <Ionicons name="grid-outline" size={size} color={color} />

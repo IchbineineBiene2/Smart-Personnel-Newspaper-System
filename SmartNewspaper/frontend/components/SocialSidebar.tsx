@@ -38,6 +38,7 @@ export interface SocialSidebarProps {
   currentUserId: number;
   draggedArticle: ApiArticle | null;
   onClearDrag: () => void;
+  onClose?: () => void;
 }
 
 // Simulated presence — real presence needs WebSocket
@@ -50,7 +51,7 @@ function avatarColor(id: number) {
   return AVATAR_PALETTE[id % AVATAR_PALETTE.length];
 }
 
-export function SocialSidebar({ token, currentUserId, draggedArticle, onClearDrag }: SocialSidebarProps) {
+export function SocialSidebar({ token, currentUserId, draggedArticle, onClearDrag, onClose }: SocialSidebarProps) {
   const { colors } = useTheme();
   const [friends, setFriends] = useState<Friend[]>([]);
   const [loading, setLoading] = useState(false);
@@ -154,6 +155,11 @@ export function SocialSidebar({ token, currentUserId, draggedArticle, onClearDra
             <View style={styles.onlineDotTiny} />
             <Text style={styles.onlinePillText}>{online.length}</Text>
           </View>
+        )}
+        {onClose && (
+          <TouchableOpacity onPress={onClose} style={[styles.headerCloseBtn, { backgroundColor: colors.surfaceHigh }]}>
+            <Ionicons name="chevron-forward" size={16} color={colors.accent} />
+          </TouchableOpacity>
         )}
       </View>
 
@@ -438,6 +444,8 @@ function FriendRow({
 const styles = StyleSheet.create({
   sidebar: {
     width: 260,
+    flex: 1,
+    height: '100%' as any,
     borderLeftWidth: 1,
     flexDirection: 'column',
     overflow: 'visible' as any,
@@ -457,6 +465,13 @@ const styles = StyleSheet.create({
     flex: 1,
     letterSpacing: 0.4,
     textTransform: 'uppercase',
+  },
+  headerCloseBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 11,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   onlinePill: {
     flexDirection: 'row',

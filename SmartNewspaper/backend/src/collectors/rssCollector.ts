@@ -46,10 +46,34 @@ function extractImageUrl(item: Record<string, unknown>): string | undefined {
   return undefined;
 }
 
-async function fetchWithRetry(url: string, options: any, retries = 2): Promise<any> {
+async function fetchFeedXml(url: string): Promise<string> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 30000);
+
+  try {
+    const response = await fetch(url, {
+      headers: {
+        'Accept': 'application/rss+xml, application/xml, text/xml;q=0.9, */*;q=0.8',
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+      },
+      signal: controller.signal,
+    });
+
+    if (!response.ok) {
+      throw new Error(`RSS request failed with status ${response.status}`);
+    }
+
+    return await response.text();
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function fetchWithRetry(url: string, retries = 2): Promise<any> {
   for (let attempt = 0; attempt <= retries; attempt++) {
     try {
-      return await parser.parseURL(url);
+      const xml = await fetchFeedXml(url);
+      return await parser.parseString(xml);
     } catch (err) {
       if (attempt === retries) throw err;
       await new Promise(res => setTimeout(res, 2000 * (attempt + 1)));
@@ -58,7 +82,7 @@ async function fetchWithRetry(url: string, options: any, retries = 2): Promise<a
 }
 
 async function fetchFeed(source: RssSource): Promise<Article[]> {
-  const feed = await fetchWithRetry(source.url, { requestOptions: { headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36' } } });
+  const feed = await fetchWithRetry(source.url);
   return (feed.items as unknown as Record<string, unknown>[])
     .filter((item) => item.link && item.title)
     .map((item) => ({

@@ -71,6 +71,7 @@ export default function ExploreScreen() {
   const [draggedArticle, setDraggedArticle] = useState<ApiArticle | null>(null);
   const [token, setToken] = useState('');
   const [currentUserId, setCurrentUserId] = useState(0);
+  const [socialOpen, setSocialOpen] = useState(false);
 
   const headerFade = useRef(new Animated.Value(0)).current;
   const heroFade = useRef(new Animated.Value(0)).current;
@@ -195,13 +196,23 @@ export default function ExploreScreen() {
   const heroSideStack = !isWide;
   const editorCols = isWide ? 3 : isMedium ? 2 : 1;
 
+  const showSocialSidebar = isWide && (socialOpen || !!draggedArticle);
+
   return (
-    <View style={{ flex: 1, flexDirection: isWide ? 'row' : 'column', backgroundColor: colors.background }}>
+    <View
+      style={{
+        flex: 1,
+        flexDirection: isWide ? 'row' : 'column',
+        backgroundColor: colors.background,
+        position: 'relative',
+      }}
+    >
     <ScrollView
       style={[styles.root, { backgroundColor: colors.background, flex: 1 }]}
       contentContainerStyle={[
         styles.content,
         isWeb && { paddingTop: 28 },
+        isWide && !showSocialSidebar && { paddingRight: 78 },
         !isWide && isWeb && { maxWidth: 1280, alignSelf: 'center' as any, width: '100%' as any },
       ]}
       showsVerticalScrollIndicator={false}
@@ -659,12 +670,35 @@ export default function ExploreScreen() {
       </Animated.View>
     </ScrollView>
     {isWide && (
-      <SocialSidebar
-        token={token}
-        currentUserId={currentUserId}
-        draggedArticle={draggedArticle}
-        onClearDrag={() => setDraggedArticle(null)}
-      />
+      <>
+        {!showSocialSidebar && (
+          <Pressable
+            onPress={() => setSocialOpen(true)}
+            style={[
+              styles.socialToggle,
+              {
+                backgroundColor: colors.surface,
+                borderColor: colors.borderSubtle,
+                right: 18,
+              },
+            ]}
+          >
+            <Ionicons name="people-outline" size={18} color={colors.accent} />
+          </Pressable>
+        )}
+
+        {showSocialSidebar && (
+          <View style={styles.socialSidebarSlot}>
+            <SocialSidebar
+              token={token}
+              currentUserId={currentUserId}
+              draggedArticle={draggedArticle}
+              onClearDrag={() => setDraggedArticle(null)}
+              onClose={() => setSocialOpen(false)}
+            />
+          </View>
+        )}
+      </>
     )}
     </View>
   );
@@ -1103,4 +1137,16 @@ const styles = StyleSheet.create({
     borderRadius: 10,
   },
   footerBtnText: { color: '#fff', fontSize: 11, fontWeight: '900', letterSpacing: 1.2 },
+  socialToggle: {
+    position: 'absolute',
+    top: 22,
+    width: 44,
+    height: 44,
+    borderRadius: 14,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 30,
+  },
+  socialSidebarSlot: { width: 260, flexShrink: 0, alignSelf: 'stretch' },
 });
