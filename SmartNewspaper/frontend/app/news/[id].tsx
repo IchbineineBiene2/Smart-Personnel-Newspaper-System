@@ -329,7 +329,7 @@ function buildPublisherLogoUrl(sourceName: string, sourceUrl?: string): string |
 }
 
 // ─── Benzer Haber Skorlama ───────────────────────────────────────────────────
-type ArticleLike = { id: string; category?: string; title: string; language: string; description: string; source: { name: string }; publishedAt: string; imageUrl?: string; similarityScore?: number };
+type ArticleLike = { id: string; category?: string; title: string; language: string; description: string; source: { name: string; logoUrl?: string }; publishedAt: string; imageUrl?: string; similarityScore?: number; url?: string };
 
 type UserProfile = {
   id: number;
@@ -404,7 +404,7 @@ function getSimilarArticles(
 }
 
 // ─── Yatay Öneri Kartı ───────────────────────────────────────────────────────
-function RelatedArticleCard({ article, onPress, colors, isSidebar = false }: { article: ArticleLike; onPress: () => void; colors: any, isSidebar?: boolean }) {
+function RelatedArticleCard({ article, onPress, colors, isSidebar = false, currentSourceName }: { article: ArticleLike; onPress: () => void; colors: any, isSidebar?: boolean; currentSourceName?: string }) {
   const cat = mapToContentCategory(article.category, article.title, article.description ?? '');
   const diff = Date.now() - new Date(article.publishedAt).getTime();
   const mins = Math.floor(diff / 60000);
@@ -429,14 +429,6 @@ function RelatedArticleCard({ article, onPress, colors, isSidebar = false }: { a
         </View>
       )}
       
-      {article.similarityScore ? (
-        <View style={[relatedStyles.similarityBadge, { backgroundColor: 'rgba(20,83,45,0.85)' }]}>
-          <Text style={relatedStyles.similarityText}>
-            %{Math.round(article.similarityScore * 100)} AYNI
-          </Text>
-        </View>
-      ) : null}
-
       <View style={[relatedStyles.cardBody, isSidebar && { flex: 1, padding: 12, gap: 6 }]}>
         <View style={[relatedStyles.catBadge, { backgroundColor: colors.accent + '1A' }]}>
           <Text style={[relatedStyles.catText, { color: colors.accent }]}>{cat}</Text>
@@ -457,13 +449,81 @@ const relatedStyles = StyleSheet.create({
   thumb:            { width: '100%', height: 112 },
   thumbPlaceholder: { width: '100%', height: 112, alignItems: 'center', justifyContent: 'center' },
   thumbEmoji:       { fontSize: 24 },
-  similarityBadge:  { position: 'absolute', top: 8, right: 8, backgroundColor: 'rgba(0,0,0,0.7)', paddingHorizontal: 6, paddingVertical: 3, borderRadius: 6, zIndex: 10, backdropFilter: 'blur(4px)' },
-  similarityText:   { color: '#5EEAD4', fontSize: 10, fontWeight: '800', letterSpacing: 0.5 },
   cardBody:         { padding: Spacing.sm, gap: 5 },
   catBadge:         { alignSelf: 'flex-start', paddingHorizontal: 7, paddingVertical: 2, borderRadius: Radius.full },
   catText:          { fontSize: 10, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.3 },
   cardTitle:        { fontSize: 13, fontWeight: '700', lineHeight: 18 },
   cardMeta:         { fontSize: 11 },
+});
+
+// ─── Eşleşen Kaynak Kartı (büyük, kaynak logosu belirgin) ────────────────────
+function MatchedSourceCard({ article, currentSourceName, onPress, colors }: { article: ArticleLike; currentSourceName: string; onPress: () => void; colors: any }) {
+  const cat = mapToContentCategory(article.category, article.title, article.description ?? '');
+  const diff = Date.now() - new Date(article.publishedAt).getTime();
+  const mins = Math.floor(diff / 60000);
+  const timeLabel = mins < 60 ? `${mins}dk` : mins < 1440 ? `${Math.floor(mins / 60)}sa` : `${Math.floor(mins / 1440)}g`;
+  const imgUrl = article.imageUrl ? proxyImageUrl(article.imageUrl) : undefined;
+  const sourceLogo = article.source?.logoUrl ?? buildPublisherLogoUrl(article.source?.name ?? '', article.url);
+
+  return (
+    <Pressable
+      style={({ pressed }) => [
+        matchStyles.card,
+        { backgroundColor: colors.surface, borderColor: colors.borderSubtle },
+        pressed && { opacity: 0.85 },
+      ]}
+      onPress={onPress}
+    >
+      {imgUrl ? (
+        <Image source={{ uri: imgUrl }} style={matchStyles.thumb} resizeMode="cover" />
+      ) : (
+        <View style={[matchStyles.thumb, matchStyles.thumbPlaceholder, { backgroundColor: colors.surfaceInput }]}>
+          <Text style={matchStyles.thumbEmoji}>📰</Text>
+        </View>
+      )}
+      <View style={matchStyles.body}>
+        <View style={matchStyles.sourceRow}>
+          <View style={[matchStyles.sourceLogo, { backgroundColor: colors.accent }]}>
+            {sourceLogo ? (
+              <Image source={{ uri: sourceLogo }} style={matchStyles.sourceLogoImage} resizeMode="cover" />
+            ) : (
+              <Text style={[matchStyles.sourceLogoText, { color: colors.white }]}>{(article.source?.name ?? '?').slice(0, 2).toUpperCase()}</Text>
+            )}
+          </View>
+          <Text style={[matchStyles.sourceName, { color: colors.textPrimary }]} numberOfLines={1}>
+            {article.source?.name}
+          </Text>
+        </View>
+        <Text style={[matchStyles.title, { color: colors.textPrimary }]} numberOfLines={3}>
+          {article.title}
+        </Text>
+        <View style={matchStyles.metaRow}>
+          <View style={[matchStyles.catBadge, { backgroundColor: colors.accent + '1A' }]}>
+            <Text style={[matchStyles.catText, { color: colors.accent }]}>{cat}</Text>
+          </View>
+          <Text style={[matchStyles.metaTime, { color: colors.textMuted }]}>{timeLabel}</Text>
+        </View>
+      </View>
+    </Pressable>
+  );
+}
+
+const matchStyles = StyleSheet.create({
+  card:            { flexDirection: 'row', gap: 14, borderRadius: Radius.lg, borderWidth: 1, padding: 12, alignItems: 'flex-start', width: '100%' },
+  thumb:           { width: 116, height: 116, borderRadius: Radius.md },
+  thumbPlaceholder:{ alignItems: 'center', justifyContent: 'center' },
+  thumbEmoji:      { fontSize: 30 },
+  body:            { flex: 1, gap: 8, minWidth: 0 },
+  sourceRow:       { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  sourceLogo:      { width: 30, height: 30, borderRadius: Radius.full, alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
+  sourceLogoImage: { width: '100%', height: '100%' },
+  sourceLogoText:  { color: '#fff', fontWeight: '800', fontSize: 11 },
+  sourceName:      { flex: 1, fontSize: 15, fontWeight: '800', letterSpacing: 0.2 },
+  title:           { fontSize: 15, fontWeight: '700', lineHeight: 21 },
+  metaRow:         { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  catBadge:        { alignSelf: 'flex-start', paddingHorizontal: 8, paddingVertical: 3, borderRadius: Radius.full },
+  catText:         { fontSize: 10, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.3 },
+  metaTime:        { fontSize: 12, fontWeight: '600' },
 });
 
 export default function NewsDetailPage() {
@@ -1459,6 +1519,32 @@ export default function NewsDetailPage() {
         )}
       </View>
 
+      {/* Eşleşen haberler paneli: butonların hemen altında, tam genişlik, büyük kartlar.
+          Eşleşme yoksa panel hiç gösterilmez. */}
+      {alternateSourceArticles.length > 0 && (
+        <View style={styles(colors).matchPanel}>
+          <View style={[styles(colors).relatedHeader, { paddingHorizontal: 0 }]}>
+            <View style={[styles(colors).relatedDot, { backgroundColor: colors.accent }]} />
+            <Text style={styles(colors).relatedTitle}>Aynı Haber, Farklı Kaynaklar</Text>
+          </View>
+          <Text style={styles(colors).matchPanelHint}>
+            Bu haberi yayımlayan diğer kaynaklar
+          </Text>
+          <View style={styles(colors).matchGrid}>
+            {alternateSourceArticles.map((item) => (
+              <View key={`match-${item.id}`} style={styles(colors).matchGridItem}>
+                <MatchedSourceCard
+                  article={item}
+                  currentSourceName={sourceName}
+                  colors={colors}
+                  onPress={() => router.push({ pathname: '/news/[id]', params: { id: item.id } })}
+                />
+              </View>
+            ))}
+          </View>
+        </View>
+      )}
+
       <Modal
         visible={messagePanelVisible}
         transparent
@@ -1892,42 +1978,6 @@ export default function NewsDetailPage() {
 
         {isWeb && (
           <View style={[styles(colors).mediaCol, styles(colors).mediaColWeb]}>
-            <View style={styles(colors).sameStoryPanel}>
-              <View style={styles(colors).relatedHeader}>
-                <View style={[styles(colors).relatedDot, { backgroundColor: colors.accent }]} />
-                <Text style={styles(colors).relatedTitle}>AYNI HABER, FARKLI KAYNAKLAR</Text>
-              </View>
-              <Text style={styles(colors).sameStoryHint}>
-                Farklı ifadeler ve bakış açılarıyla yayımlanan yakın haberler
-              </Text>
-              {loadingMatches && alternateSourceArticles.length === 0 ? (
-                <View style={styles(colors).sameStoryLoading}>
-                  <ActivityIndicator color={colors.accent} />
-                  <Text style={styles(colors).statusText}>Alternatif kaynaklar aranıyor...</Text>
-                </View>
-              ) : alternateSourceArticles.length > 0 ? (
-                <View style={styles(colors).sameStoryList}>
-                  {alternateSourceArticles.map((item) => (
-                    <RelatedArticleCard
-                      key={`same-story-web-${item.id}`}
-                      article={item}
-                      colors={colors}
-                      isSidebar={true}
-                      onPress={() => router.push({ pathname: '/news/[id]', params: { id: item.id } })}
-                    />
-                  ))}
-                </View>
-              ) : (
-                <View style={styles(colors).sameStoryEmpty}>
-                  <Ionicons name="newspaper-outline" size={26} color={colors.textMuted} />
-                  <Text style={styles(colors).sameStoryEmptyTitle}>Birebir eşleşme bulunamadı</Text>
-                  <Text style={styles(colors).sameStoryEmptyText}>
-                    Bu haber için farklı bir kaynakta aynı habere ait güvenilir bir eşleşme yok.
-                  </Text>
-                </View>
-              )}
-            </View>
-
             {renderAiAnalysisCard()}
           </View>
         )}
@@ -2048,26 +2098,6 @@ export default function NewsDetailPage() {
 
       {!isWeb && (
         <View style={styles(colors).relatedSection}>
-          <View style={styles(colors).relatedHeader}>
-            <View style={[styles(colors).relatedDot, { backgroundColor: colors.accent }]} />
-            <Text style={styles(colors).relatedTitle}>Aynı Haber, Farklı Kaynaklar</Text>
-          </View>
-          {alternateSourceArticles.length > 0 ? (
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles(colors).relatedList}>
-              {alternateSourceArticles.map((item) => (
-                <RelatedArticleCard
-                  key={`same-story-mob-${item.id}`}
-                  article={item}
-                  colors={colors}
-                  onPress={() => router.push({ pathname: '/news/[id]', params: { id: item.id } })}
-                />
-              ))}
-            </ScrollView>
-          ) : (
-            <Text style={styles(colors).sameStoryMobileEmpty}>
-              Bu haber için farklı bir kaynakta birebir eşleşme bulunamadı.
-            </Text>
-          )}
           {renderAiAnalysisCard()}
         </View>
       )}
@@ -2115,6 +2145,7 @@ export default function NewsDetailPage() {
                 key={`related-${item.id}`}
                 article={item}
                 colors={colors}
+                currentSourceName={sourceName}
                 onPress={() => router.push({ pathname: '/news/[id]', params: { id: item.id } })}
               />
             ))}
@@ -2285,8 +2316,8 @@ const styles = (colors: any) =>
       minWidth: 260,
     },
     publisherLogo: {
-      width: 42,
-      height: 42,
+      width: 52,
+      height: 52,
       borderRadius: Radius.full,
       backgroundColor: colors.accent,
       alignItems: 'center',
@@ -2300,7 +2331,7 @@ const styles = (colors: any) =>
     publisherLogoText: {
       color: colors.white,
       fontWeight: Typography.fontWeight.bold,
-      fontSize: Typography.fontSize.xs,
+      fontSize: Typography.fontSize.sm,
     },
     publisherLabel: {
       color: 'rgba(255,255,255,0.72)',
@@ -2310,8 +2341,9 @@ const styles = (colors: any) =>
     },
     publisherName: {
       color: colors.textPrimary,
-      fontSize: Typography.fontSize.base,
-      fontWeight: Typography.fontWeight.bold,
+      fontSize: 18,
+      fontWeight: '800',
+      letterSpacing: 0.2,
     },
     publisherCta: {
       color: colors.accent,
@@ -2821,6 +2853,28 @@ const styles = (colors: any) =>
       paddingHorizontal: Spacing.xs,
       paddingBottom: Spacing.sm,
     },
+    matchPanel: {
+      borderWidth: 1,
+      borderColor: colors.borderSubtle,
+      backgroundColor: colors.surface,
+      borderRadius: 20,
+      padding: Platform.OS === 'web' ? 20 : 16,
+      gap: 14,
+      marginTop: 4,
+    },
+    matchPanelHint: {
+      color: colors.textMuted,
+      fontSize: 13,
+      lineHeight: 18,
+    },
+    matchGrid: {
+      flexDirection: Platform.OS === 'web' ? 'row' : 'column',
+      flexWrap: 'wrap',
+      gap: 12,
+    },
+    matchGridItem: Platform.OS === 'web'
+      ? { flexGrow: 1, flexBasis: 340, minWidth: 300 }
+      : { width: '100%' },
     galleryWrap: {
       gap: Spacing.sm,
     },
