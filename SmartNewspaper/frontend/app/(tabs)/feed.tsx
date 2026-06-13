@@ -26,6 +26,7 @@ import { getUserProfile } from '@/services/auth';
 import { buildPublisherDataset, getPublisherIdFromSourceName } from '@/services/publisherProfiles';
 import { CurrencyWidget } from '@/components/widgets/CurrencyWidget';
 import { WeatherWidget } from '@/components/widgets/WeatherWidget';
+import { LoadingGreetingOverlay } from '@/components/ui/LoadingGreetingOverlay';
 
 // ── Constants ──────────────────────────────────────────────────────────────────
 
@@ -99,6 +100,24 @@ export default function FeedScreen() {
 
   const sidebarAnim = useRef(new Animated.Value(1)).current;
   const entrance    = useRef(new Animated.Value(0)).current;
+
+  const [isFiltersExpanded, setIsFiltersExpanded] = useState(false);
+  const filterExpandAnim = useRef(new Animated.Value(0)).current;
+
+  const toggleFilters = () => {
+    const nextState = !isFiltersExpanded;
+    setIsFiltersExpanded(nextState);
+    Animated.timing(filterExpandAnim, {
+      toValue: nextState ? 1 : 0,
+      duration: 250,
+      useNativeDriver: false,
+    }).start();
+  };
+
+  const filterMaxHeight = filterExpandAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0, 2000],
+  });
 
   useEffect(() => {
     Animated.timing(entrance, { toValue: 1, duration: 380, useNativeDriver: true }).start();
@@ -423,14 +442,14 @@ export default function FeedScreen() {
       </Animated.View>
 
       {/* Body */}
-      {loading && feedItems.length === 0 ? (
-        <View style={styles.loading}>
-          <ActivityIndicator color={colors.accent} />
-          <Text style={[styles.loadingText, { color: colors.textMuted }]}>
-            {requestedLanguages.length > 0 ? 'Dil tercihlerinize uygun haberler yükleniyor...' : 'Akış hazırlanıyor...'}
-          </Text>
-        </View>
-      ) : (
+      {loading && feedItems.length === 0 && (
+        <LoadingGreetingOverlay 
+          languageCode={preferredNewsLanguages[0] || 'tr'}
+          userName={profileName}
+        />
+      )}
+
+      {(!loading || feedItems.length > 0) && (
         <Animated.View style={[styles.feedWrap, isWeb && sidebarVisible && styles.webLayout, { opacity: entrance }]}>
 
           {/* Feed column */}
@@ -677,18 +696,24 @@ export default function FeedScreen() {
             <View style={[styles.sidebar, { backgroundColor: colors.surface, borderColor: colors.borderSubtle }]}>
 
               {/* Header */}
-              <View style={styles.sidebarHeader}>
+              <Pressable style={styles.sidebarHeader} onPress={toggleFilters}>
                 <View style={styles.sidebarTitleRow}>
                   <Ionicons name="options-outline" size={16} color={colors.accent} />
                   <Text style={[styles.sidebarTitle, { color: colors.textPrimary }]}>Filtreler</Text>
                 </View>
-                {activeFilterCount > 0 && (
-                  <Pressable onPress={resetFilters} style={[styles.clearBtn, { backgroundColor: colors.accent + '18' }]}>
-                    <Text style={[styles.clearBtnText, { color: colors.accent }]}>Temizle</Text>
-                  </Pressable>
-                )}
-              </View>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                  {activeFilterCount > 0 && (
+                    <Pressable onPress={(e) => { e.stopPropagation(); resetFilters(); }} style={[styles.clearBtn, { backgroundColor: colors.accent + '18' }]}>
+                      <Text style={[styles.clearBtnText, { color: colors.accent }]}>Temizle</Text>
+                    </Pressable>
+                  )}
+                  <Animated.View style={{ transform: [{ rotate: filterExpandAnim.interpolate({ inputRange: [0,1], outputRange: ['0deg', '180deg'] }) }] }}>
+                    <Ionicons name="chevron-down" size={16} color={colors.textMuted} />
+                  </Animated.View>
+                </View>
+              </Pressable>
 
+              <Animated.View style={{ overflow: 'hidden', maxHeight: filterMaxHeight, opacity: filterExpandAnim }}>
               {/* Active filter count */}
               {activeFilterCount > 0 && (
                 <View style={[styles.activeFilterBanner, { backgroundColor: colors.accent + '14', borderColor: colors.accent + '30' }]}>
@@ -864,6 +889,7 @@ export default function FeedScreen() {
                   </View>
                 </>
               )}
+              </Animated.View>
             </View>
           )}
         </Animated.View>

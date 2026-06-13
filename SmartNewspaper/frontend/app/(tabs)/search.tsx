@@ -63,6 +63,7 @@ export default function SearchTab() {
   const { results, updateFilter, debouncedQuery } = useSearch(articles);
 
   const [localQuery, setLocalQuery] = useState('');
+  const [activeSearchQuery, setActiveSearchQuery] = useState('');
   const [recentLocal, setRecentLocal] = useState<string[]>([]);
   const [activeScope, setActiveScope] = useState<SearchScope>('all');
   const [userResults, setUserResults] = useState<UserResult[]>([]);
@@ -104,6 +105,7 @@ export default function SearchTab() {
     const incoming = routeQuery?.trim();
     if (!incoming || incoming === localQuery) return;
     setLocalQuery(incoming);
+    setActiveSearchQuery(incoming);
     updateFilter('query', incoming);
   }, [localQuery, routeQuery, updateFilter]);
 
@@ -162,7 +164,7 @@ export default function SearchTab() {
 
   useEffect(() => {
     let active = true;
-    const query = localQuery.trim();
+    const query = activeSearchQuery.trim();
 
     if (query.length < 2 || !['all', 'users'].includes(activeScope)) {
       setUserResults([]);
@@ -200,10 +202,10 @@ export default function SearchTab() {
       active = false;
       clearTimeout(timer);
     };
-  }, [activeScope, localQuery]);
+  }, [activeScope, activeSearchQuery]);
 
   useEffect(() => {
-    const q = localQuery.trim();
+    const q = activeSearchQuery.trim();
     if (q.length < 2 || (activeScope !== 'all' && activeScope !== 'news')) {
       setBackendSearchResults([]);
       setBackendSearchLoading(false);
@@ -232,17 +234,19 @@ export default function SearchTab() {
       active = false;
       clearTimeout(timer);
     };
-  }, [activeScope, localQuery]);
+  }, [activeScope, activeSearchQuery]);
 
   const handleQueryChange = (value: string) => {
     setLocalQuery(value);
-    updateFilter('query', value);
   };
 
   const handleSearch = async (q: string) => {
     const term = q.trim();
-    if (!term) return;
+    setActiveSearchQuery(term);
     updateFilter('query', term);
+    
+    if (!term) return;
+    
     const updated = [term, ...recentLocal.filter((r) => r !== term)].slice(0, 6);
     setRecentLocal(updated);
     await AsyncStorage.setItem(RECENT_KEY, JSON.stringify(updated));
@@ -250,6 +254,7 @@ export default function SearchTab() {
 
   const clearQuery = () => {
     setLocalQuery('');
+    setActiveSearchQuery('');
     updateFilter('query', '');
   };
 
@@ -262,7 +267,7 @@ export default function SearchTab() {
     return results;
   }, [activeScope, backendSearchResults, results]);
 
-  const isSearching = localQuery.trim().length > 0;
+  const isSearching = activeSearchQuery.trim().length > 0;
   const resultCount =
     (activeScope === 'all' || activeScope === 'news' ? articleResults.length : 0) +
     (activeScope === 'all' || activeScope === 'publishers' ? publisherResults.length : 0) +
@@ -283,7 +288,7 @@ export default function SearchTab() {
           <TextInput
             ref={inputRef}
             style={[styles.searchInput, { color: colors.textPrimary }]}
-            placeholder={'Haber, sayfa, kullan\u0131c\u0131 veya etiket ara...'}
+            placeholder={'Haber, sayfa, kullanıcı veya etiket ara...'}
             placeholderTextColor={colors.textMuted}
             value={localQuery}
             onChangeText={handleQueryChange}
@@ -291,6 +296,11 @@ export default function SearchTab() {
             returnKeyType="search"
             autoCorrect={false}
           />
+          {localQuery.length > 0 && localQuery !== activeSearchQuery ? (
+            <Pressable onPress={() => handleSearch(localQuery)} style={{ backgroundColor: colors.accent, padding: 6, borderRadius: 16 }}>
+              <Ionicons name="arrow-forward" size={16} color="#fff" />
+            </Pressable>
+          ) : null}
           {localQuery.length > 0 ? (
             <Pressable onPress={clearQuery}>
               <Ionicons name="close-circle" size={18} color={colors.textMuted} />

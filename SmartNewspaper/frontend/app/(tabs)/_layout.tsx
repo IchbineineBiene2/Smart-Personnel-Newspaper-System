@@ -8,6 +8,7 @@ import { useRef, useEffect, useState } from 'react';
 import { useTheme } from '@/hooks/useTheme';
 import { useLanguage } from '@/hooks/useLanguage';
 import AppHeader from '@/components/AppHeader';
+import { SidebarWeatherCard } from '@/components/sidebar/SidebarWeatherCard';
 import { NewsNotificationToast } from '@/components/NewsNotificationToast';
 import { useNotification } from '@/contexts/NotificationContext';
 import { getToken, logoutUser } from '@/services/auth';
@@ -134,7 +135,18 @@ function WebSidebarTabBar({
   const router = useRouter();
   const [hasUnreadMessages, setHasUnreadMessages] = useState(false);
   const [hasUnreadNotifications, setHasUnreadNotifications] = useState(false);
+  const [isLoggedIn, setIsLoggedIn] = useState(false);
   const fadeAnim = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    let active = true;
+    const checkAuth = async () => {
+      const token = await getToken();
+      if (active) setIsLoggedIn(!!token);
+    };
+    checkAuth();
+    return () => { active = false; };
+  }, []);
 
   useEffect(() => {
     Animated.timing(fadeAnim, {
@@ -217,12 +229,6 @@ function WebSidebarTabBar({
     };
   }, []);
 
-  const today = new Date().toLocaleDateString('tr-TR', {
-    day: 'numeric',
-    month: 'long',
-    year: 'numeric',
-  });
-
   const visibleRoutes = state.routes.filter((r) => !HIDDEN_ROUTES.includes(r.name));
   
   // Sort routes according to NAV_ROUTES order
@@ -284,32 +290,36 @@ function WebSidebarTabBar({
 
       {/* Bottom */}
       <View style={styles.bottom}>
-        <View
-          style={[
-            styles.todayCard,
-            {
-              backgroundColor: colors.accent + '0A',
-              borderColor: colors.accent + '30',
-            },
-          ]}
-        >
-          <Text style={[styles.todayLabel, { color: colors.accent }]}>BUGÜN</Text>
-          <Text style={[styles.todayDate, { color: colors.textSecondary }]}>{today}</Text>
-        </View>
+        <SidebarWeatherCard />
 
-        <Pressable
-          style={({ pressed }) => [
-            styles.logoutBtn,
-            { backgroundColor: pressed ? '#ef444410' : 'transparent' },
-          ]}
-          onPress={async () => {
-            await logoutUser();
-            router.replace('/auth/login');
-          }}
-        >
-          <Ionicons name="log-out-outline" size={18} color="#ef4444" />
-          <Text style={styles.logoutText}>ÇIKIŞ YAP</Text>
-        </Pressable>
+        {isLoggedIn ? (
+          <Pressable
+            style={({ pressed }) => [
+              styles.logoutBtn,
+              { backgroundColor: pressed ? '#ef444410' : 'transparent' },
+            ]}
+            onPress={async () => {
+              await logoutUser();
+              router.replace('/auth/login');
+            }}
+          >
+            <Ionicons name="log-out-outline" size={18} color="#ef4444" />
+            <Text style={styles.logoutText}>ÇIKIŞ YAP</Text>
+          </Pressable>
+        ) : (
+          <Pressable
+            style={({ pressed }) => [
+              styles.logoutBtn,
+              { backgroundColor: pressed ? '#10b98110' : 'transparent' },
+            ]}
+            onPress={() => {
+              router.replace('/auth/login');
+            }}
+          >
+            <Ionicons name="log-in-outline" size={18} color="#10b981" />
+            <Text style={[styles.logoutText, { color: '#10b981' }]}>GİRİŞ YAP</Text>
+          </Pressable>
+        )}
       </View>
     </Animated.View>
   );

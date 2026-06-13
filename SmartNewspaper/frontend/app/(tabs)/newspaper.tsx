@@ -24,14 +24,15 @@ import { ApiArticle, fetchArticleFullContent, mapToContentCategory, proxyImageUr
 import { getPublisherIdFromSourceName } from '@/services/publisherProfiles';
 import { cleanArticleBody } from '@/services/articleContentQuality';
 import { exportNewspaperPdf } from '@/services/pdf/newspaperPdfExporter';
-import { NewspaperArticleInput } from '@/services/pdf/newspaperPdfTemplate';
+import { NewspaperArticleInput, NewspaperTheme, PREDEFINED_THEMES } from '@/services/pdf/newspaperPdfTemplate';
 import { exportInteractiveNewspaperHtml } from '@/services/pdf/interactiveNewspaperHtmlExporter';
 import { createEdition, fetchUserEditions } from '@/services/archive';
 import { getToken, getCurrentUser } from '@/services/auth';
+import { ColorSelector } from '@/components/ColorSelector';
 
 type DateFilter = 'day' | 'week' | 'all';
 type CountOption = 6 | 9 | 12;
-type SourceFilter = 'all' | 'followed' | string;
+type SourceFilter = 'all' | 'followed' | 'saved' | string;
 
 const LANGUAGE_LABELS: Record<string, string> = {
   tr: 'Türkçe',
@@ -71,7 +72,7 @@ export default function NewspaperBuilder() {
   const router = useRouter();
   const { colors } = useTheme();
   const { articles, loading } = useApiNews();
-  const { savedIds } = useBookmarks();
+  const { savedIds, savedArticles } = useBookmarks();
   const { preferredCategories } = usePreferences();
   const { followedIds } = usePublisherState();
   const isWeb = Platform.OS === 'web';
@@ -79,6 +80,7 @@ export default function NewspaperBuilder() {
   const [paperName, setPaperName] = useState('Smart Newspaper');
   const [selectedCategories, setSelectedCategories] = useState<string[]>(preferredCategories);
   const [selectedSource, setSelectedSource] = useState<SourceFilter>('all');
+  const [selectedSavedNewsIds, setSelectedSavedNewsIds] = useState<string[]>([]);
   const [selectedLanguages, setSelectedLanguages] = useState<string[]>([]);
   const [dateFilter, setDateFilter] = useState<DateFilter>('week');
   const [articleCount, setArticleCount] = useState<CountOption>(9);
@@ -89,6 +91,10 @@ export default function NewspaperBuilder() {
   const [creating, setCreating] = useState(false);
   const [isInitializing, setIsInitializing] = useState(true);
   const [userToken, setUserToken] = useState<string | null>(null);
+
+  const [theme, setTheme] = useState<NewspaperTheme>(PREDEFINED_THEMES['Klasik Gazete']);
+  const [activeThemeName, setActiveThemeName] = useState<string>('Klasik Gazete');
+  const [showThemeControls, setShowThemeControls] = useState(false);
 
   useFocusEffect(
     useCallback(() => {
@@ -128,7 +134,19 @@ export default function NewspaperBuilder() {
 
   const followedSet = useMemo(() => new Set(followedIds), [followedIds]);
 
+  const allSavedArticles = useMemo(() => {
+    const historical = savedArticles || [];
+    const recent = articles.filter((a) => savedIds.includes(a.id) && !historical.some((h) => h.id === a.id));
+    return [...historical, ...recent];
+  }, [savedArticles, articles, savedIds]);
+
   const selectedArticles = useMemo(() => {
+    if (selectedSource === 'saved') {
+      return selectedSavedNewsIds
+        .map((id) => allSavedArticles.find((a) => a.id === id))
+        .filter(Boolean) as ApiArticle[];
+    }
+
     const categorySet = new Set(selectedCategories);
     return articles
       .filter((article) => {
@@ -167,6 +185,7 @@ export default function NewspaperBuilder() {
     selectedCategories,
     selectedLanguages,
     selectedSource,
+    selectedSavedNewsIds,
   ]);
 
   const toggleCategory = (category: string) => {
@@ -336,6 +355,7 @@ export default function NewspaperBuilder() {
           preferredCategories: selectedCategories,
         },
         articles: pdfArticles,
+        theme,
       });
 
       if (skipped > 0) {
@@ -377,6 +397,7 @@ export default function NewspaperBuilder() {
           preferredCategories: selectedCategories,
         },
         articles: htmlArticles,
+        theme,
       });
 
       if (skipped > 0) {
@@ -431,9 +452,10 @@ export default function NewspaperBuilder() {
             />
           </View>
 
-          <View style={[styles.controlSection, { borderColor: colors.borderSubtle, backgroundColor: colors.surface }]}>
-            <View style={styles.controlTitleRow}>
-              <Text style={[styles.controlTitle, { color: colors.textPrimary }]}>Kategoriler</Text>
+          {selectedSource !== 'saved' && (
+            <View style={[styles.controlSection, { borderColor: colors.borderSubtle, backgroundColor: colors.surface }]}>
+              <View style={styles.controlTitleRow}>
+                <Text style={[styles.controlTitle, { color: colors.textPrimary }]}>Kategoriler</Text>
               <Pressable onPress={clearCategories}>
                 <Text style={[styles.clearText, { color: colors.accent }]}>Tumu</Text>
               </Pressable>
@@ -457,10 +479,11 @@ export default function NewspaperBuilder() {
                       {category}
                     </Text>
                   </Pressable>
-                );
-              })}
+                  );
+                })}
+              </View>
             </View>
-          </View>
+          )}
 
           <View style={[styles.controlSection, { borderColor: colors.borderSubtle, backgroundColor: colors.surface }]}>
             <Text style={[styles.controlTitle, { color: colors.textPrimary }]}>Kaynak</Text>
@@ -499,6 +522,26 @@ export default function NewspaperBuilder() {
                   Takip Edilenler
                 </Text>
               </Pressable>
+              <Pressable
+                style={[
+                  styles.filterChip,
+                  styles.filterChipFollowed,
+                  {
+                    backgroundColor: selectedSource === 'saved' ? colors.accent : colors.surfaceInput,
+                    borderColor: selectedSource === 'saved' ? colors.accent : colors.borderSubtle,
+                  },
+                ]}
+                onPress={() => setSelectedSource('saved')}
+              >
+                <Ionicons
+                  name="bookmark"
+                  size={11}
+                  color={selectedSource === 'saved' ? colors.white : colors.textMuted}
+                />
+                <Text style={[styles.filterChipText, { color: selectedSource === 'saved' ? colors.white : colors.textSecondary }]}>
+                  Kaydedilenler
+                </Text>
+              </Pressable>
               {sources.map((source) => {
                 const active = selectedSource === source;
                 return (
@@ -522,7 +565,7 @@ export default function NewspaperBuilder() {
             </ScrollView>
           </View>
 
-          {languages.length > 1 && (
+          {languages.length > 1 && selectedSource !== 'saved' && (
             <View style={[styles.controlSection, { borderColor: colors.borderSubtle, backgroundColor: colors.surface }]}>
               <View style={styles.controlTitleRow}>
                 <Text style={[styles.controlTitle, { color: colors.textPrimary }]}>Dil</Text>
@@ -558,27 +601,32 @@ export default function NewspaperBuilder() {
           )}
 
           <View style={[styles.controlSection, { borderColor: colors.borderSubtle, backgroundColor: colors.surface }]}>
-            <Text style={[styles.controlTitle, { color: colors.textPrimary }]}>Filtreler</Text>
-            <View style={styles.segmentRow}>
-              {[
-                ['day', 'Bugun'],
-                ['week', 'Bu Hafta'],
-                ['all', 'Tumu'],
-              ].map(([value, label]) => {
-                const active = dateFilter === value;
-                return (
-                  <Pressable
-                    key={value}
-                    style={[styles.segmentButton, { backgroundColor: active ? colors.accent : colors.surfaceInput }]}
-                    onPress={() => setDateFilter(value as DateFilter)}
-                  >
-                    <Text style={[styles.segmentText, { color: active ? colors.white : colors.textSecondary }]}>
-                      {label}
-                    </Text>
-                  </Pressable>
-                );
-              })}
-            </View>
+            <Text style={[styles.controlTitle, { color: colors.textPrimary }]}>
+              {selectedSource === 'saved' ? 'Gazete Boyutu' : 'Filtreler'}
+            </Text>
+            
+            {selectedSource !== 'saved' && (
+              <View style={styles.segmentRow}>
+                {[
+                  ['day', 'Bugun'],
+                  ['week', 'Bu Hafta'],
+                  ['all', 'Tumu'],
+                ].map(([value, label]) => {
+                  const active = dateFilter === value;
+                  return (
+                    <Pressable
+                      key={value}
+                      style={[styles.segmentButton, { backgroundColor: active ? colors.accent : colors.surfaceInput }]}
+                      onPress={() => setDateFilter(value as DateFilter)}
+                    >
+                      <Text style={[styles.segmentText, { color: active ? colors.white : colors.textSecondary }]}>
+                        {label}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+            )}
 
             <View style={styles.segmentRow}>
               {([6, 9, 12] as CountOption[]).map((count) => {
@@ -597,14 +645,59 @@ export default function NewspaperBuilder() {
               })}
             </View>
 
-            <Pressable style={styles.toggleRow} onPress={() => setImagesOnly((current) => !current)}>
-              <Ionicons name={imagesOnly ? 'checkbox' : 'square-outline'} size={20} color={colors.accent} />
-              <Text style={[styles.toggleText, { color: colors.textSecondary }]}>Sadece gorselli haberler</Text>
+            {selectedSource !== 'saved' && (
+              <>
+                <Pressable style={styles.toggleRow} onPress={() => setImagesOnly((current) => !current)}>
+                  <Ionicons name={imagesOnly ? 'checkbox' : 'square-outline'} size={20} color={colors.accent} />
+                  <Text style={[styles.toggleText, { color: colors.textSecondary }]}>Sadece gorselli haberler</Text>
+                </Pressable>
+                <Pressable style={styles.toggleRow} onPress={() => setSavedFirst((current) => !current)}>
+                  <Ionicons name={savedFirst ? 'checkbox' : 'square-outline'} size={20} color={colors.accent} />
+                  <Text style={[styles.toggleText, { color: colors.textSecondary }]}>Kaydedilenlere oncelik ver</Text>
+                </Pressable>
+              </>
+            )}
+          </View>
+
+          <View style={[styles.controlSection, { borderColor: colors.borderSubtle, backgroundColor: colors.surface }]}>
+            <Pressable 
+              style={styles.controlTitleRow} 
+              onPress={() => setShowThemeControls(!showThemeControls)}
+            >
+              <Text style={[styles.controlTitle, { color: colors.textPrimary }]}>Gazete Tasarımı</Text>
+              <Ionicons name={showThemeControls ? 'chevron-up' : 'chevron-down'} size={20} color={colors.textSecondary} />
             </Pressable>
-            <Pressable style={styles.toggleRow} onPress={() => setSavedFirst((current) => !current)}>
-              <Ionicons name={savedFirst ? 'checkbox' : 'square-outline'} size={20} color={colors.accent} />
-              <Text style={[styles.toggleText, { color: colors.textSecondary }]}>Kaydedilenlere oncelik ver</Text>
-            </Pressable>
+            
+            {showThemeControls && (
+              <>
+                <View style={styles.segmentRow}>
+                  {Object.keys(PREDEFINED_THEMES).map((tName) => {
+                    const active = activeThemeName === tName;
+                    return (
+                      <Pressable
+                        key={tName}
+                        style={[styles.segmentButton, { backgroundColor: active ? colors.accent : colors.surfaceInput, paddingVertical: 6, paddingHorizontal: 4 }]}
+                        onPress={() => {
+                          setActiveThemeName(tName);
+                          setTheme(PREDEFINED_THEMES[tName]);
+                        }}
+                      >
+                        <Text style={[styles.segmentText, { color: active ? colors.white : colors.textSecondary, fontSize: 10, textAlign: 'center' }]}>
+                          {tName}
+                        </Text>
+                      </Pressable>
+                    );
+                  })}
+                </View>
+                <View>
+                  <ColorSelector label="Arka Plan Rengi" value={theme.backgroundColor} onChange={(c) => { setTheme({ ...theme, backgroundColor: c }); setActiveThemeName('Custom'); }} />
+                  <ColorSelector label="Ana Gazete Başlığı" value={theme.titleColor} onChange={(c) => { setTheme({ ...theme, titleColor: c }); setActiveThemeName('Custom'); }} />
+                  <ColorSelector label="Haber Başlıkları" value={theme.headingColor} onChange={(c) => { setTheme({ ...theme, headingColor: c }); setActiveThemeName('Custom'); }} />
+                  <ColorSelector label="İçerik Yazıları" value={theme.textColor} onChange={(c) => { setTheme({ ...theme, textColor: c }); setActiveThemeName('Custom'); }} />
+                  <ColorSelector label="Vurgu Rengi" value={theme.accentColor} onChange={(c) => { setTheme({ ...theme, accentColor: c }); setActiveThemeName('Custom'); }} />
+                </View>
+              </>
+            )}
           </View>
 
           <Pressable
@@ -657,13 +750,97 @@ export default function NewspaperBuilder() {
           </Pressable>
         </View>
 
-        <View style={[styles.preview, { borderColor: colors.borderSubtle, backgroundColor: colors.surface }]}>
-          <View style={[styles.paperMasthead, { borderBottomColor: colors.textPrimary }]}>
-            <Text style={[styles.paperTitle, { color: colors.textPrimary }]}>{paperName || 'Smart Newspaper'}</Text>
-            <Text style={[styles.paperSub, { color: colors.textMuted }]}>
-              {new Date().toLocaleDateString('tr-TR')} | {selectedArticles.length} haber
-            </Text>
-          </View>
+        <View style={[styles.preview, { borderColor: theme.titleColor, backgroundColor: theme.backgroundColor }]}>
+          {selectedSource === 'saved' ? (
+            <View style={{ flex: 1 }}>
+              <View style={[styles.paperMasthead, { borderBottomColor: theme.titleColor, paddingBottom: 16 }]}>
+                <Text style={[styles.paperTitle, { color: theme.titleColor, fontSize: 32 }]}>Kaydedilen Haberlerini Seç</Text>
+                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 12, marginTop: 8 }}>
+                  <Text style={[styles.paperSub, { color: theme.textColor }]}>
+                    {selectedSavedNewsIds.length} / {articleCount} haber secildi
+                  </Text>
+                  {selectedSavedNewsIds.length > 0 && (
+                    <Pressable onPress={() => setSelectedSavedNewsIds([])}>
+                      <Text style={[styles.clearText, { color: colors.accent, fontSize: 13 }]}>Secimi Temizle</Text>
+                    </Pressable>
+                  )}
+                </View>
+              </View>
+
+              <ScrollView style={{ flex: 1, marginTop: 16 }}>
+                {allSavedArticles.length === 0 ? (
+                  <View style={styles.emptyPreview}>
+                    <Ionicons name="bookmark-outline" size={42} color={colors.textMuted} />
+                    <Text style={[styles.emptyText, { color: colors.textMuted }]}>Henuz kaydedilmis haberiniz yok.</Text>
+                  </View>
+                ) : (
+                  <View style={styles.articleGrid}>
+                    {allSavedArticles.map(article => {
+                      const isSelected = selectedSavedNewsIds.includes(article.id);
+                      const isMaxReached = selectedSavedNewsIds.length >= articleCount && !isSelected;
+                      const selectionIndex = selectedSavedNewsIds.indexOf(article.id) + 1;
+
+                      return (
+                        <Pressable 
+                          key={article.id}
+                          style={[
+                            styles.previewArticle, 
+                            { 
+                              borderTopWidth: 0,
+                              borderWidth: isSelected ? 2 : 1,
+                              borderColor: isSelected ? theme.accentColor : theme.textColor,
+                              borderRadius: 12,
+                              padding: 12,
+                              opacity: isMaxReached ? 0.4 : 1,
+                              backgroundColor: 'transparent',
+                              position: 'relative'
+                            }
+                          ]}
+                          onPress={() => {
+                            if (isSelected) {
+                              setSelectedSavedNewsIds(prev => prev.filter(id => id !== article.id));
+                            } else if (!isMaxReached) {
+                              setSelectedSavedNewsIds(prev => [...prev, article.id]);
+                            }
+                          }}
+                        >
+                          {isSelected && (
+                            <View style={{
+                              position: 'absolute', top: 8, right: 8, zIndex: 10,
+                              backgroundColor: colors.accent, borderRadius: 12,
+                              width: 24, height: 24, alignItems: 'center', justifyContent: 'center'
+                            }}>
+                              <Text style={{ color: '#fff', fontSize: 12, fontWeight: '900' }}>{selectionIndex}</Text>
+                            </View>
+                          )}
+                          
+                          {article.imageUrl ? (
+                            <NewsPreviewImage uri={proxyImageUrl(article.imageUrl)} style={styles.previewImage} />
+                          ) : null}
+                          <Text style={[styles.previewCategory, { color: theme.accentColor }]}>
+                            {mapToContentCategory(article.category, article.title, article.description)}
+                          </Text>
+                          <Text style={[styles.previewTitle, { color: theme.headingColor, fontSize: 16 }]} numberOfLines={2}>
+                            {article.title}
+                          </Text>
+                          <Text style={[styles.articleMeta, { color: theme.textColor, opacity: 0.7 }]} numberOfLines={1}>
+                            {article.source.name} | {shortDate(article.publishedAt)}
+                          </Text>
+                        </Pressable>
+                      );
+                    })}
+                  </View>
+                )}
+              </ScrollView>
+            </View>
+          ) : (
+            <>
+              <View style={[styles.paperMasthead, { borderBottomColor: theme.titleColor }]}>
+                <Text style={[styles.paperTitle, { color: theme.titleColor }]}>{paperName || 'Smart Newspaper'}</Text>
+                <Text style={[styles.paperSub, { color: theme.textColor, opacity: 0.8 }]}>
+                  {new Date().toLocaleDateString('tr-TR')} | {selectedArticles.length} haber
+                </Text>
+              </View>
 
           {loading ? (
             <View style={styles.emptyPreview}>
@@ -679,19 +856,19 @@ export default function NewspaperBuilder() {
             <>
               <View style={styles.leadStory}>
                 {leadArticle.imageUrl ? (
-                  <Image source={{ uri: proxyImageUrl(leadArticle.imageUrl) }} style={styles.leadImage} resizeMode="cover" />
+                  <NewsPreviewImage uri={proxyImageUrl(leadArticle.imageUrl)} style={styles.leadImage} />
                 ) : null}
                 <View style={styles.leadBody}>
-                  <Text style={[styles.leadCategory, { color: colors.accent }]}>
+                  <Text style={[styles.leadCategory, { color: theme.accentColor }]}>
                     {mapToContentCategory(leadArticle.category, leadArticle.title, leadArticle.description).toUpperCase()}
                   </Text>
-                  <Text style={[styles.leadTitle, { color: colors.textPrimary }]}>{leadArticle.title}</Text>
+                  <Text style={[styles.leadTitle, { color: theme.headingColor }]}>{leadArticle.title}</Text>
                   {!!leadArticle.description && (
-                    <Text style={[styles.leadSummary, { color: colors.textSecondary }]} numberOfLines={4}>
+                    <Text style={[styles.leadSummary, { color: theme.textColor }]} numberOfLines={4}>
                       {leadArticle.description}
                     </Text>
                   )}
-                  <Text style={[styles.articleMeta, { color: colors.textMuted }]}>
+                  <Text style={[styles.articleMeta, { color: theme.textColor, opacity: 0.7 }]}>
                     {leadArticle.source.name} | {shortDate(leadArticle.publishedAt)}
                   </Text>
                 </View>
@@ -699,20 +876,20 @@ export default function NewspaperBuilder() {
 
               <View style={styles.articleGrid}>
                 {secondaryArticles.map((article) => (
-                  <View key={article.id} style={[styles.previewArticle, { borderTopColor: colors.borderSubtle }]}>
+                  <View key={article.id} style={[styles.previewArticle, { borderTopColor: theme.textColor }]}>
                     {article.imageUrl ? (
-                      <Image source={{ uri: proxyImageUrl(article.imageUrl) }} style={styles.previewImage} resizeMode="cover" />
+                      <NewsPreviewImage uri={proxyImageUrl(article.imageUrl)} style={styles.previewImage} />
                     ) : null}
-                    <Text style={[styles.previewCategory, { color: colors.accent }]}>
+                    <Text style={[styles.previewCategory, { color: theme.accentColor }]}>
                       {mapToContentCategory(article.category, article.title, article.description)}
                     </Text>
-                    <Text style={[styles.previewTitle, { color: colors.textPrimary }]} numberOfLines={3}>
+                    <Text style={[styles.previewTitle, { color: theme.headingColor }]} numberOfLines={3}>
                       {article.title}
                     </Text>
-                    <Text style={[styles.previewSummary, { color: colors.textSecondary }]} numberOfLines={3}>
+                    <Text style={[styles.previewSummary, { color: theme.textColor }]} numberOfLines={3}>
                       {article.description}
                     </Text>
-                    <Text style={[styles.articleMeta, { color: colors.textMuted }]} numberOfLines={1}>
+                    <Text style={[styles.articleMeta, { color: theme.textColor, opacity: 0.7 }]} numberOfLines={1}>
                       {article.source.name} | {shortDate(article.publishedAt)}
                     </Text>
                   </View>
@@ -720,12 +897,26 @@ export default function NewspaperBuilder() {
               </View>
             </>
           )}
+          </>
+          )}
         </View>
       </View>
       </ScrollView>
     </>
   );
 }
+
+const NewsPreviewImage = ({ uri, style }: { uri: string; style: any }) => {
+  const [error, setError] = useState(false);
+  if (error || !uri) {
+    return (
+      <View style={[style, { backgroundColor: 'rgba(0,0,0,0.05)', alignItems: 'center', justifyContent: 'center' }]}>
+        <Text style={{ color: 'rgba(0,0,0,0.4)', fontSize: 12, fontWeight: 'bold', textAlign: 'center' }}>Görsel Yok</Text>
+      </View>
+    );
+  }
+  return <Image source={{ uri }} style={style} resizeMode="cover" onError={() => setError(true)} />;
+};
 
 const styles = StyleSheet.create({
   root: { flex: 1 },

@@ -92,7 +92,7 @@ export default function Archive() {
   const { colors } = useTheme();
   const isWeb = Platform.OS === 'web';
   const { articles } = useApiNews();
-  const { savedIds, toggleSaved } = useBookmarks();
+  const { savedIds, savedArticles, toggleSaved } = useBookmarks();
   const { preferredCategories } = usePreferences();
   const [screen, setScreen] = useState<ScreenState>('list');
   const [activeTab, setActiveTab] = useState<ArchiveTab>(params.tab === 'saved' ? 'saved' : 'editions');
@@ -145,13 +145,13 @@ export default function Archive() {
       .filter((article): article is ApiArticle => Boolean(article));
   }, [selectedEdition, articles]);
 
-  const savedArticles = useMemo(
-    () =>
-      savedIds
-        .map((id) => articles.find((article) => article.id === id))
-        .filter((article): article is ApiArticle => Boolean(article)),
-    [articles, savedIds]
-  );
+
+
+  const allSavedArticles = useMemo(() => {
+    const historical = savedArticles || [];
+    const recent = articles.filter((a) => savedIds.includes(a.id) && !historical.some((h) => h.id === a.id));
+    return [...historical, ...recent];
+  }, [savedArticles, articles, savedIds]);
 
   const searchResults = useMemo(() => {
     const query = searchQuery.trim().toLocaleLowerCase('tr-TR');
@@ -478,14 +478,14 @@ export default function Archive() {
           <Text style={s(colors).sectionTitle}>Kaydedilenler</Text>
           <Text style={s(colors).sectionSubtitle}>Sonradan okumak icin kaydettiginiz haberler</Text>
 
-          {savedArticles.length === 0 ? (
+          {allSavedArticles.length === 0 ? (
             <View style={s(colors).savedEmpty}>
               <Ionicons name="bookmark-outline" size={48} color={colors.textMuted} />
               <Text style={s(colors).emptyText}>Henuz kaydedilen haber yok.</Text>
             </View>
           ) : (
             <View style={s(colors).savedGrid}>
-              {savedArticles.map((article, index) => {
+              {allSavedArticles.map((article, index) => {
                 const category = mapToContentCategory(article.category, article.title, article.description);
                 const imageUrl = article.imageUrl ? proxyImageUrl(article.imageUrl) : undefined;
                 const wide = isWeb && index % 5 === 0;

@@ -76,6 +76,17 @@ const styles = StyleSheet.create({
     height: 205,
     objectFit: 'cover',
   },
+  placeholderBg: {
+    backgroundColor: '#e5e5e5',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  placeholderText: {
+    color: '#9ca3af',
+    fontSize: 12,
+    fontWeight: 900,
+  },
   leadBody: {
     padding: 12,
   },
@@ -191,41 +202,53 @@ export function createNewspaperReactPdfDocument(input: NewspaperTemplateInput): 
 
   return (
     <Document title={prepared.newspaperName} author="Smart Newspaper">
-      <Page size="A4" style={styles.page}>
-        <View style={styles.coverHeader}>
-          <Text style={styles.eyebrow}>Personalized Edition</Text>
-          <Text style={styles.title}>{prepared.newspaperName}</Text>
-          <Text style={styles.subline}>Gunluk Baski | {prepared.displayDate} | {allArticles.length} haber</Text>
+      <Page size="A4" style={[styles.page, { backgroundColor: prepared.theme.backgroundColor, color: prepared.theme.textColor }]}>
+        <View style={[styles.coverHeader, { borderBottomColor: prepared.theme.titleColor }]}>
+          <Text style={[styles.eyebrow, { color: prepared.theme.textColor }]}>Personalized Edition</Text>
+          <Text style={[styles.title, { color: prepared.theme.titleColor }]}>{prepared.newspaperName}</Text>
+          <Text style={[styles.subline, { color: prepared.theme.textColor, opacity: 0.8 }]}>Gunluk Baski | {prepared.displayDate} | {allArticles.length} haber</Text>
         </View>
 
         {lead ? (
-          <Link src={`#article-${lead.id}`} style={styles.leadCard}>
-            {lead.imageUrl ? <Image src={lead.imageUrl} style={styles.leadImage} /> : null}
+          <Link src={`#article-${lead.id}`} style={[styles.leadCard, { borderColor: prepared.theme.titleColor, backgroundColor: 'transparent' }]}>
+            {lead.imageUrl ? (
+              <Image src={lead.imageUrl} style={styles.leadImage} />
+            ) : (
+              <View style={[styles.leadImage, styles.placeholderBg]}>
+                <Text style={styles.placeholderText}>Görsel Bulunamadı</Text>
+              </View>
+            )}
             <View style={styles.leadBody}>
-              <Text style={styles.category}>{lead.categoryDisplayName}</Text>
-              <Text style={styles.leadTitle}>{lead.title}</Text>
-              <Text style={styles.summary}>{lead.summary}</Text>
-              <Text style={styles.meta}>{lead.source} | {shortDate(lead.date)}</Text>
-              <Text style={styles.readMore}>Haberi ac</Text>
+              <Text style={[styles.category, { color: prepared.theme.accentColor }]}>{lead.categoryDisplayName}</Text>
+              <Text style={[styles.leadTitle, { color: prepared.theme.headingColor }]}>{lead.title}</Text>
+              <Text style={[styles.summary, { color: prepared.theme.textColor }]}>{lead.summary}</Text>
+              <Text style={[styles.meta, { color: prepared.theme.textColor, opacity: 0.7 }]}>{lead.source} | {shortDate(lead.date)}</Text>
+              <Text style={[styles.readMore, { color: prepared.theme.accentColor }]}>Haberi ac</Text>
             </View>
           </Link>
         ) : null}
 
         <View style={styles.previewGrid}>
           {previews.map((article) => (
-            <Link key={article.id} src={`#article-${article.id}`} style={styles.previewCard}>
-              {article.imageUrl ? <Image src={article.imageUrl} style={styles.previewImage} /> : null}
+            <Link key={article.id} src={`#article-${article.id}`} style={[styles.previewCard, { borderColor: prepared.theme.textColor, backgroundColor: 'transparent' }]}>
+              {article.imageUrl ? (
+                <Image src={article.imageUrl} style={styles.previewImage} />
+              ) : (
+                <View style={[styles.previewImage, styles.placeholderBg]}>
+                  <Text style={styles.placeholderText}>Görsel Bulunamadı</Text>
+                </View>
+              )}
               <View style={styles.previewBody}>
-                <Text style={styles.category}>{article.categoryDisplayName}</Text>
-                <Text style={styles.previewTitle}>{article.title}</Text>
-                <Text style={styles.meta}>{article.source}</Text>
-                <Text style={styles.readMore}>Detaya git</Text>
+                <Text style={[styles.category, { color: prepared.theme.accentColor }]}>{article.categoryDisplayName}</Text>
+                <Text style={[styles.previewTitle, { color: prepared.theme.headingColor }]}>{article.title}</Text>
+                <Text style={[styles.meta, { color: prepared.theme.textColor, opacity: 0.7 }]}>{article.source}</Text>
+                <Text style={[styles.readMore, { color: prepared.theme.accentColor }]}>Detaya git</Text>
               </View>
             </Link>
           ))}
         </View>
 
-        <Text style={styles.footer}>Smart Newspaper | Onizleme kartlarina tiklayarak haber detayina gidebilirsiniz.</Text>
+        <Text style={[styles.footer, { color: prepared.theme.textColor, borderTopColor: prepared.theme.textColor }]}>Smart Newspaper | Onizleme kartlarina tiklayarak haber detayina gidebilirsiniz.</Text>
       </Page>
 
       {allArticles.map((article, index) => {
@@ -233,20 +256,26 @@ export function createNewspaperReactPdfDocument(input: NewspaperTemplateInput): 
         const columns = chunk(content, Math.ceil(content.length / 2) || 1);
 
         return (
-          <Page key={article.id} id={`article-${article.id}`} size="A4" style={styles.page}>
-            <View style={styles.articleHeader}>
-              <Text style={styles.category}>{article.categoryDisplayName}</Text>
-              <Text style={styles.articleTitle}>{article.title}</Text>
-              <Text style={styles.meta}>{article.source} | {shortDate(article.date)}</Text>
+          <Page key={article.id} id={`article-${article.id}`} size="A4" style={[styles.page, { backgroundColor: prepared.theme.backgroundColor, color: prepared.theme.textColor }]}>
+            <View style={[styles.articleHeader, { borderBottomColor: prepared.theme.titleColor }]}>
+              <Text style={[styles.category, { color: prepared.theme.accentColor }]}>{article.categoryDisplayName}</Text>
+              <Text style={[styles.articleTitle, { color: prepared.theme.headingColor }]}>{article.title}</Text>
+              <Text style={[styles.meta, { color: prepared.theme.textColor, opacity: 0.7 }]}>{article.source} | {shortDate(article.date)}</Text>
             </View>
 
-            {article.imageUrl ? <Image src={article.imageUrl} style={styles.articleImage} /> : null}
+            {article.imageUrl ? (
+              <Image src={article.imageUrl} style={styles.articleImage} />
+            ) : (
+              <View style={[styles.articleImage, styles.placeholderBg]}>
+                <Text style={styles.placeholderText}>Görsel Bulunamadı</Text>
+              </View>
+            )}
 
             <View style={styles.articleColumns}>
               {[0, 1].map((col) => (
                 <View key={col} style={styles.articleColumn}>
                   {(columns[col] || []).map((paragraph, paragraphIndex) => (
-                    <Text key={`${col}-${paragraphIndex}`} style={styles.paragraph}>
+                    <Text key={`${col}-${paragraphIndex}`} style={[styles.paragraph, { color: prepared.theme.textColor }]}>
                       {paragraph}
                     </Text>
                   ))}
@@ -254,7 +283,7 @@ export function createNewspaperReactPdfDocument(input: NewspaperTemplateInput): 
               ))}
             </View>
 
-            <Text style={styles.footer}>
+            <Text style={[styles.footer, { color: prepared.theme.textColor, borderTopColor: prepared.theme.textColor }]}>
               {prepared.newspaperName} | Haber {index + 1} / {allArticles.length}
             </Text>
           </Page>

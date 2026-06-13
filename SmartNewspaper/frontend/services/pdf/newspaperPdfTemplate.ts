@@ -1,4 +1,4 @@
-﻿import { ContentCategory } from '@/services/content';
+import { ContentCategory } from '@/services/content';
 
 export type NewspaperArticleInput = {
   id: string;
@@ -16,11 +16,58 @@ export type NewspaperPersonalization = {
   preferredCategories?: Array<ContentCategory | string>;
 };
 
+export type NewspaperTheme = {
+  backgroundColor: string;
+  titleColor: string;
+  headingColor: string;
+  textColor: string;
+  accentColor: string;
+};
+
+export const PREDEFINED_THEMES: Record<string, NewspaperTheme> = {
+  'Klasik Gazete': {
+    backgroundColor: '#fffdf8',
+    titleColor: '#111111',
+    headingColor: '#111111',
+    textColor: '#222222',
+    accentColor: '#8a1f11',
+  },
+  'Financial Times': {
+    backgroundColor: '#fcd0b4',
+    titleColor: '#333333',
+    headingColor: '#333333',
+    textColor: '#444444',
+    accentColor: '#0f5499',
+  },
+  'Dark Mode': {
+    backgroundColor: '#1a1a1a',
+    titleColor: '#ffffff',
+    headingColor: '#e5e5e5',
+    textColor: '#d4d4d4',
+    accentColor: '#06b6d4',
+  },
+  'Modern Tech': {
+    backgroundColor: '#ffffff',
+    titleColor: '#1e293b',
+    headingColor: '#0f172a',
+    textColor: '#334155',
+    accentColor: '#4f46e5',
+  },
+  'Minimal White': {
+    backgroundColor: '#ffffff',
+    titleColor: '#000000',
+    headingColor: '#000000',
+    textColor: '#000000',
+    accentColor: '#71717a',
+  },
+};
+
 export type NewspaperTemplateInput = {
   newspaperName?: string;
   generatedAt?: string;
   articles: NewspaperArticleInput[];
   personalization?: NewspaperPersonalization;
+  theme?: NewspaperTheme;
 };
 
 type ScoredArticle = NewspaperArticleInput & {
@@ -44,6 +91,7 @@ export type NewspaperPreparedData = {
   displayDate: string;
   sections: NewspaperPreparedSection[];
   personalizationExists: boolean;
+  theme: NewspaperTheme;
 };
 
 export const CATEGORY_DISPLAY_MAP: Record<string, string> = {
@@ -164,7 +212,7 @@ function renderPreviewCard(article: NewspaperPreparedArticle, isLead = false): s
       ${
         article.imageUrl
           ? `<img src="${escapeHtml(article.imageUrl)}" alt="${safeTitle}" class="${isLead ? 'lead-image' : 'preview-image'}" />`
-          : `<div class="${isLead ? 'lead-image' : 'preview-image'} image-placeholder"></div>`
+          : `<div class="${isLead ? 'lead-image' : 'preview-image'} image-placeholder">Görsel Bulunamadı</div>`
       }
       <div class="${isLead ? 'lead-body' : 'preview-body'}">
         <p class="category">${escapeHtml(article.categoryDisplayName)}</p>
@@ -218,7 +266,7 @@ function renderDetailArticle(article: NewspaperPreparedArticle, index: number, t
       ${
         article.imageUrl
           ? `<img src="${escapeHtml(article.imageUrl)}" alt="${safeTitle}" class="article-detail-image" />`
-          : ''
+          : `<div class="article-detail-image image-placeholder">Görsel Bulunamadı</div>`
       }
       <div class="article-columns">${contentParagraphs}</div>
       <p class="detail-footer">Haber ${index + 1} / ${total}</p>
@@ -249,16 +297,19 @@ export function prepareNewspaperPdfData(input: NewspaperTemplateInput): Newspape
     };
   });
 
+  const theme = input.theme ?? PREDEFINED_THEMES['Klasik Gazete'];
+
   return {
     newspaperName,
     displayDate,
     sections,
     personalizationExists,
+    theme,
   };
 }
 
 export function renderNewspaperPdfHtml(input: NewspaperTemplateInput): string {
-  const { newspaperName, displayDate, sections } = prepareNewspaperPdfData(input);
+  const { newspaperName, displayDate, sections, theme } = prepareNewspaperPdfData(input);
 
   const allArticles = sections.flatMap((section) => section.articles);
   const leadArticle = allArticles[0];
@@ -275,6 +326,14 @@ export function renderNewspaperPdfHtml(input: NewspaperTemplateInput): string {
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <style>
+      :root {
+        --bg-color: ${theme.backgroundColor};
+        --title-color: ${theme.titleColor};
+        --heading-color: ${theme.headingColor};
+        --text-color: ${theme.textColor};
+        --accent-color: ${theme.accentColor};
+      }
+
       @page {
         size: A4;
         margin: 12mm 10mm 12mm 10mm;
@@ -289,9 +348,11 @@ export function renderNewspaperPdfHtml(input: NewspaperTemplateInput): string {
       html, body {
         margin: 0;
         padding: 0;
-        color: #111111;
-        background: #fffdf8;
+        color: var(--text-color);
+        background: var(--bg-color);
         font-family: 'Times New Roman', Georgia, serif;
+        -webkit-print-color-adjust: exact !important;
+        print-color-adjust: exact !important;
       }
 
       a {
@@ -303,7 +364,7 @@ export function renderNewspaperPdfHtml(input: NewspaperTemplateInput): string {
         text-align: center;
         margin-bottom: 5mm;
         padding-bottom: 3mm;
-        border-bottom: 3px solid #111111;
+        border-bottom: 3px solid var(--title-color);
         page-break-after: avoid;
       }
 
@@ -313,6 +374,7 @@ export function renderNewspaperPdfHtml(input: NewspaperTemplateInput): string {
         font-weight: 900;
         letter-spacing: -0.5px;
         line-height: 1;
+        color: var(--title-color);
       }
 
       .masthead-sub {
@@ -321,22 +383,36 @@ export function renderNewspaperPdfHtml(input: NewspaperTemplateInput): string {
         text-transform: uppercase;
         letter-spacing: 2px;
         font-weight: 600;
+        color: var(--text-color);
+        opacity: 0.8;
       }
 
       .cover-note {
         margin: 0 0 4mm 0;
         font-size: 9px;
-        color: #555;
+        color: var(--text-color);
+        opacity: 0.7;
         text-align: center;
         text-transform: uppercase;
         letter-spacing: 1px;
       }
 
+      .image-placeholder {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: var(--text-color);
+        opacity: 0.6;
+        font-size: 14px;
+        font-weight: 900;
+        background: rgba(0,0,0,0.05);
+      }
+
       .lead-card {
         display: block;
         grid-column: 1 / -1;
-        border: 1px solid #111;
-        background: #fff;
+        border: 1px solid var(--title-color);
+        background: transparent;
         margin-bottom: 5mm;
         page-break-inside: avoid;
       }
@@ -346,7 +422,7 @@ export function renderNewspaperPdfHtml(input: NewspaperTemplateInput): string {
         height: 78mm;
         object-fit: cover;
         display: block;
-        background: #e5e5e5;
+        background: rgba(0,0,0,0.05);
       }
 
       .lead-body {
@@ -356,7 +432,7 @@ export function renderNewspaperPdfHtml(input: NewspaperTemplateInput): string {
       .category {
         margin: 0 0 1.5mm 0;
         font-size: 8px;
-        color: #8a1f11;
+        color: var(--accent-color);
         font-weight: 900;
         letter-spacing: 1.5px;
         text-transform: uppercase;
@@ -367,13 +443,14 @@ export function renderNewspaperPdfHtml(input: NewspaperTemplateInput): string {
         font-size: 28px;
         line-height: 1.05;
         font-weight: 900;
+        color: var(--heading-color);
       }
 
       .preview-summary {
         margin: 2mm 0 0 0;
         font-size: 10px;
         line-height: 1.35;
-        color: #333;
+        color: var(--text-color);
       }
 
       .preview-grid {
@@ -384,8 +461,9 @@ export function renderNewspaperPdfHtml(input: NewspaperTemplateInput): string {
 
       .preview-card {
         display: block;
-        border: 1px solid #d0d0d0;
-        background: #fff;
+        border: 1px solid var(--text-color);
+        opacity: 0.85;
+        background: transparent;
         min-height: 52mm;
         page-break-inside: avoid;
       }
@@ -395,7 +473,7 @@ export function renderNewspaperPdfHtml(input: NewspaperTemplateInput): string {
         height: 25mm;
         object-fit: cover;
         display: block;
-        background: #e5e5e5;
+        background: rgba(0,0,0,0.05);
       }
 
       .preview-body {
@@ -407,12 +485,14 @@ export function renderNewspaperPdfHtml(input: NewspaperTemplateInput): string {
         font-size: 11px;
         font-weight: 900;
         line-height: 1.2;
+        color: var(--heading-color);
       }
 
       .preview-meta {
         margin: 2mm 0 0 0;
         font-size: 7px;
-        color: #666;
+        color: var(--text-color);
+        opacity: 0.7;
         text-transform: uppercase;
         letter-spacing: 0.5px;
       }
@@ -420,7 +500,7 @@ export function renderNewspaperPdfHtml(input: NewspaperTemplateInput): string {
       .read-more {
         margin: 2mm 0 0 0;
         font-size: 7px;
-        color: #8a1f11;
+        color: var(--accent-color);
         font-weight: 900;
         text-transform: uppercase;
         letter-spacing: 0.8px;
@@ -431,7 +511,7 @@ export function renderNewspaperPdfHtml(input: NewspaperTemplateInput): string {
       }
 
       .article-detail-header {
-        border-bottom: 2px solid #111;
+        border-bottom: 2px solid var(--title-color);
         padding-bottom: 3mm;
         margin-bottom: 4mm;
       }
@@ -441,6 +521,7 @@ export function renderNewspaperPdfHtml(input: NewspaperTemplateInput): string {
         font-size: 30px;
         line-height: 1.05;
         font-weight: 900;
+        color: var(--heading-color);
       }
 
       .article-detail-image {
@@ -460,7 +541,7 @@ export function renderNewspaperPdfHtml(input: NewspaperTemplateInput): string {
         margin: 0 0 2mm 0;
         font-size: 10px;
         line-height: 1.45;
-        color: #222;
+        color: var(--text-color);
         text-align: justify;
       }
 
@@ -470,7 +551,8 @@ export function renderNewspaperPdfHtml(input: NewspaperTemplateInput): string {
         font-size: 7.5px;
         letter-spacing: 0.5px;
         text-transform: uppercase;
-        color: #666;
+        color: var(--text-color);
+        opacity: 0.7;
         font-weight: 600;
       }
 
@@ -482,15 +564,18 @@ export function renderNewspaperPdfHtml(input: NewspaperTemplateInput): string {
         text-align: center;
         font-size: 8px;
         letter-spacing: 0.5px;
-        border-top: 1px solid #cccccc;
+        border-top: 1px solid var(--text-color);
         padding-top: 2mm;
-        background: white;
+        background: var(--bg-color);
+        color: var(--text-color);
       }
 
       @media print {
         body {
           margin: 0;
           padding: 0;
+          -webkit-print-color-adjust: exact !important;
+          print-color-adjust: exact !important;
         }
         
         .masthead {

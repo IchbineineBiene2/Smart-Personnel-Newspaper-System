@@ -43,12 +43,43 @@ export function decodeHtmlEntities(text?: string | null): string {
     .replace(/&#034;/g, '"');
 }
 
-export function cleanArticle<T extends { title?: string; description?: string }>(a: T): T {
+export function extractImageUrl(a: any): string | undefined {
+  if (!a) return undefined;
+  let url = a.imageUrl || a.image || a.urlToImage || a.thumbnail || a.media || a['og:image'] || a['twitter:image'];
+  if (!url && a.enclosure && a.enclosure.url) {
+    url = a.enclosure.url;
+  }
+  
+  if (typeof url === 'string' && url.trim().length > 0) {
+    if (url.startsWith('//')) {
+      return `https:${url}`;
+    } else if (url.startsWith('/')) {
+      try {
+        const sourceUrl = new URL(a.url);
+        return `${sourceUrl.origin}${url}`;
+      } catch {
+        return url;
+      }
+    }
+    return url;
+  }
+  return undefined;
+}
+
+export function cleanArticle<T extends { title?: string; description?: string; id?: string }>(a: T): T {
   if (!a) return a;
+
+  const extractedImage = extractImageUrl(a);
+
+  if (process.env.NODE_ENV !== 'production' && !extractedImage) {
+    console.log(`[Image Check] No image found for article: ${a.title?.substring(0, 30)}... (ID: ${a.id || 'unknown'})`);
+  }
+
   return {
     ...a,
     title: decodeHtmlEntities(a.title) as any,
     description: decodeHtmlEntities(a.description) as any,
+    imageUrl: extractedImage,
   };
 }
 

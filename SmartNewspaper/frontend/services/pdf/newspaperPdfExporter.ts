@@ -5,6 +5,7 @@ import * as Sharing from 'expo-sharing';
 import {
   NewspaperArticleInput,
   NewspaperPersonalization,
+  NewspaperTheme,
   renderNewspaperPdfHtml,
 } from './newspaperPdfTemplate';
 
@@ -17,6 +18,7 @@ export type ExportNewspaperPdfInput = {
   personalization?: NewspaperPersonalization;
   shareTitle?: string;
   engine?: NewspaperPdfEngine;
+  theme?: NewspaperTheme;
 };
 
 function downloadBlobOnWeb(blob: Blob, fileName: string) {
@@ -87,6 +89,7 @@ export async function exportNewspaperPdf(input: ExportNewspaperPdfInput): Promis
         generatedAt: input.generatedAt,
         articles: input.articles,
         personalization: input.personalization,
+        theme: input.theme,
       });
 
       const blob = await pdf(doc as any).toBlob();
@@ -104,6 +107,7 @@ export async function exportNewspaperPdf(input: ExportNewspaperPdfInput): Promis
     generatedAt: input.generatedAt,
     articles: input.articles,
     personalization: input.personalization,
+    theme: input.theme,
   });
 
   if (Platform.OS === 'web') {

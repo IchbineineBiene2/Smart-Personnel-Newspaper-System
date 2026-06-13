@@ -41,7 +41,7 @@ export function renderInteractiveNewspaperHtml(input: NewspaperTemplateInput): s
 
   const cards = articles.map((article, index) => `
     <button class="card ${index === 0 ? 'card-lead' : ''}" data-id="${escapeHtml(article.id)}">
-      ${article.imageUrl ? `<img src="${escapeHtml(article.imageUrl)}" alt="${escapeHtml(article.title)}" />` : '<div class="placeholder"></div>'}
+      ${article.imageUrl ? `<img src="${escapeHtml(article.imageUrl)}" alt="${escapeHtml(article.title)}" />` : '<div class="placeholder">Görsel Bulunamadı</div>'}
       <span class="category">${escapeHtml(article.categoryDisplayName)}</span>
       <strong>${escapeHtml(article.title)}</strong>
       <small>${escapeHtml(article.source)} | ${escapeHtml(article.date)}</small>
@@ -56,22 +56,22 @@ export function renderInteractiveNewspaperHtml(input: NewspaperTemplateInput): s
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>${escapeHtml(prepared.newspaperName)}</title>
     <style>
-      :root { color-scheme: light; --ink: #171717; --muted: #666; --paper: #fffdf7; --line: #ddd0bd; --accent: #8a1f11; }
+      :root { color-scheme: light; --ink: ${prepared.theme.textColor}; --muted: #666; --paper: ${prepared.theme.backgroundColor}; --line: ${prepared.theme.titleColor}; --accent: ${prepared.theme.accentColor}; --heading: ${prepared.theme.headingColor}; }
       * { box-sizing: border-box; }
-      body { margin: 0; background: #e9e1d3; color: var(--ink); font-family: Georgia, 'Times New Roman', serif; }
+      body { margin: 0; background: rgba(0,0,0,0.02); color: var(--ink); font-family: Georgia, 'Times New Roman', serif; }
       .paper { width: min(1180px, calc(100% - 28px)); margin: 24px auto; background: var(--paper); padding: 28px; box-shadow: 0 18px 60px rgba(0,0,0,.18); }
       header { border-bottom: 4px double var(--ink); text-align: center; padding-bottom: 16px; margin-bottom: 22px; }
       h1 { margin: 0; font-size: clamp(42px, 7vw, 86px); line-height: .9; letter-spacing: -2px; }
       .sub { margin-top: 10px; font: 700 12px/1.4 system-ui, sans-serif; text-transform: uppercase; letter-spacing: 2px; color: var(--muted); }
       .grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
-      .card { appearance: none; border: 1px solid var(--line); background: #fff; text-align: left; padding: 0; cursor: pointer; display: flex; flex-direction: column; min-height: 280px; transition: transform .16s ease, box-shadow .16s ease; }
-      .card:hover { transform: translateY(-2px); box-shadow: 0 10px 24px rgba(0,0,0,.12); }
+      .card { appearance: none; border: 1px solid var(--line); background: transparent; text-align: left; padding: 0; cursor: pointer; display: flex; flex-direction: column; min-height: 280px; transition: transform .16s ease, box-shadow .16s ease; opacity: 0.95; }
+      .card:hover { transform: translateY(-2px); box-shadow: 0 10px 24px rgba(0,0,0,.12); opacity: 1; }
       .card-lead { grid-column: span 2; grid-row: span 2; }
-      .card img, .placeholder { width: 100%; height: 180px; object-fit: cover; background: #d8d2c8; display: block; }
+      .card img, .placeholder { width: 100%; height: 180px; object-fit: cover; background: rgba(0,0,0,0.05); display: flex; align-items: center; justify-content: center; color: var(--ink); opacity: 0.5; font-size: 14px; font-weight: bold; }
       .card-lead img, .card-lead .placeholder { height: 360px; }
       .card span, .card strong, .card small, .card em { margin-left: 14px; margin-right: 14px; }
       .category { margin-top: 14px; color: var(--accent); font: 900 11px/1 system-ui, sans-serif; letter-spacing: 1.3px; text-transform: uppercase; }
-      strong { margin-top: 8px; font-size: 22px; line-height: 1.08; }
+      strong { margin-top: 8px; font-size: 22px; line-height: 1.08; color: var(--heading); }
       .card-lead strong { font-size: 34px; }
       small { margin-top: 10px; color: var(--muted); font: 700 11px/1.4 system-ui, sans-serif; text-transform: uppercase; }
       em { margin-top: auto; margin-bottom: 14px; color: var(--accent); font: 900 12px/1 system-ui, sans-serif; text-transform: uppercase; font-style: normal; }
@@ -80,7 +80,7 @@ export function renderInteractiveNewspaperHtml(input: NewspaperTemplateInput): s
       .dialog { width: min(860px, 100%); max-height: 88vh; overflow: auto; background: var(--paper); border: 1px solid var(--line); box-shadow: 0 20px 80px rgba(0,0,0,.35); }
       .dialog img { width: 100%; max-height: 420px; object-fit: cover; display: block; }
       .dialog-body { padding: 26px; }
-      .dialog h2 { margin: 8px 0 12px; font-size: clamp(30px, 5vw, 52px); line-height: .98; }
+      .dialog h2 { margin: 8px 0 12px; font-size: clamp(30px, 5vw, 52px); line-height: .98; color: var(--heading); }
       .dialog p { font-size: 17px; line-height: 1.65; margin: 0 0 14px; }
       .close { position: sticky; top: 0; float: right; margin: 12px; border: 0; background: var(--ink); color: #fff; border-radius: 999px; width: 38px; height: 38px; cursor: pointer; font-size: 20px; }
       @media (max-width: 820px) { .grid { grid-template-columns: 1fr; } .card-lead { grid-column: span 1; grid-row: span 1; } .card-lead img, .card-lead .placeholder { height: 220px; } }
@@ -113,7 +113,7 @@ export function renderInteractiveNewspaperHtml(input: NewspaperTemplateInput): s
         if (!article) return;
         const paragraphs = String(article.content || '').split(/\\n+/).filter(Boolean).map((p) => '<p>' + escapeText(p) + '</p>').join('');
         modalContent.innerHTML =
-          (article.imageUrl ? '<img src="' + article.imageUrl + '" alt="">' : '') +
+          (article.imageUrl ? '<img src="' + article.imageUrl + '" alt="">' : '<div class="placeholder" style="height:320px;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,0.05);color:var(--ink);opacity:0.5;font-weight:bold;">Görsel Bulunamadı</div>') +
           '<div class="dialog-body"><span class="category">' + escapeText(article.category) + '</span>' +
           '<h2>' + escapeText(article.title) + '</h2>' +
           '<small>' + escapeText(article.source) + ' | ' + escapeText(article.date) + '</small>' +
