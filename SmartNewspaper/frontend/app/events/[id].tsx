@@ -80,7 +80,7 @@ export default function EventDetailPage() {
 
               {item.category && (
                 <View style={styles(colors).metaItem}>
-                  <Ionicons name="tag" size={16} color={colors.accent} />
+                  <Ionicons name="pricetag" size={16} color={colors.accent} />
                   <Text style={[styles(colors).metaText, { color: colors.textMuted }]}>
                     {item.category}
                   </Text>
@@ -167,7 +167,7 @@ const styles = (colors: any) => StyleSheet.create({
   },
   artist: {
     fontSize: Typography.fontSize.md,
-    fontWeight: Typography.fontWeight.semibold,
+    fontWeight: Typography.fontWeight.bold,
   },
   metaSection: {
     gap: Spacing.sm,

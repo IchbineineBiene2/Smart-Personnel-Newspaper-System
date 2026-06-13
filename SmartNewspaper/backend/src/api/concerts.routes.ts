@@ -1,184 +1,175 @@
 import { Router, Request, Response } from 'express';
-import { concertCollector } from '../collectors/concertCollector';
+import { ConcertEvent, concertCollector } from '../collectors/concertCollector';
 
 const router = Router();
 
-// Cache
-let cachedConcerts: any[] = [];
-let cacheTimestamp: number = 0;
-const CACHE_DURATION = 6 * 60 * 60 * 1000; // 6 saat
+let cachedConcerts: ConcertEvent[] = [];
+let cacheTimestamp = 0;
+const CACHE_DURATION = 6 * 60 * 60 * 1000;
 
-/**
- * GET /api/concerts
- * Konser, tiyatro, stand-up etkinliklerini döner
- * Query params:
- *   - category: 'konser' | 'tiyatro' | 'stand-up'
- *   - source: 'biletix' | 'bubilet' | 'passo'
- */
+function filterConcerts(
+  concerts: ConcertEvent[],
+  category?: unknown,
+  source?: unknown
+): ConcertEvent[] {
+  let filtered = concerts;
+
+  if (typeof category === 'string') {
+    filtered = filtered.filter((concert) => concert.category === category);
+  }
+
+  if (typeof source === 'string') {
+    filtered = filtered.filter((concert) =>
+      concert.ticketOptions.some((ticket) => ticket.source === source)
+    );
+  }
+
+  return filtered;
+}
+
+function isCacheFresh(): boolean {
+  return cachedConcerts.length > 0 && Date.now() - cacheTimestamp < CACHE_DURATION;
+}
+
+async function refreshConcertCache(): Promise<ConcertEvent[]> {
+  const concerts = await concertCollector.collectAll();
+  if (concerts.length > 0) {
+    cachedConcerts = concerts;
+    cacheTimestamp = Date.now();
+  }
+  return concerts;
+}
+
 router.get('/', async (req: Request, res: Response) => {
   try {
     const { category, source } = req.query;
 
-    // Cache kontrol
-    if (cachedConcerts.length > 0 && Date.now() - cacheTimestamp < CACHE_DURATION) {
-      console.log('[API] Konserler cache\'den sunuluyor');
-      let filtered = cachedConcerts;
-
-      if (category) {
-        filtered = filtered.filter(c => c.category === category);
-      }
-      if (source) {
-        filtered = filtered.filter(c => 
-          c.ticketOptions.some((t: any) => t.source === source)
-        );
-      }
-
+    if (isCacheFresh()) {
+      const filtered = filterConcerts(cachedConcerts, category, source);
       return res.json({
         success: true,
         count: filtered.length,
         events: filtered,
-        cached: true
+        cached: true,
       });
     }
 
-    // Konserler topla
-    console.log('[API] Konserler toplama başlıyor...');
-    const concerts = await concertCollector.collectAll();
-    
-    // Cache'e kaydet
-    cachedConcerts = concerts;
-    cacheTimestamp = Date.now();
+    console.log('[API] Konserler toplama basliyor...');
+    const concerts = await refreshConcertCache();
+    const sourceConcerts = concerts.length > 0 ? concerts : cachedConcerts;
+    const filtered = filterConcerts(sourceConcerts, category, source);
 
-    // Filtrele
-    let filtered = concerts;
-    if (category) {
-      filtered = filtered.filter(c => c.category === category);
-    }
-    if (source) {
-      filtered = filtered.filter(c => 
-        c.ticketOptions.some((t: any) => t.source === source)
-      );
-    }
-
-    res.json({
+    return res.json({
       success: true,
       count: filtered.length,
       events: filtered,
-      cached: false
+      cached: concerts.length === 0 && cachedConcerts.length > 0,
+      stale: concerts.length === 0 && cachedConcerts.length > 0,
     });
   } catch (err) {
-    console.error('[API] Konser getirme hatası:', err);
-    res.status(500).json({
-      success: false,
-      error: 'Konserler yüklenemedi',
-      message: err instanceof Error ? err.message : 'Bilinmeyen hata'
-    });
-  }
-});
-
-/**
- * GET /api/concerts/search
- * Konser arama (başlık/sanatçı)
- * Query params:
- *   - q: arama terimi
- */
-router.get('/search', async (req: Request, res: Response) => {
-  try {
-    const { q } = req.query;
-    
-    if (!q || typeof q !== 'string') {
-      return res.status(400).json({
-        success: false,
-        error: 'Arama terimi gerekli (q parametresi)'
+    if (cachedConcerts.length > 0) {
+      const filtered = filterConcerts(cachedConcerts, req.query.category, req.query.source);
+      return res.json({
+        success: true,
+        count: filtered.length,
+        events: filtered,
+        cached: true,
+        stale: true,
       });
     }
 
-    // Cache kontrol
-    if (cachedConcerts.length === 0 || Date.now() - cacheTimestamp > CACHE_DURATION) {
-      cachedConcerts = await concertCollector.collectAll();
-      cacheTimestamp = Date.now();
-    }
-
-    const query = q.toLowerCase();
-    const results = cachedConcerts.filter(c =>
-      c.title.toLowerCase().includes(query) ||
-      c.artist.toLowerCase().includes(query) ||
-      c.venue.toLowerCase().includes(query) ||
-      c.location.toLowerCase().includes(query)
-    );
-
-    res.json({
-      success: true,
-      count: results.length,
-      events: results
-    });
-  } catch (err) {
-    console.error('[API] Konser arama hatası:', err);
-    res.status(500).json({
+    console.error('[API] Konser getirme hatasi:', err);
+    return res.status(500).json({
       success: false,
-      error: 'Arama yapılamadı'
+      error: 'Konserler yuklenemedi',
+      message: err instanceof Error ? err.message : 'Bilinmeyen hata',
     });
   }
 });
 
-/**
- * GET /api/concerts/:id
- * Tek bir konser detayı
- */
+router.get('/search', async (req: Request, res: Response) => {
+  try {
+    const { q } = req.query;
+
+    if (!q || typeof q !== 'string') {
+      return res.status(400).json({
+        success: false,
+        error: 'Arama terimi gerekli (q parametresi)',
+      });
+    }
+
+    if (!isCacheFresh()) {
+      await refreshConcertCache();
+    }
+
+    const query = q.toLowerCase();
+    const results = cachedConcerts.filter((concert) =>
+      concert.title.toLowerCase().includes(query) ||
+      concert.artist.toLowerCase().includes(query) ||
+      concert.venue.toLowerCase().includes(query) ||
+      concert.location.toLowerCase().includes(query)
+    );
+
+    return res.json({
+      success: true,
+      count: results.length,
+      events: results,
+    });
+  } catch (err) {
+    console.error('[API] Konser arama hatasi:', err);
+    return res.status(500).json({
+      success: false,
+      error: 'Arama yapilamadi',
+    });
+  }
+});
+
+router.get('/venues/unique', async (_req: Request, res: Response) => {
+  try {
+    if (!isCacheFresh()) {
+      await refreshConcertCache();
+    }
+
+    const venues = [...new Set(cachedConcerts.map((concert) => concert.venue))];
+    return res.json({
+      success: true,
+      count: venues.length,
+      venues,
+    });
+  } catch (err) {
+    console.error('[API] Mekan listesi hatasi:', err);
+    return res.status(500).json({
+      success: false,
+      error: 'Mekanlar yuklenemedi',
+    });
+  }
+});
+
 router.get('/:id', async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
 
-    if (cachedConcerts.length === 0 || Date.now() - cacheTimestamp > CACHE_DURATION) {
-      cachedConcerts = await concertCollector.collectAll();
-      cacheTimestamp = Date.now();
+    if (!isCacheFresh()) {
+      await refreshConcertCache();
     }
 
-    const concert = cachedConcerts.find(c => c.id === id);
-    
+    const concert = cachedConcerts.find((item) => item.id === id);
     if (!concert) {
       return res.status(404).json({
         success: false,
-        error: 'Konser bulunamadı'
+        error: 'Konser bulunamadi',
       });
     }
 
-    res.json({
+    return res.json({
       success: true,
-      event: concert
+      event: concert,
     });
   } catch (err) {
-    console.error('[API] Konser detay hatası:', err);
-    res.status(500).json({
+    console.error('[API] Konser detay hatasi:', err);
+    return res.status(500).json({
       success: false,
-      error: 'Konser detayı yüklenemedi'
-    });
-  }
-});
-
-/**
- * GET /api/concerts/venues/unique
- * Benzersiz mekanları döner
- */
-router.get('/venues/unique', async (req: Request, res: Response) => {
-  try {
-    if (cachedConcerts.length === 0 || Date.now() - cacheTimestamp > CACHE_DURATION) {
-      cachedConcerts = await concertCollector.collectAll();
-      cacheTimestamp = Date.now();
-    }
-
-    const venues = [...new Set(cachedConcerts.map(c => c.venue))];
-
-    res.json({
-      success: true,
-      count: venues.length,
-      venues
-    });
-  } catch (err) {
-    console.error('[API] Mekan listesi hatası:', err);
-    res.status(500).json({
-      success: false,
-      error: 'Mekanlar yüklenemedi'
+      error: 'Konser detayi yuklenemedi',
     });
   }
 });

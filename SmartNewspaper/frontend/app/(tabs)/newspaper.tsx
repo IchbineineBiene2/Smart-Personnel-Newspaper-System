@@ -1,4 +1,4 @@
-import { useMemo, useState, useCallback, useEffect } from 'react';
+import { useMemo, useState, useCallback, useEffect, type ReactNode } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -44,6 +44,10 @@ const LANGUAGE_LABELS: Record<string, string> = {
   it: 'İtalyanca',
 };
 
+const PAPER_SWATCHES = ['#fffdf8', '#ffffff', '#f8fafc', '#f7f1e8', '#fff7ed', '#ecfeff', '#1a1a1a'];
+const INK_SWATCHES = ['#111111', '#1e293b', '#0f172a', '#334155', '#4b5563', '#e5e5e5', '#ffffff'];
+const ACCENT_SWATCHES = ['#8a1f11', '#0f5499', '#4f46e5', '#7c3aed', '#e11d48', '#f59e0b', '#10b981', '#06b6d4'];
+
 function dateMatchesFilter(publishedAt: string, filter: DateFilter) {
   if (filter === 'all') return true;
   const age = Date.now() - new Date(publishedAt).getTime();
@@ -66,6 +70,25 @@ function scoreArticle(article: ApiArticle, preferredCategories: string[], savedI
   const ageHours = Math.max(1, Math.floor((Date.now() - new Date(article.publishedAt).getTime()) / 3600000));
   const freshness = Math.max(0, 72 - ageHours);
   return preferenceBoost + savedBoost + imageBoost + freshness;
+}
+
+function ChipScroller({
+  children,
+  contentContainerStyle,
+}: {
+  children: ReactNode;
+  contentContainerStyle?: any;
+}) {
+  return (
+    <ScrollView
+      horizontal
+      showsHorizontalScrollIndicator={false}
+      style={styles.chipScroller}
+      contentContainerStyle={[styles.horizontalChips, contentContainerStyle]}
+    >
+      {children}
+    </ScrollView>
+  );
 }
 
 export default function NewspaperBuilder() {
@@ -460,7 +483,7 @@ export default function NewspaperBuilder() {
                 <Text style={[styles.clearText, { color: colors.accent }]}>Tumu</Text>
               </Pressable>
             </View>
-            <View style={styles.chipWrap}>
+            <ChipScroller>
               {categories.map((category) => {
                 const active = selectedCategories.includes(category);
                 return (
@@ -481,13 +504,13 @@ export default function NewspaperBuilder() {
                   </Pressable>
                   );
                 })}
-              </View>
+              </ChipScroller>
             </View>
           )}
 
           <View style={[styles.controlSection, { borderColor: colors.borderSubtle, backgroundColor: colors.surface }]}>
             <Text style={[styles.controlTitle, { color: colors.textPrimary }]}>Kaynak</Text>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.horizontalChips}>
+            <ChipScroller>
               <Pressable
                 style={[
                   styles.filterChip,
@@ -562,7 +585,7 @@ export default function NewspaperBuilder() {
                   </Pressable>
                 );
               })}
-            </ScrollView>
+            </ChipScroller>
           </View>
 
           {languages.length > 1 && selectedSource !== 'saved' && (
@@ -575,7 +598,7 @@ export default function NewspaperBuilder() {
                   </Pressable>
                 )}
               </View>
-              <View style={styles.chipWrap}>
+              <ChipScroller>
                 {languages.map((lang) => {
                   const active = selectedLanguages.includes(lang);
                   return (
@@ -596,7 +619,7 @@ export default function NewspaperBuilder() {
                     </Pressable>
                   );
                 })}
-              </View>
+              </ChipScroller>
             </View>
           )}
 
@@ -670,31 +693,43 @@ export default function NewspaperBuilder() {
             
             {showThemeControls && (
               <>
-                <View style={styles.segmentRow}>
-                  {Object.keys(PREDEFINED_THEMES).map((tName) => {
+                <View style={styles.themeCardGrid}>
+                  {Object.entries(PREDEFINED_THEMES).map(([tName, preset]) => {
                     const active = activeThemeName === tName;
                     return (
                       <Pressable
                         key={tName}
-                        style={[styles.segmentButton, { backgroundColor: active ? colors.accent : colors.surfaceInput, paddingVertical: 6, paddingHorizontal: 4 }]}
                         onPress={() => {
                           setActiveThemeName(tName);
-                          setTheme(PREDEFINED_THEMES[tName]);
+                          setTheme(preset);
                         }}
+                        style={[
+                          styles.themeCard,
+                          {
+                            backgroundColor: active ? colors.accent + '18' : colors.surfaceInput,
+                            borderColor: active ? colors.accent : colors.borderSubtle,
+                          },
+                        ]}
                       >
-                        <Text style={[styles.segmentText, { color: active ? colors.white : colors.textSecondary, fontSize: 10, textAlign: 'center' }]}>
+                        <View style={styles.themePreviewStrip}>
+                          <View style={[styles.themePreviewBlock, { backgroundColor: preset.backgroundColor }]} />
+                          <View style={[styles.themePreviewBlock, { backgroundColor: preset.titleColor }]} />
+                          <View style={[styles.themePreviewBlock, { backgroundColor: preset.accentColor }]} />
+                        </View>
+                        <Text style={[styles.themeCardText, { color: active ? colors.textPrimary : colors.textSecondary }]}>
                           {tName}
                         </Text>
+                        {active && <Ionicons name="checkmark-circle" size={16} color={colors.accent} />}
                       </Pressable>
                     );
                   })}
                 </View>
-                <View>
-                  <ColorSelector label="Arka Plan Rengi" value={theme.backgroundColor} onChange={(c) => { setTheme({ ...theme, backgroundColor: c }); setActiveThemeName('Custom'); }} />
-                  <ColorSelector label="Ana Gazete Başlığı" value={theme.titleColor} onChange={(c) => { setTheme({ ...theme, titleColor: c }); setActiveThemeName('Custom'); }} />
-                  <ColorSelector label="Haber Başlıkları" value={theme.headingColor} onChange={(c) => { setTheme({ ...theme, headingColor: c }); setActiveThemeName('Custom'); }} />
-                  <ColorSelector label="İçerik Yazıları" value={theme.textColor} onChange={(c) => { setTheme({ ...theme, textColor: c }); setActiveThemeName('Custom'); }} />
-                  <ColorSelector label="Vurgu Rengi" value={theme.accentColor} onChange={(c) => { setTheme({ ...theme, accentColor: c }); setActiveThemeName('Custom'); }} />
+                <View style={[styles.colorStudio, { backgroundColor: colors.surfaceInput, borderColor: colors.borderSubtle }]}>
+                  <ColorSelector label="Arka plan" value={theme.backgroundColor} swatches={PAPER_SWATCHES} onChange={(c) => { setTheme({ ...theme, backgroundColor: c }); setActiveThemeName('Custom'); }} />
+                  <ColorSelector label="Gazete adı" value={theme.titleColor} swatches={INK_SWATCHES} onChange={(c) => { setTheme({ ...theme, titleColor: c }); setActiveThemeName('Custom'); }} />
+                  <ColorSelector label="Haber başlıkları" value={theme.headingColor} swatches={INK_SWATCHES} onChange={(c) => { setTheme({ ...theme, headingColor: c }); setActiveThemeName('Custom'); }} />
+                  <ColorSelector label="İçerik yazıları" value={theme.textColor} swatches={INK_SWATCHES} onChange={(c) => { setTheme({ ...theme, textColor: c }); setActiveThemeName('Custom'); }} />
+                  <ColorSelector label="Vurgu" value={theme.accentColor} swatches={ACCENT_SWATCHES} onChange={(c) => { setTheme({ ...theme, accentColor: c }); setActiveThemeName('Custom'); }} />
                 </View>
               </>
             )}
@@ -937,21 +972,46 @@ const styles = StyleSheet.create({
   title: { fontSize: 36, fontWeight: '900', letterSpacing: -0.7 },
   subtitle: { fontSize: 14, lineHeight: 21, fontWeight: '600', maxWidth: 760 },
   builderLayout: { gap: 18 },
-  builderLayoutWeb: { flexDirection: 'row', alignItems: 'flex-start' },
-  controls: { gap: 12, flex: 0.72, minWidth: 300 },
+  builderLayoutWeb: { flexDirection: 'row', alignItems: 'flex-start', width: '100%' },
+  controls: { gap: 12, width: Platform.OS === 'web' ? 360 : '100%', flexShrink: 0 },
   controlSection: { borderWidth: 1, borderRadius: 16, padding: 14, gap: 12 },
   controlTitleRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   controlTitle: { fontSize: 15, fontWeight: '800' },
   clearText: { fontSize: 12, fontWeight: '800' },
   input: { borderWidth: 1, borderRadius: 12, paddingHorizontal: 12, paddingVertical: 10, fontSize: 14 },
   chipWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  horizontalChips: { gap: 8, paddingRight: 8 },
-  filterChip: { borderWidth: 1, borderRadius: 999, paddingHorizontal: 11, paddingVertical: 7 },
+  chipScroller: { width: '100%', maxWidth: '100%', overflow: 'hidden' },
+  horizontalChips: { flexDirection: 'row', flexWrap: 'nowrap', gap: 8, paddingRight: 8, alignItems: 'center' },
+  filterChip: { borderWidth: 1, borderRadius: 999, paddingHorizontal: 11, paddingVertical: 7, flexShrink: 0 },
   filterChipFollowed: { flexDirection: 'row', alignItems: 'center', gap: 5 },
   filterChipText: { fontSize: 12, fontWeight: '800' },
   segmentRow: { flexDirection: 'row', gap: 8 },
   segmentButton: { flex: 1, alignItems: 'center', borderRadius: 10, paddingVertical: 10, paddingHorizontal: 8 },
   segmentText: { fontSize: 12, fontWeight: '800' },
+  themeCardGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
+  themeCard: {
+    width: Platform.OS === 'web' ? 'calc(50% - 5px)' as any : '100%',
+    minHeight: 82,
+    borderWidth: 1,
+    borderRadius: 14,
+    padding: 12,
+    gap: 9,
+    justifyContent: 'space-between',
+  },
+  themePreviewStrip: {
+    flexDirection: 'row',
+    height: 18,
+    borderRadius: 999,
+    overflow: 'hidden',
+  },
+  themePreviewBlock: { flex: 1 },
+  themeCardText: { fontSize: 12, fontWeight: '900' },
+  colorStudio: {
+    borderWidth: 1,
+    borderRadius: 16,
+    padding: 14,
+    gap: 8,
+  },
   toggleRow: { flexDirection: 'row', alignItems: 'center', gap: 9 },
   toggleText: { fontSize: 13, fontWeight: '700' },
   exportButton: {
@@ -967,7 +1027,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
   },
   exportText: { color: '#fff', fontSize: 14, fontWeight: '900' },
-  preview: { flex: 1.28, borderWidth: 1, borderRadius: 18, padding: 18, gap: 16, minHeight: 620 },
+  preview: { flex: 1, minWidth: 0, borderWidth: 1, borderRadius: 18, padding: 18, gap: 16, minHeight: 620 },
   paperMasthead: { alignItems: 'center', borderBottomWidth: 2, paddingBottom: 12, gap: 4 },
   paperTitle: { fontFamily: 'serif', fontSize: 42, fontWeight: '900', textAlign: 'center' },
   paperSub: { fontSize: 11, fontWeight: '800', letterSpacing: 1.4, textTransform: 'uppercase' },
