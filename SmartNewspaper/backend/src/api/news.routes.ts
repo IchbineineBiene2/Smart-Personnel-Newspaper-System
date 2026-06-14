@@ -22,6 +22,9 @@ type UserPrefs = {
 };
 const prefsCache = new Map<number, { prefs: UserPrefs; ts: number }>();
 const PREFS_TTL_MS = 30 * 1000;
+const NEWS_LIST_CACHE_TTL_MS = 60 * 1000;
+const newsListCache = new Map<string, { ts: number; data: unknown }>();
+const newsListPending = new Map<string, Promise<unknown>>();
 
 /**
  * Maximal Marginal Relevance (MMR) re-rank.
@@ -229,10 +232,10 @@ router.get('/trending', async (req: Request, res: Response) => {
   try {
     const limit = Math.min(Number(req.query.limit ?? 10), 50);
     const result = await query<any>(
-      `SELECT *,
+      `SELECT id, title, description, url, image_url, published_at,
+              language, category, source_name, source_url, source_type, source_logo_url,
          (
            CASE WHEN image_url IS NOT NULL THEN 30 ELSE 0 END
-           + CASE WHEN content IS NOT NULL AND LENGTH(content) > 400 THEN 25 ELSE 0 END
            + GREATEST(0, 100 - EXTRACT(EPOCH FROM (NOW() - published_at)) / 3600)
          ) AS score
        FROM articles
@@ -246,7 +249,6 @@ router.get('/trending', async (req: Request, res: Response) => {
       id: r.id,
       title: r.title,
       description: r.description ?? '',
-      content: r.content ?? undefined,
       url: r.url,
       imageUrl: r.image_url ?? undefined,
       publishedAt: r.published_at,
@@ -264,57 +266,16 @@ router.get('/trending', async (req: Request, res: Response) => {
 // GET /api/news/trending-topics - Son 48 saatteki haber başlıklarından en çok geçen kelimeleri/etiketleri çıkar
 router.get('/trending-topics', async (_req: Request, res: Response) => {
   try {
-    const result = await query<{ title: string; category: string | null }>(
-      `SELECT title, category
+    const result = await query<any>(
+      `SELECT category AS tag, COUNT(*)::int AS count
        FROM articles
-       WHERE published_at > NOW() - INTERVAL '48 hours'`
+       WHERE published_at > NOW() - INTERVAL '48 hours'
+         AND category IS NOT NULL AND category <> ''
+       GROUP BY category
+       ORDER BY count DESC
+       LIMIT 15`
     );
-
-    const stopWords = new Set([
-      'bir', 've', 'ile', 'için', 'bu', 'da', 'de', 'olarak', 'daha', 'en',
-      'son', 'olan', 'göre', 'kadar', 'var', 'yok', 'sonra', 'önce', 'gibi',
-      'çok', 'ne', 'ise', 'ya', 'ki', 'her', 'hiç', 'neden', 'nasıl', 'hangi',
-      'kim', 'şimdi', 'artık', 'yeni', 'büyük', 'ilk', 'tek', 'aynı', 'kendi',
-      'böyle', 'şöyle', 'başka', 'bazı', 'tüm', 'bütün', 'biz', 'siz', 'onlar',
-      'ben', 'sen', 'o', 'şu', 'içinde', 'arasında', 'tarafından', 'üzerine',
-      'zaman', 'gün', 'yıl', 'ay', 'hafta', 'saat', 'dakika', 'an', 'yer',
-      'kişi', 'oldu', 'olacak', 'yaptı', 'yapacak', 'dedi', 'diye', 'etti',
-      'haber', 'gündem', 'detaylar', 'açıklaması', 'açıkladı', 'geldi', 'gitti',
-      'yoksa', 'mi', 'mı', 'mu', 'mü', 'nin', 'nın', 'ın', 'in', 'un', 'ün',
-      'den', 'dan', 'ten', 'tan', 'ye', 'ya', 'e', 'a', 'ı', 'i', 'u', 'ü',
-      'günü', 'yılı', 'ayı', 'haftası', 'sonu', 'başı', 'iç', 'dış', 'karşı',
-      'hakkında', 'ilgili', 'nedeniyle', 'birlikte', 'dolayı', 'rağmen',
-      'olduğu', 'yaptığı', 'edecek', 'ediyor', 'edildi', 'yapıldı', 'çıktı',
-      'kaldı', 'girdi', 'başladı', 'bitti', 'verdi', 'aldı', 'istedi', 'bekliyor',
-      'apos', 'quot', 'amp'
-    ]);
-
-    const counts = new Map<string, number>();
-
-    for (const row of result.rows) {
-      if (row.category) {
-        const cat = row.category.toLowerCase().replace(/[^a-z0-9çğıöşü]/g, '');
-        if (cat.length > 2) {
-          counts.set(cat, (counts.get(cat) || 0) + 2);
-        }
-      }
-
-      if (row.title) {
-        const words = row.title.toLocaleLowerCase('tr-TR').match(/[a-z0-9çğıöşü]{4,}/g) || [];
-        for (const w of words) {
-          if (!stopWords.has(w) && !Number(w)) {
-            counts.set(w, (counts.get(w) || 0) + 1);
-          }
-        }
-      }
-    }
-
-    const topics = Array.from(counts.entries())
-      .map(([tag, count]) => ({ tag, count }))
-      .sort((a, b) => b.count - a.count)
-      .slice(0, 15);
-
-    res.json({ topics });
+    res.json({ topics: result.rows });
   } catch (err) {
     console.error('[NewsAPI] Trending topics hatası:', err);
     res.status(500).json({ error: 'Trend konular alınamadı' });
@@ -326,7 +287,9 @@ router.get('/breaking', async (req: Request, res: Response) => {
   try {
     const limit = Math.min(Number(req.query.limit ?? 8), 20);
     const result = await query<any>(
-      `SELECT * FROM articles
+      `SELECT id, title, description, url, image_url, published_at,
+              language, category, source_name, source_url, source_type, source_logo_url
+       FROM articles
        WHERE published_at > NOW() - INTERVAL '12 hours'
          AND published_at <= NOW() + INTERVAL '6 hours'
        ORDER BY published_at DESC
@@ -653,6 +616,23 @@ router.get('/', optionalAuth, async (req: Request, res: Response) => {
   try {
     const { category, language, source, limit = '50', offset = '0' } = req.query;
     const personalized = String(req.query.personalized ?? '') === '1' || String(req.query.personalized ?? '') === 'true';
+    const cacheKey = JSON.stringify({
+      userId: req.user?.userId ?? null,
+      category: category ? String(category) : '',
+      language: language ? String(language) : '',
+      source: source ? String(source) : '',
+      limit: String(limit),
+      offset: String(offset),
+      personalized,
+    });
+    const cached = newsListCache.get(cacheKey);
+    if (cached && Date.now() - cached.ts < NEWS_LIST_CACHE_TTL_MS) {
+      return res.json(cached.data);
+    }
+    const pending = newsListPending.get(cacheKey);
+    if (pending) {
+      return res.json(await pending);
+    }
 
     let prefs: UserPrefs | null = null;
     if (req.user) {
@@ -666,17 +646,27 @@ router.get('/', optionalAuth, async (req: Request, res: Response) => {
     const useUserSources = personalized && prefs && prefs.preferredSources.length > 0 && !source;
     const useMutedSources = !!prefs && prefs.mutedSources.length > 0;
 
-    const result = await getArticles({
-      category: category ? String(category) : undefined,
-      language: language ? String(language) : undefined,
-      source: source ? String(source) : undefined,
-      categories: useUserCategories ? prefs!.preferredCategories : undefined,
-      languages: useUserLanguages ? prefs!.preferredLanguages : undefined,
-      sources: useUserSources ? prefs!.preferredSources : undefined,
-      mutedSources: useMutedSources ? prefs!.mutedSources : undefined,
-      limit: Number(limit),
-      offset: Number(offset),
-    });
+    const resultPromise = getArticles({
+        category: category ? String(category) : undefined,
+        language: language ? String(language) : undefined,
+        source: source ? String(source) : undefined,
+        categories: useUserCategories ? prefs!.preferredCategories : undefined,
+        languages: useUserLanguages ? prefs!.preferredLanguages : undefined,
+        sources: useUserSources ? prefs!.preferredSources : undefined,
+        mutedSources: useMutedSources ? prefs!.mutedSources : undefined,
+        limit: Number(limit),
+        offset: Number(offset),
+      })
+      .then((result) => {
+        newsListCache.set(cacheKey, { ts: Date.now(), data: result });
+        return result;
+      })
+      .finally(() => {
+        newsListPending.delete(cacheKey);
+      });
+
+    newsListPending.set(cacheKey, resultPromise);
+    const result = await resultPromise;
 
     res.json(result);
   } catch (err) {

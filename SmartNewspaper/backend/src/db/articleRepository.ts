@@ -20,6 +20,26 @@ interface ArticleRow {
   like_count: number;
 }
 
+const ARTICLE_LIST_COLUMNS = `
+  articles.id,
+  articles.title,
+  articles.description,
+  NULL::text AS content,
+  articles.url,
+  articles.image_url,
+  articles.published_at,
+  articles.language,
+  articles.category,
+  articles.source_name,
+  articles.source_url,
+  articles.source_logo_url,
+  articles.source_type,
+  articles.is_scraped,
+  articles.view_count
+`;
+
+const ARTICLE_DETAIL_COLUMNS = ARTICLE_LIST_COLUMNS.replace('NULL::text AS content', 'articles.content');
+
 function rowToArticle(row: ArticleRow): Article {
   return {
     id: row.id,
@@ -138,7 +158,11 @@ export async function upsertArticles(articles: Article[]): Promise<{ inserted: n
 
 /** DB'deki makalelerin URL hash setini döndürür — duplicate tespiti için */
 export async function getExistingIds(): Promise<Set<string>> {
-  const result = await query<{ id: string }>('SELECT id FROM articles');
+  const result = await query<{ id: string }>(
+    `SELECT id
+     FROM articles
+     WHERE published_at >= NOW() - INTERVAL '30 days'`
+  );
   return new Set(result.rows.map((r) => r.id));
 }
 
@@ -166,6 +190,8 @@ export async function getArticles(params: {
     limit = 50,
     offset = 0,
   } = params;
+  const safeLimit = Math.min(Math.max(Number(limit) || 50, 1), 150);
+  const safeOffset = Math.max(Number(offset) || 0, 0);
 
   const conditions: string[] = [];
   const values: unknown[] = [];
@@ -207,38 +233,49 @@ export async function getArticles(params: {
 
   const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
 
-  const countResult = await query<{ count: string }>(
-    `SELECT COUNT(*) AS count FROM articles ${where}`,
-    values,
-  );
-  const total = parseInt(countResult.rows[0].count, 10);
-
-  const likeJoin = `LEFT JOIN (SELECT article_id, COUNT(*)::int AS like_count FROM article_likes GROUP BY article_id) _lc ON _lc.article_id = articles.id`;
+  const pageWithLikesSql = (pageLimitParam: number, offsetParam: number) => `
+    WITH page AS (
+      SELECT ${ARTICLE_LIST_COLUMNS}
+      FROM articles
+      ${where}
+      ORDER BY published_at DESC
+      LIMIT $${pageLimitParam} OFFSET $${offsetParam}
+    ),
+    like_counts AS (
+      SELECT article_id, COUNT(*)::int AS like_count
+      FROM article_likes
+      WHERE article_id IN (SELECT id FROM page)
+      GROUP BY article_id
+    )
+    SELECT page.*, COALESCE(like_counts.like_count, 0) AS like_count
+    FROM page
+    LEFT JOIN like_counts ON like_counts.article_id = page.id
+    ORDER BY page.published_at DESC`;
 
   // Tek dil yoksa (ne single language ne 1-elemanlı languages array), dengeli interleave (tr/en/de)
   const singleLang = language || (hasLanguagesArray && languages!.length === 1);
   let rows: ArticleRow[];
   if (!singleLang) {
     const langResult = await query<ArticleRow>(
-      `SELECT articles.*, COALESCE(_lc.like_count, 0) AS like_count FROM articles ${likeJoin} ${where} ORDER BY published_at DESC LIMIT $${idx} OFFSET $${idx + 1}`,
-      [...values, limit * 3, offset],
+      pageWithLikesSql(idx, idx + 1),
+      [...values, safeLimit * 3, safeOffset],
     );
-    rows = interleaveByLanguage(langResult.rows, limit, offset);
+    rows = interleaveByLanguage(langResult.rows, safeLimit, safeOffset);
   } else {
     const result = await query<ArticleRow>(
-      `SELECT articles.*, COALESCE(_lc.like_count, 0) AS like_count FROM articles ${likeJoin} ${where} ORDER BY published_at DESC LIMIT $${idx} OFFSET $${idx + 1}`,
-      [...values, limit, offset],
+      pageWithLikesSql(idx, idx + 1),
+      [...values, safeLimit, safeOffset],
     );
     rows = result.rows;
   }
 
-  return { total, articles: rows.map(rowToArticle) };
+  return { total: safeOffset + rows.length, articles: rows.map(rowToArticle) };
 }
 
 /** Tek makale */
 export async function getArticleById(id: string): Promise<Article | null> {
   const result = await query<ArticleRow>(
-    `SELECT articles.*, COALESCE(_lc.like_count, 0) AS like_count
+    `SELECT ${ARTICLE_DETAIL_COLUMNS}, COALESCE(_lc.like_count, 0) AS like_count
      FROM articles
      LEFT JOIN (SELECT article_id, COUNT(*)::int AS like_count FROM article_likes GROUP BY article_id) _lc ON _lc.article_id = articles.id
      WHERE articles.id = $1`,

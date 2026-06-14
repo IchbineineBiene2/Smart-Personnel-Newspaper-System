@@ -28,6 +28,7 @@ import { NewspaperArticleInput, NewspaperTheme, PREDEFINED_THEMES } from '@/serv
 import { exportInteractiveNewspaperHtml } from '@/services/pdf/interactiveNewspaperHtmlExporter';
 import { createEdition, fetchUserEditions } from '@/services/archive';
 import { getToken, getCurrentUser } from '@/services/auth';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { ColorSelector } from '@/components/ColorSelector';
 
 type DateFilter = 'day' | 'week' | 'all';
@@ -111,7 +112,6 @@ export default function NewspaperBuilder() {
   const [savedFirst, setSavedFirst] = useState(true);
   const [exporting, setExporting] = useState(false);
   const [exportingHtml, setExportingHtml] = useState(false);
-  const [creating, setCreating] = useState(false);
   const [isInitializing, setIsInitializing] = useState(true);
   const [userToken, setUserToken] = useState<string | null>(null);
 
@@ -262,70 +262,54 @@ export default function NewspaperBuilder() {
     return { usable, skipped };
   };
 
-  const createNewspaper = async () => {
-    if (!userToken) {
-      Alert.alert('Uyarı', 'Gazete oluşturmak için giriş yapmalısınız.');
+  const saveNewspaperToArchiveIfUnique = async (usableArticles: NewspaperArticleInput[]) => {
+    const token = await getToken();
+    if (!token) {
+      Alert.alert('Uyarı', 'Giriş yapmadığınız için bu gazete arşive kaydedilemedi. Yine de indirme işlemi devam ediyor.');
       return;
     }
 
-    if (selectedArticles.length === 0) {
-      Alert.alert('Uyarı', 'Gazete oluşturmak için haber bulunamadı.');
-      return;
-    }
+    if (usableArticles.length === 0) return;
 
     try {
-      setCreating(true);
-      const { usable: newspaperArticles, skipped } = await prepareNewspaperArticles();
-
-      if (newspaperArticles.length === 0) {
-        Alert.alert('Uyarı', 'Seçilen haberlerin tam metni temiz şekilde alınamadı. Gazete oluşturulmadı.');
-        return;
-      }
-
-      const usableIds = new Set(newspaperArticles.map((article) => article.id));
+      const usableIds = new Set(usableArticles.map((article) => article.id));
       const archiveArticles = selectedArticles.filter((article) => usableIds.has(article.id));
       
-      // Secili makale id'lerini aynen sakla; backend article id'leri string hash olarak tutuyor.
       const articleIds = archiveArticles
         .map((article) => String(article.id).trim())
         .filter(Boolean)
         .sort((a, b) => a.localeCompare(b));
 
-      // Duplicate check - kullanıcının eski gazetelerini al
       const user = await getCurrentUser();
       if (user) {
-        const userEditions = await fetchUserEditions(user.userId, userToken);
+        const userEditions = await fetchUserEditions(user.userId, token);
 
-        // Aynı makalelerle bir gazete zaten varsa, uyar
-        const duplicate = userEditions.some(edition => {
+        const duplicate = userEditions.some((edition) => {
           const editionArticles = (edition.selected_articles || [])
             .map((articleId) => String(articleId).trim())
             .filter(Boolean)
             .sort((a, b) => a.localeCompare(b));
 
-          // Makaleleri karşılaştır
           if (editionArticles.length !== articleIds.length) return false;
           return editionArticles.every((id, idx) => id === articleIds[idx]);
         });
 
         if (duplicate) {
-          Alert.alert('Bilgi', 'Bu makalelerle zaten bir gazete oluşturmussunuz.');
-          setCreating(false);
+          console.log('Archive skip: Duplicate edition already exists.');
           return;
         }
       }
 
-      // Gazeteyi arşive kaydet
       const result = await createEdition(
         paperName.trim() || 'Smart Newspaper',
         `${selectedCategories.join(', ')} kategorilerinden seçilmiş ${archiveArticles.length} haber`,
         articleIds,
-        userToken,
+        token,
         archiveArticles.map((article) => ({
           id: article.id,
           title: article.title,
           description: article.description || '',
-          content: newspaperArticles.find((item) => item.id === article.id)?.content ?? article.content,
+          content: usableArticles.find((item) => item.id === article.id)?.content ?? article.content,
           url: article.url,
           imageUrl: article.imageUrl,
           publishedAt: article.publishedAt,
@@ -336,20 +320,13 @@ export default function NewspaperBuilder() {
       );
 
       if (result.error) {
-        Alert.alert('Hata', result.error);
-      } else if (result.edition) {
-        if (skipped > 0) {
-          Alert.alert('Bilgi', `${skipped} haberin temiz tam metni alınamadığı için gazeteye eklenmedi.`);
-        }
-        router.push('/(tabs)/archive' as any);
+        Alert.alert('Hata', `Gazete arşive kaydedilirken bir hata oluştu: ${result.error}`);
       } else {
-        Alert.alert('Hata', 'Gazete oluşturulamadı. Lütfen tekrar deneyin.');
+        console.log('Successfully auto-archived newspaper.');
       }
     } catch (error) {
-      console.error('Newspaper create error:', error);
-      Alert.alert('Hata', 'Gazete oluşturulurken bir sorun oluştu.');
-    } finally {
-      setCreating(false);
+      console.error('Newspaper auto-archiving error:', error);
+      Alert.alert('Hata', 'Gazete arşive kaydedilirken sistemsel bir hata oluştu.');
     }
   };
 
@@ -368,6 +345,23 @@ export default function NewspaperBuilder() {
         return;
       }
 
+      // Automatically archive if unique
+      await saveNewspaperToArchiveIfUnique(pdfArticles);
+
+      // Get count and increment
+      let count = 1;
+      try {
+        const storedCount = await AsyncStorage.getItem('kisisel-gazete-pdf-count');
+        if (storedCount) {
+          count = parseInt(storedCount, 10) + 1;
+        }
+        await AsyncStorage.setItem('kisisel-gazete-pdf-count', String(count));
+      } catch (e) {
+        console.error('Failed to get/set pdf count:', e);
+      }
+
+      const customFileName = `kisisel-gazete-pdf-${count}.pdf`;
+
       // PDF indir
       await exportNewspaperPdf({
         engine: Platform.OS === 'web' ? 'react-pdf' : 'html-css',
@@ -379,6 +373,7 @@ export default function NewspaperBuilder() {
         },
         articles: pdfArticles,
         theme,
+        fileName: customFileName,
       });
 
       if (skipped > 0) {
@@ -412,6 +407,23 @@ export default function NewspaperBuilder() {
         return;
       }
 
+      // Automatically archive if unique
+      await saveNewspaperToArchiveIfUnique(htmlArticles);
+
+      // Get count and increment
+      let count = 1;
+      try {
+        const storedCount = await AsyncStorage.getItem('kisisel-gazete-html-count');
+        if (storedCount) {
+          count = parseInt(storedCount, 10) + 1;
+        }
+        await AsyncStorage.setItem('kisisel-gazete-html-count', String(count));
+      } catch (e) {
+        console.error('Failed to get/set html count:', e);
+      }
+
+      const customFileName = `kisisel-gazete-html-${count}.html`;
+
       // HTML indir
       await exportInteractiveNewspaperHtml({
         newspaperName: paperName.trim() || 'Smart Newspaper',
@@ -421,6 +433,7 @@ export default function NewspaperBuilder() {
         },
         articles: htmlArticles,
         theme,
+        fileName: customFileName,
       });
 
       if (skipped > 0) {
@@ -454,7 +467,7 @@ export default function NewspaperBuilder() {
         <View style={styles.header}>
         <View style={[styles.kicker, { backgroundColor: colors.accent + '14', borderColor: colors.accent + '30' }]}>
           <Ionicons name="newspaper" size={14} color={colors.accent} />
-          <Text style={[styles.kickerText, { color: colors.accent }]}>KISISel GAZETE</Text>
+          <Text style={[styles.kickerText, { color: colors.accent }]}>KİŞİSEL GAZETE</Text>
         </View>
         <Text style={[styles.title, { color: colors.textPrimary }]}>Kendi Gazeteni Olustur</Text>
         <Text style={[styles.subtitle, { color: colors.textMuted }]}>
@@ -736,20 +749,7 @@ export default function NewspaperBuilder() {
           </View>
 
           <Pressable
-            style={[styles.exportButton, { backgroundColor: colors.accent, opacity: creating || selectedArticles.length === 0 ? 0.6 : 1 }]}
-            onPress={createNewspaper}
-            disabled={creating || selectedArticles.length === 0}
-          >
-            {creating ? (
-              <ActivityIndicator color="#fff" />
-            ) : (
-              <Ionicons name="archive-outline" size={20} color="#fff" />
-            )}
-            <Text style={styles.exportText}>{creating ? 'Gazete hazirlaniyor...' : 'Gazete Oluştur'}</Text>
-          </Pressable>
-
-          <Pressable
-            style={[styles.exportButton, { backgroundColor: colors.accent, opacity: exporting || selectedArticles.length === 0 ? 0.6 : 1, marginTop: 8 }]}
+            style={[styles.exportButton, { backgroundColor: colors.accent, opacity: exporting || selectedArticles.length === 0 ? 0.6 : 1 }]}
             onPress={exportPaper}
             disabled={exporting || selectedArticles.length === 0}
           >
@@ -941,7 +941,7 @@ export default function NewspaperBuilder() {
   );
 }
 
-const NewsPreviewImage = ({ uri, style }: { uri: string; style: any }) => {
+const NewsPreviewImage = ({ uri, style }: { uri: string | undefined; style: any }) => {
   const [error, setError] = useState(false);
   if (error || !uri) {
     return (

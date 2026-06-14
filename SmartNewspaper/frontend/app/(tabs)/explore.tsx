@@ -29,6 +29,7 @@ import {
 } from '@/services/newsApi';
 import { ContentCategory } from '@/services/content';
 import { SocialSidebar } from '@/components/SocialSidebar';
+import { getPublisherIdFromSourceName } from '@/services/publisherProfiles';
 
 const CATEGORY_META: { key: ContentCategory; label: string; icon: string; color: string }[] = [
   { key: 'Siyaset',   label: 'Gündem',    icon: 'megaphone-outline',   color: '#ef4444' },
@@ -200,6 +201,11 @@ export default function ExploreScreen() {
         category: cat,
       },
     });
+  };
+
+  const openPublisherProfile = (sourceName: string) => {
+    const publisherId = getPublisherIdFromSourceName(sourceName);
+    router.push(`/publisherprofile?id=${encodeURIComponent(publisherId)}` as any);
   };
 
   // ── Layout decisions ──
@@ -576,9 +582,17 @@ export default function ExploreScreen() {
               >
                 <View style={{ gap: 8 }}>
                   {sources.slice(0, 8).map((s) => (
-                    <View
+                    <Pressable
                       key={s.source_name}
-                      style={[styles.sourceRow, { backgroundColor: colors.surface, borderColor: colors.borderSubtle }]}
+                      onPress={() => openPublisherProfile(s.source_name)}
+                      style={({ pressed }) => [
+                        styles.sourceRow,
+                        {
+                          backgroundColor: colors.surface,
+                          borderColor: colors.borderSubtle,
+                          opacity: pressed ? 0.72 : 1,
+                        },
+                      ]}
                     >
                       <View style={[styles.sourceAvatar, { backgroundColor: colors.accent + '18' }]}>
                         <Text style={[styles.sourceInitials, { color: colors.accent }]}>
@@ -594,7 +608,7 @@ export default function ExploreScreen() {
                         </Text>
                       </View>
                       <View style={[styles.livePulse, { backgroundColor: '#10b981' }]} />
-                    </View>
+                    </Pressable>
                   ))}
                 </View>
               </Section>

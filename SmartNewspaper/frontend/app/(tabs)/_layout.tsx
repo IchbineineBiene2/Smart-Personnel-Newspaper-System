@@ -15,16 +15,16 @@ import { getToken, logoutUser } from '@/services/auth';
 import { useLiveAlerts } from '@/hooks/useLiveAlerts';
 
 const NAV_ROUTES: { name: string; label: string; icon: string; iconFilled: string }[] = [
-  { name: 'search',   label: 'Arama',       icon: 'search-outline',   iconFilled: 'search' },
-  { name: 'profile',  label: 'Profil',      icon: 'person-outline',   iconFilled: 'person' },
-  { name: 'notifications', label: 'Bildirimler', icon: 'notifications-outline', iconFilled: 'notifications' },
-  { name: 'index',    label: 'Anasayfa',    icon: 'grid-outline',     iconFilled: 'grid' },
-  { name: 'feed',     label: 'Anasayfa',    icon: 'reader-outline',   iconFilled: 'reader' },
-  { name: 'explore',  label: 'Keşfet',      icon: 'compass-outline',  iconFilled: 'compass' },
-  { name: 'newspaper', label: 'Kisisel Gazete', icon: 'newspaper-outline', iconFilled: 'newspaper' },
-  { name: 'discover', label: 'Ekinlikler',  icon: 'calendar-outline', iconFilled: 'calendar' },
-  { name: 'archive',  label: 'Arşiv',       icon: 'archive-outline',  iconFilled: 'archive' },
-  { name: 'messages', label: 'Mesajlar',    icon: 'chatbubble-outline', iconFilled: 'chatbubble' },
+  { name: 'search',   label: 'ARAMA',       icon: 'search-outline',   iconFilled: 'search' },
+  { name: 'profile',  label: 'PROFİL',      icon: 'person-outline',   iconFilled: 'person' },
+  { name: 'notifications', label: 'BİLDİRİMLER', icon: 'notifications-outline', iconFilled: 'notifications' },
+  { name: 'index',    label: 'ANA SAYFA',    icon: 'grid-outline',     iconFilled: 'grid' },
+  { name: 'feed',     label: 'ANA SAYFA',    icon: 'reader-outline',   iconFilled: 'reader' },
+  { name: 'explore',  label: 'KEŞFET',      icon: 'compass-outline',  iconFilled: 'compass' },
+  { name: 'newspaper', label: 'KİŞİSEL GAZETE', icon: 'newspaper-outline', iconFilled: 'newspaper' },
+  { name: 'discover', label: 'ETKİNLİKLER',  icon: 'calendar-outline', iconFilled: 'calendar' },
+  { name: 'archive',  label: 'ARŞİV',       icon: 'archive-outline',  iconFilled: 'archive' },
+  { name: 'messages', label: 'MESAJLAR',    icon: 'chatbubble-outline', iconFilled: 'chatbubble' },
 ];
 
 const HIDDEN_ROUTES = [
@@ -256,9 +256,8 @@ function WebSidebarTabBar({
         </View>
         <View>
           <Text style={[styles.brandTitle, { color: colors.textPrimary }]}>
-            GAZETE<Text style={{ color: colors.accent }}>.AI</Text>
+            GAZETTE
           </Text>
-          <Text style={[styles.brandSub, { color: colors.textMuted }]}>DASHBOARD</Text>
         </View>
       </View>
 
@@ -558,7 +557,6 @@ const styles = StyleSheet.create({
   navLabel: {
     fontSize: 11,
     fontWeight: '800',
-    textTransform: 'uppercase',
     letterSpacing: 1.2,
   },
   bottom: {

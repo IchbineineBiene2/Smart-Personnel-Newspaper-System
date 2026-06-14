@@ -418,7 +418,7 @@ export default function Archive() {
         <TabButton
           active={activeTab === 'editions'}
           icon="newspaper-outline"
-          label="Kisisel Gazete"
+          label="Kişisel Gazete"
           colors={colors}
           onPress={() => setActiveTab('editions')}
         />
@@ -440,8 +440,8 @@ export default function Archive() {
 
       {activeTab === 'editions' ? (
         <>
-          <Text style={s(colors).sectionTitle}>Kisisel Gazeteler</Text>
-          <Text style={s(colors).sectionSubtitle}>Daha once olusturulmus kisisel gazeteleriniz</Text>
+          <Text style={s(colors).sectionTitle}>Kişisel Gazeteler</Text>
+          <Text style={s(colors).sectionSubtitle}>Daha önce oluşturulmuş kişisel gazeteleriniz</Text>
 
           {loading ? (
             <Text style={s(colors).emptyText}>Gazeteler yükleniyor...</Text>
@@ -463,7 +463,7 @@ export default function Archive() {
                   </View>
                   <Ionicons name="chevron-forward" size={20} color={colors.textMuted} />
                 </View>
-                <Text style={s(colors).editionSummary}>{edition.description || 'Kisisel gazete'}</Text>
+                <Text style={s(colors).editionSummary}>{edition.description || 'Kişisel gazete'}</Text>
                 <View style={s(colors).editionFooter}>
                   <Text style={s(colors).articleCount}>
                     {edition.selected_articles?.length || 0} makale

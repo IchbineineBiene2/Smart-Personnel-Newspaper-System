@@ -19,6 +19,7 @@ export type ExportNewspaperPdfInput = {
   shareTitle?: string;
   engine?: NewspaperPdfEngine;
   theme?: NewspaperTheme;
+  fileName?: string;
 };
 
 function downloadBlobOnWeb(blob: Blob, fileName: string) {
@@ -77,6 +78,9 @@ function renderHtmlInWindowAndPrint(html: string, fileName: string) {
 
 export async function exportNewspaperPdf(input: ExportNewspaperPdfInput): Promise<{ uri?: string; mode: 'file' | 'print-dialog' }> {
   const selectedEngine = input.engine ?? 'html-css';
+  const customOutputName = input.fileName
+    ? (input.fileName.endsWith('.pdf') ? input.fileName : `${input.fileName}.pdf`)
+    : `${(input.shareTitle ?? input.newspaperName ?? 'smart-newspaper').replace(/\s+/g, '-').toLowerCase()}.pdf`;
 
   if (selectedEngine === 'react-pdf' && Platform.OS === 'web') {
     try {
@@ -93,8 +97,7 @@ export async function exportNewspaperPdf(input: ExportNewspaperPdfInput): Promis
       });
 
       const blob = await pdf(doc as any).toBlob();
-      const outputName = `${(input.shareTitle ?? input.newspaperName ?? 'smart-newspaper').replace(/\s+/g, '-').toLowerCase()}.pdf`;
-      downloadBlobOnWeb(blob, outputName);
+      downloadBlobOnWeb(blob, customOutputName);
       return { mode: 'file' };
     } catch (error) {
       console.warn('React PDF rendering failed, falling back to HTML-CSS engine:', error);
@@ -111,8 +114,7 @@ export async function exportNewspaperPdf(input: ExportNewspaperPdfInput): Promis
   });
 
   if (Platform.OS === 'web') {
-    const outputName = `${(input.shareTitle ?? input.newspaperName ?? 'smart-newspaper').replace(/\s+/g, '-').toLowerCase()}.pdf`;
-    renderHtmlInWindowAndPrint(html, outputName);
+    renderHtmlInWindowAndPrint(html, customOutputName);
     return { mode: 'print-dialog' };
   }
 

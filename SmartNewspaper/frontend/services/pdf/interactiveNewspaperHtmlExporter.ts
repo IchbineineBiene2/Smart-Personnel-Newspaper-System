@@ -129,9 +129,11 @@ export function renderInteractiveNewspaperHtml(input: NewspaperTemplateInput): s
 </html>`;
 }
 
-export async function exportInteractiveNewspaperHtml(input: NewspaperTemplateInput): Promise<void> {
+export async function exportInteractiveNewspaperHtml(input: NewspaperTemplateInput & { fileName?: string }): Promise<void> {
   const html = renderInteractiveNewspaperHtml(input);
-  const fileName = `${(input.newspaperName || 'smart-newspaper').replace(/\s+/g, '-').toLowerCase()}-interactive.html`;
+  const fileName = input.fileName
+    ? (input.fileName.endsWith('.html') ? input.fileName : `${input.fileName}.html`)
+    : `${(input.newspaperName || 'smart-newspaper').replace(/\s+/g, '-').toLowerCase()}-interactive.html`;
 
   if (typeof Blob !== 'undefined') {
     downloadBlobOnWeb(new Blob([html], { type: 'text/html;charset=utf-8' }), fileName);

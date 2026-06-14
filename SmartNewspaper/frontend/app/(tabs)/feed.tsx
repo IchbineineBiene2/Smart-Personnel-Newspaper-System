@@ -89,7 +89,7 @@ export default function FeedScreen() {
   const [selSources, setSelSources] = useState<string[]>([]);
   const [perPage,    setPerPage]    = useState(40);
   const [page,       setPage]       = useState(1);
-  const [sidebarVisible, setSidebarVisible] = useState(true);
+  const [sidebarVisible, setSidebarVisible] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [searchFocused, setSearchFocused] = useState(false);
   const [activeTools, setActiveTools] = useState<FeedTool[]>([]);
@@ -98,11 +98,12 @@ export default function FeedScreen() {
     : (selLangs.length > 0 ? selLangs : preferredNewsLanguages);
   const { articles, loading } = useApiNews(requestedLanguages);
 
-  const sidebarAnim = useRef(new Animated.Value(1)).current;
+  const drawerAnim = useRef(new Animated.Value(320)).current;
+  const [drawerRendered, setDrawerRendered] = useState(false);
   const entrance    = useRef(new Animated.Value(0)).current;
 
-  const [isFiltersExpanded, setIsFiltersExpanded] = useState(false);
-  const filterExpandAnim = useRef(new Animated.Value(0)).current;
+  const [isFiltersExpanded, setIsFiltersExpanded] = useState(true);
+  const filterExpandAnim = useRef(new Animated.Value(1)).current;
 
   const toggleFilters = () => {
     const nextState = !isFiltersExpanded;
@@ -123,10 +124,25 @@ export default function FeedScreen() {
     Animated.timing(entrance, { toValue: 1, duration: 380, useNativeDriver: true }).start();
   }, []);
 
-  const toggleSidebar = () => {
-    const toValue = sidebarVisible ? 0 : 1;
-    Animated.timing(sidebarAnim, { toValue, duration: 260, useNativeDriver: true }).start();
-    setSidebarVisible(!sidebarVisible);
+  const toggleSidebarDrawer = (open: boolean) => {
+    if (open) {
+      setDrawerRendered(true);
+      setSidebarVisible(true);
+      Animated.timing(drawerAnim, {
+        toValue: 0,
+        duration: 250,
+        useNativeDriver: true,
+      }).start();
+    } else {
+      Animated.timing(drawerAnim, {
+        toValue: 320,
+        duration: 250,
+        useNativeDriver: true,
+      }).start(() => {
+        setDrawerRendered(false);
+        setSidebarVisible(false);
+      });
+    }
   };
 
   const visibleArticles = articles;
@@ -291,11 +307,12 @@ export default function FeedScreen() {
   // ── Render ────────────────────────────────────────────────────────────────
 
   return (
-    <ScrollView
-      style={[styles.root, { backgroundColor: colors.background }]}
-      contentContainerStyle={[styles.content, isWeb && styles.webContent]}
-      showsVerticalScrollIndicator={false}
-    >
+    <View style={{ flex: 1, backgroundColor: colors.background }}>
+      <ScrollView
+        style={[styles.root, { backgroundColor: colors.background }]}
+        contentContainerStyle={[styles.content, isWeb && styles.webContent]}
+        showsVerticalScrollIndicator={false}
+      >
       {/* Header */}
       <Animated.View
         style={[styles.header, { opacity: entrance, transform: [{ translateY: entrance.interpolate({ inputRange: [0, 1], outputRange: [16, 0] }) }] }]}
@@ -373,23 +390,6 @@ export default function FeedScreen() {
 
         <View style={styles.headerRight}>
           <Pressable
-            onPress={() => router.push('/(tabs)/notifications' as any)}
-            style={({ pressed }) => [
-              styles.headerIconBtn,
-              styles.headerOutlinedBtn,
-              {
-                backgroundColor: pressed ? colors.surfaceHigh : colors.surface,
-                borderColor: colors.accent + '55',
-              },
-            ]}
-            accessibilityRole="button"
-            accessibilityLabel="Bildirimler"
-          >
-            <Ionicons name="notifications-outline" size={20} color={colors.textPrimary} />
-            <View style={styles.notificationDot} />
-          </Pressable>
-
-          <Pressable
             onPress={() => router.push('/(tabs)/profile' as any)}
             style={({ pressed }) => [
               styles.headerIconBtn,
@@ -406,6 +406,23 @@ export default function FeedScreen() {
           </Pressable>
 
           <Pressable
+            onPress={() => router.push('/(tabs)/notifications' as any)}
+            style={({ pressed }) => [
+              styles.headerIconBtn,
+              styles.headerOutlinedBtn,
+              {
+                backgroundColor: pressed ? colors.surfaceHigh : colors.surface,
+                borderColor: colors.accent + '55',
+              },
+            ]}
+            accessibilityRole="button"
+            accessibilityLabel="Bildirimler"
+          >
+            <Ionicons name="notifications" size={20} color={colors.accent} />
+            <View style={styles.notificationDot} />
+          </Pressable>
+
+          <Pressable
             onPress={() => router.push('/(tabs)/messages' as any)}
             style={({ pressed }) => [
               styles.headerIconBtn,
@@ -418,26 +435,10 @@ export default function FeedScreen() {
             accessibilityRole="button"
             accessibilityLabel="Mesajlar"
           >
-            <Ionicons name="chatbubble-outline" size={20} color={colors.textPrimary} />
+            <Ionicons name="chatbubble" size={20} color={colors.accent} />
           </Pressable>
 
-          {isWeb && (
-            <Pressable
-              onPress={toggleSidebar}
-              style={[styles.sidebarToggle, styles.headerOutlinedBtn, { backgroundColor: colors.surface, borderColor: colors.accent + '55' }]}
-            >
-              <Ionicons
-                name={sidebarVisible ? 'options-outline' : 'options'}
-                size={18}
-                color={activeFilterCount > 0 ? colors.accent : colors.textMuted}
-              />
-              {activeFilterCount > 0 && (
-                <View style={[styles.filterBadge, { backgroundColor: colors.accent }]}>
-                  <Text style={styles.filterBadgeText}>{activeFilterCount}</Text>
-                </View>
-              )}
-            </Pressable>
-          )}
+
         </View>
       </Animated.View>
 
@@ -450,22 +451,46 @@ export default function FeedScreen() {
       )}
 
       {(!loading || feedItems.length > 0) && (
-        <Animated.View style={[styles.feedWrap, isWeb && sidebarVisible && styles.webLayout, { opacity: entrance }]}>
+        <Animated.View style={[styles.feedWrap, { opacity: entrance }]}>
 
           {/* Feed column */}
           <View style={styles.feedColumn}>
-            <View style={[styles.modeTabs, styles.tabRow, { backgroundColor: colors.surface, borderColor: colors.borderSubtle }]}>
-              {(['personal', 'followed'] as const).map((m) => (
-                <Pressable
-                  key={m}
-                  onPress={() => { setViewMode(m); setPage(1); }}
-                  style={[styles.tabBtn, viewMode === m && { backgroundColor: colors.accent }]}
-                >
-                  <Text style={[styles.tabText, { color: viewMode === m ? '#fff' : colors.textMuted }]}>
-                    {m === 'personal' ? 'Kişisel Akış' : 'Takip Edilenler'}
-                  </Text>
-                </Pressable>
-              ))}
+            <View style={styles.tabsAndFilterRow}>
+              <View style={[styles.modeTabs, styles.tabRow, { backgroundColor: colors.surface, borderColor: colors.borderSubtle }]}>
+                {(['personal', 'followed'] as const).map((m) => (
+                  <Pressable
+                    key={m}
+                    onPress={() => { setViewMode(m); setPage(1); }}
+                    style={[styles.tabBtn, viewMode === m && { backgroundColor: colors.accent }]}
+                  >
+                    <Text style={[styles.tabText, { color: viewMode === m ? '#fff' : colors.textMuted }]}>
+                      {m === 'personal' ? 'Kişisel Akış' : 'Takip Edilenler'}
+                    </Text>
+                  </Pressable>
+                ))}
+              </View>
+
+              <Pressable
+                onPress={() => toggleSidebarDrawer(true)}
+                style={({ pressed }) => [
+                  styles.filterTogglePill,
+                  {
+                    backgroundColor: pressed ? colors.surfaceHigh : colors.surface,
+                    borderColor: colors.borderSubtle,
+                  },
+                ]}
+                accessibilityRole="button"
+                accessibilityLabel="Filtreler"
+              >
+                <Ionicons name="options-outline" size={16} color={colors.accent} />
+                <Text style={[styles.filterTogglePillText, { color: colors.textPrimary }]}>Filtreler</Text>
+                {activeFilterCount > 0 && (
+                  <View style={[styles.filterCountBadge, { backgroundColor: colors.accent }]}>
+                    <Text style={styles.filterCountBadgeText}>{activeFilterCount}</Text>
+                  </View>
+                )}
+                <Ionicons name="chevron-forward" size={14} color={colors.textMuted} />
+              </Pressable>
             </View>
 
             <View style={styles.toolTabs}>
@@ -694,33 +719,52 @@ export default function FeedScreen() {
               </View>
             )}
           </View>
+        </Animated.View>
+      )}
+      </ScrollView>
 
-          {/* Sidebar */}
-          {isWeb && sidebarVisible && (
-            <View style={[styles.sidebar, { backgroundColor: colors.surface, borderColor: colors.borderSubtle }]}>
+      {/* Sidebar Drawer Overlay */}
+      {drawerRendered && (
+        <View style={StyleSheet.absoluteFillObject} pointerEvents="box-none">
+          {/* Backdrop */}
+          <Pressable
+            style={[StyleSheet.absoluteFillObject, { backgroundColor: 'rgba(0, 0, 0, 0.45)', zIndex: 999 }]}
+            onPress={() => toggleSidebarDrawer(false)}
+          />
+          {/* Drawer Panel */}
+          <Animated.View
+            style={[
+              styles.sidebarDrawer,
+              {
+                backgroundColor: colors.surface,
+                borderColor: colors.borderSubtle,
+                transform: [{ translateX: drawerAnim }],
+              },
+            ]}
+          >
+            {/* Header */}
+            <View style={[styles.sidebarHeader, { borderBottomColor: colors.borderSubtle, borderBottomWidth: 1 }]}>
+              <View style={styles.sidebarTitleRow}>
+                <Ionicons name="options-outline" size={16} color={colors.accent} />
+                <Text style={[styles.sidebarTitle, { color: colors.textPrimary }]}>Filtreler</Text>
+              </View>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+                {activeFilterCount > 0 && (
+                  <Pressable onPress={resetFilters} style={[styles.clearBtn, { backgroundColor: colors.accent + '18' }]}>
+                    <Text style={[styles.clearBtnText, { color: colors.accent }]}>Temizle</Text>
+                  </Pressable>
+                )}
+                <Pressable onPress={() => toggleSidebarDrawer(false)} style={styles.closeDrawerBtn}>
+                  <Ionicons name="close" size={20} color={colors.textMuted} />
+                </Pressable>
+              </View>
+            </View>
 
-              {/* Header */}
-              <Pressable style={styles.sidebarHeader} onPress={toggleFilters}>
-                <View style={styles.sidebarTitleRow}>
-                  <Ionicons name="options-outline" size={16} color={colors.accent} />
-                  <Text style={[styles.sidebarTitle, { color: colors.textPrimary }]}>Filtreler</Text>
-                </View>
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                  {activeFilterCount > 0 && (
-                    <Pressable onPress={(e) => { e.stopPropagation(); resetFilters(); }} style={[styles.clearBtn, { backgroundColor: colors.accent + '18' }]}>
-                      <Text style={[styles.clearBtnText, { color: colors.accent }]}>Temizle</Text>
-                    </Pressable>
-                  )}
-                  <Animated.View style={{ transform: [{ rotate: filterExpandAnim.interpolate({ inputRange: [0,1], outputRange: ['0deg', '180deg'] }) }] }}>
-                    <Ionicons name="chevron-down" size={16} color={colors.textMuted} />
-                  </Animated.View>
-                </View>
-              </Pressable>
-
-              <Animated.View style={{ overflow: 'hidden', maxHeight: filterMaxHeight, opacity: filterExpandAnim }}>
+            {/* Scrollable Filters */}
+            <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingBottom: 24 }} showsVerticalScrollIndicator={false}>
               {/* Active filter count */}
               {activeFilterCount > 0 && (
-                <View style={[styles.activeFilterBanner, { backgroundColor: colors.accent + '14', borderColor: colors.accent + '30' }]}>
+                <View style={[styles.activeFilterBanner, { backgroundColor: colors.accent + '14', borderColor: colors.accent + '30', marginTop: 12 }]}>
                   <Ionicons name="checkmark-circle" size={13} color={colors.accent} />
                   <Text style={[styles.activeFilterText, { color: colors.accent }]}>
                     {activeFilterCount} filtre aktif · {totalCount} sonuç
@@ -893,12 +937,11 @@ export default function FeedScreen() {
                   </View>
                 </>
               )}
-              </Animated.View>
-            </View>
-          )}
-        </Animated.View>
+            </ScrollView>
+          </Animated.View>
+        </View>
       )}
-    </ScrollView>
+    </View>
   );
 }
 
@@ -1029,8 +1072,62 @@ const styles = StyleSheet.create({
   pageBtn: { width: 38, height: 38, borderRadius: 10, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
   pageBtnText: { fontSize: 13, fontWeight: '700' },
 
-  // Sidebar
-  sidebar: { width: 300, borderWidth: 1, borderRadius: 24, overflow: 'hidden', position: 'sticky' as any, top: 20, zIndex: 1 },
+  // Sidebar Drawer Panel
+  sidebarDrawer: {
+    position: Platform.OS === 'web' ? ('fixed' as any) : 'absolute',
+    top: 0,
+    right: 0,
+    bottom: 0,
+    width: 320,
+    borderLeftWidth: 1,
+    zIndex: 1000,
+    shadowColor: '#000',
+    shadowOffset: { width: -3, height: 0 },
+    shadowOpacity: 0.15,
+    shadowRadius: 12,
+    elevation: 8,
+  },
+  tabsAndFilterRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    width: '100%',
+    flexWrap: 'wrap',
+    gap: 12,
+  },
+  filterTogglePill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 20,
+    borderWidth: 1.5,
+  },
+  filterTogglePillText: {
+    fontSize: 13,
+    fontWeight: '800',
+  },
+  filterCountBadge: {
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 10,
+    minWidth: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  filterCountBadgeText: {
+    color: '#fff',
+    fontSize: 10,
+    fontWeight: '900',
+  },
+  closeDrawerBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   sidebarHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 18, paddingBottom: 14 },
   sidebarTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   sidebarTitle: { fontSize: 15, fontWeight: '900', letterSpacing: 0.2 },
