@@ -46,6 +46,30 @@ function extractImageUrl(item: Record<string, unknown>): string | undefined {
   return undefined;
 }
 
+/** Makale sayfasından og:image veya twitter:image çeker (RSS'de görsel yoksa fallback) */
+async function fetchOgImage(articleUrl: string): Promise<string | undefined> {
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 8000);
+    const res = await fetch(articleUrl, {
+      headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36' },
+      signal: controller.signal,
+    });
+    clearTimeout(timeout);
+    if (!res.ok) return undefined;
+    const html = await res.text();
+    const match =
+      html.match(/<meta[^>]+property=["']og:image["'][^>]+content=["']([^"']+)["']/i) ||
+      html.match(/<meta[^>]+content=["']([^"']+)["'][^>]+property=["']og:image["']/i) ||
+      html.match(/<meta[^>]+name=["']twitter:image["'][^>]+content=["']([^"']+)["']/i) ||
+      html.match(/<meta[^>]+content=["']([^"']+)["'][^>]+name=["']twitter:image["']/i);
+    const url = match?.[1];
+    return url?.startsWith('http') ? url : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 async function fetchFeedXml(url: string): Promise<string> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 30000);
@@ -83,25 +107,45 @@ async function fetchWithRetry(url: string, retries = 2): Promise<any> {
 
 async function fetchFeed(source: RssSource): Promise<Article[]> {
   const feed = await fetchWithRetry(source.url);
-  return (feed.items as unknown as Record<string, unknown>[])
-    .filter((item) => item.link && item.title)
-    .map((item) => ({
-      id: generateArticleId(item.link as string),
-      title: item.title as string,
-      description: (item.contentSnippet ?? item.summary ?? '') as string,
-      content: item.content ? (item.content as string) : undefined,
-      url: item.link as string,
-      imageUrl: extractImageUrl(item),
-      publishedAt: parsePublishedAt(item.pubDate as string | undefined),
-      source: {
-        name: source.name,
-        url: source.url,
-        type: 'rss' as const,
-        logoUrl: source.logoUrl,
-      },
-      category: source.category,
-      language: source.language,
-    }));
+  const rawItems = (feed.items as unknown as Record<string, unknown>[]).filter(
+    (item) => item.link && item.title
+  );
+
+  // Görseli RSS'den çıkar; yoksa og:image için makale sayfasını ziyaret et
+  // Eş zamanlı istek sayısını sınırla (5 paralel)
+  const CONCURRENCY = 5;
+  const articles: Article[] = [];
+
+  for (let i = 0; i < rawItems.length; i += CONCURRENCY) {
+    const batch = rawItems.slice(i, i + CONCURRENCY);
+    const batchResults = await Promise.all(
+      batch.map(async (item) => {
+        const rssImage = extractImageUrl(item);
+        const link = item.link as string;
+        const imageUrl = rssImage ?? (await fetchOgImage(link));
+        return {
+          id: generateArticleId(link),
+          title: item.title as string,
+          description: (item.contentSnippet ?? item.summary ?? '') as string,
+          content: item.content ? (item.content as string) : undefined,
+          url: link,
+          imageUrl,
+          publishedAt: parsePublishedAt(item.pubDate as string | undefined),
+          source: {
+            name: source.name,
+            url: source.url,
+            type: 'rss' as const,
+            logoUrl: source.logoUrl,
+          },
+          category: source.category,
+          language: source.language,
+        };
+      })
+    );
+    articles.push(...batchResults);
+  }
+
+  return articles;
 }
 
 function parsePublishedAt(pubDate?: string): Date {

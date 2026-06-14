@@ -16,6 +16,8 @@ interface ArticleRow {
   source_logo_url: string | null;
   source_type: string;
   is_scraped: boolean;
+  view_count: number;
+  like_count: number;
 }
 
 function rowToArticle(row: ArticleRow): Article {
@@ -35,6 +37,8 @@ function rowToArticle(row: ArticleRow): Article {
       type: row.source_type as Article['source']['type'],
       logoUrl: row.source_logo_url ?? undefined,
     },
+    viewCount: row.view_count ?? 0,
+    likeCount: row.like_count ?? 0,
   };
 }
 
@@ -209,18 +213,20 @@ export async function getArticles(params: {
   );
   const total = parseInt(countResult.rows[0].count, 10);
 
+  const likeJoin = `LEFT JOIN (SELECT article_id, COUNT(*)::int AS like_count FROM article_likes GROUP BY article_id) _lc ON _lc.article_id = articles.id`;
+
   // Tek dil yoksa (ne single language ne 1-elemanlı languages array), dengeli interleave (tr/en/de)
   const singleLang = language || (hasLanguagesArray && languages!.length === 1);
   let rows: ArticleRow[];
   if (!singleLang) {
     const langResult = await query<ArticleRow>(
-      `SELECT * FROM articles ${where} ORDER BY published_at DESC LIMIT $${idx} OFFSET $${idx + 1}`,
+      `SELECT articles.*, COALESCE(_lc.like_count, 0) AS like_count FROM articles ${likeJoin} ${where} ORDER BY published_at DESC LIMIT $${idx} OFFSET $${idx + 1}`,
       [...values, limit * 3, offset],
     );
     rows = interleaveByLanguage(langResult.rows, limit, offset);
   } else {
     const result = await query<ArticleRow>(
-      `SELECT * FROM articles ${where} ORDER BY published_at DESC LIMIT $${idx} OFFSET $${idx + 1}`,
+      `SELECT articles.*, COALESCE(_lc.like_count, 0) AS like_count FROM articles ${likeJoin} ${where} ORDER BY published_at DESC LIMIT $${idx} OFFSET $${idx + 1}`,
       [...values, limit, offset],
     );
     rows = result.rows;
@@ -232,7 +238,10 @@ export async function getArticles(params: {
 /** Tek makale */
 export async function getArticleById(id: string): Promise<Article | null> {
   const result = await query<ArticleRow>(
-    'SELECT * FROM articles WHERE id = $1',
+    `SELECT articles.*, COALESCE(_lc.like_count, 0) AS like_count
+     FROM articles
+     LEFT JOIN (SELECT article_id, COUNT(*)::int AS like_count FROM article_likes GROUP BY article_id) _lc ON _lc.article_id = articles.id
+     WHERE articles.id = $1`,
     [id]
   );
   return result.rows[0] ? rowToArticle(result.rows[0]) : null;

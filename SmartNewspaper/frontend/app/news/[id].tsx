@@ -630,27 +630,31 @@ export default function NewsDetailPage() {
     loadInteractions();
   }, [params.id]);
 
+  // Auth token'ı ref'te tut — view tracking effect'i her token güncellemesinde yeniden çalışmasın.
+  const messageTokenRef = useRef(messageToken);
+  useEffect(() => { messageTokenRef.current = messageToken; }, [messageToken]);
+
   // Read history tracking — kullanıcı bu makaleyi açtığında server'a haber ver.
   // Mount'ta initial view, unmount'ta final dwell_ms gönderir. UPSERT en uzun değeri tutar.
   useEffect(() => {
-    if (!params.id || !messageToken) return;
+    if (!params.id) return;
     const t0 = Date.now();
     let firstReported = false;
 
     // Bounce-savar: en az 1.5 saniye sayfada kal, sonra "okudu" olarak işaretle.
     const initialTimer = setTimeout(() => {
       firstReported = true;
-      void recordArticleView(params.id!, messageToken, { dwellMs: 0, sourceCtx: 'detail' });
+      void recordArticleView(params.id!, messageTokenRef.current || null, { dwellMs: 0, sourceCtx: 'detail' });
     }, 1500);
 
     return () => {
       clearTimeout(initialTimer);
       if (firstReported) {
         const dwell = Date.now() - t0;
-        void recordArticleView(params.id!, messageToken, { dwellMs: dwell, sourceCtx: 'detail' });
+        void recordArticleView(params.id!, messageTokenRef.current || null, { dwellMs: dwell, sourceCtx: 'detail' });
       }
     };
-  }, [params.id, messageToken]);
+  }, [params.id]);
 
   // Home feed önbelleği — kullanıcı feed'den geldiyse burada bulunur.
   const cacheHit = articles.find((item: { id: string }) => item.id === params.id);
@@ -1976,11 +1980,6 @@ export default function NewsDetailPage() {
         </View>
         )}
 
-        {isWeb && (
-          <View style={[styles(colors).mediaCol, styles(colors).mediaColWeb]}>
-            {renderAiAnalysisCard()}
-          </View>
-        )}
       </View>
 
       <View
@@ -2096,11 +2095,6 @@ export default function NewsDetailPage() {
         </View>
       </View>
 
-      {!isWeb && (
-        <View style={styles(colors).relatedSection}>
-          {renderAiAnalysisCard()}
-        </View>
-      )}
 
       {generalRelatedArticles.length > 0 && (
         <View style={styles(colors).relatedSection}>

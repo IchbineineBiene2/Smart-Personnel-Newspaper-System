@@ -1,5 +1,5 @@
 // @ts-nocheck
-import { ActivityIndicator, Image, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Animated, Easing, Image, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useEffect, useMemo, useRef, useState } from 'react';
 
@@ -8,7 +8,9 @@ import { Radius, Spacing, Typography } from '@/constants/theme';
 import { usePublisherState } from '@/hooks/usePublisherState';
 import { useApiNews } from '@/hooks/useNews';
 import { useTheme } from '@/hooks/useTheme';
+import { useSourceStats } from '@/hooks/useSourceStats';
 import { buildPublisherDataset, getPublisherIdFromSourceName } from '@/services/publisherProfiles';
+import { fetchArticles, ApiArticle } from '@/services/newsApi';
 
 const BASE_TOPICS = ['Siyaset', 'Spor', 'Ekonomi', 'Teknoloji', 'Saglik', 'Kultur'];
 const POLITICS_KEYWORDS = [
@@ -73,9 +75,29 @@ export default function PublisherProfilePage() {
 
   const selectedId = id ?? 'global-dispatch';
   const publisher = publishers.find((item) => item.id === selectedId);
+  const { stats: sourceStats } = useSourceStats(publisher?.name);
+
+  // Kaynağa özel makaleler — global 500'den sadece birkaç makale gelebileceği için
+  // publisher adı belli olunca o kaynağa özel 100 makale ayrıca çekiyoruz.
+  const [sourceApiArticles, setSourceApiArticles] = useState<ApiArticle[]>([]);
+  const [sourceLoading, setSourceLoading] = useState(false);
+  useEffect(() => {
+    if (!publisher?.name) return;
+    setSourceLoading(true);
+    fetchArticles({ source: publisher.name, limit: 500 })
+      .then((data) => setSourceApiArticles(data))
+      .catch(() => {})
+      .finally(() => setSourceLoading(false));
+  }, [publisher?.name]);
+
+  const { articles: sourceArticles } = useMemo(
+    () => buildPublisherDataset(sourceApiArticles.length > 0 ? sourceApiArticles : apiArticles),
+    [sourceApiArticles, apiArticles]
+  );
+
   const channelArticles = useMemo(
-    () => articles.filter((item) => item.publisherId === selectedId),
-    [articles, selectedId]
+    () => sourceArticles.filter((item) => item.publisherId === selectedId),
+    [sourceArticles, selectedId]
   );
   const topicFilters = useMemo(
     () => {
@@ -86,9 +108,22 @@ export default function PublisherProfilePage() {
     [channelArticles]
   );
 
+  const PAGE_SIZE = 24;
   const [activeTopic, setActiveTopic] = useState('Tum Konular');
-  const [visibleCount, setVisibleCount] = useState(10);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [currentPage, setCurrentPage] = useState(0);
   const [isDirectoryHovered, setIsDirectoryHovered] = useState(false);
+
+  // Breathing animation
+  const breathAnim = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    Animated.loop(
+      Animated.sequence([
+        Animated.timing(breathAnim, { toValue: 1, duration: 2800, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
+        Animated.timing(breathAnim, { toValue: 0, duration: 2800, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
+      ])
+    ).start();
+  }, []);
   const [previewItem, setPreviewItem] = useState<{
     id: string;
     title: string;
@@ -102,30 +137,37 @@ export default function PublisherProfilePage() {
   } | null>(null);
 
   const filteredArticles = useMemo(() => {
-    if (activeTopic === 'Tum Konular') return channelArticles;
+    let base = channelArticles;
 
     if (activeTopic === 'Siyaset') {
-      return channelArticles.filter((item) => {
+      base = channelArticles.filter((item) => {
         if (normalizeText(item.tag) === 'siyaset') return true;
         const blob = normalizeText(`${item.title} ${item.summary}`);
         return POLITICS_KEYWORDS.some((keyword) => blob.includes(keyword));
       });
+    } else if (activeTopic !== 'Tum Konular') {
+      base = channelArticles.filter((item) => item.tag === activeTopic);
     }
 
-    return channelArticles.filter((item) => item.tag === activeTopic);
-  }, [activeTopic, channelArticles]);
+    if (!searchQuery.trim()) return base;
+    const q = normalizeText(searchQuery.trim());
+    return base.filter((item) =>
+      normalizeText(item.title).includes(q) || normalizeText(item.summary).includes(q)
+    );
+  }, [activeTopic, searchQuery, channelArticles]);
 
-  const visibleArticles = filteredArticles.slice(0, visibleCount);
-  const hasMore = visibleCount < filteredArticles.length;
+  const totalPages = Math.max(1, Math.ceil(filteredArticles.length / PAGE_SIZE));
+  const pageArticles = filteredArticles.slice(currentPage * PAGE_SIZE, (currentPage + 1) * PAGE_SIZE);
 
   useEffect(() => {
-    setVisibleCount(10);
+    setCurrentPage(0);
     setActiveTopic('Tum Konular');
+    setSearchQuery('');
   }, [selectedId]);
 
   useEffect(() => {
-    setVisibleCount(10);
-  }, [activeTopic]);
+    setCurrentPage(0);
+  }, [activeTopic, searchQuery]);
 
   const otherPublishers = publishers.filter((item) => item.id !== selectedId).slice(0, 8);
   const loopedOtherPublishers = useMemo(
@@ -200,58 +242,111 @@ export default function PublisherProfilePage() {
 
   const followed = followedIds.includes(publisher.id);
 
-  const openArticlePreview = (article: (typeof visibleArticles)[number]) => {
-    setPreviewItem({
-      id: article.id,
-      title: article.title,
-      summary: article.summary,
-      sourceName: publisher.name,
-      sourceLogoUrl: publisher.logoUrl,
-      imageUrl: article.imageUrl,
-      publishedAt: article.publishedAt,
-      url: article.originalUrl,
-      category: article.tag,
+  const openArticlePreview = (article: (typeof pageArticles)[number]) => {
+    router.push({
+      pathname: '/news/[id]',
+      params: {
+        id: article.id,
+        title: article.title,
+        summary: article.summary,
+        imageUrl: article.imageUrl,
+        source: publisher?.name,
+        url: article.originalUrl,
+        publishedAt: article.publishedAt,
+        category: article.tag,
+      },
     });
   };
 
   return (
     <ScrollView style={styles(pageColors).container} contentContainerStyle={styles(pageColors).content}>
       <View style={styles(pageColors).headerCard}>
-        <View style={styles(pageColors).logoBox}>
-          {publisher.logoUrl ? (
-            <Image source={{ uri: publisher.logoUrl }} style={styles(pageColors).logoImage} resizeMode="cover" />
-          ) : (
-            <Text style={styles(pageColors).logoText}>{publisher.logoText}</Text>
-          )}
+        {/* Banner katmanları: sabit zemin + nefes alan accent + gezgin glow */}
+        <View style={styles(pageColors).headerBanner}>
+          {/* Sabit koyu accent taban */}
+          <View style={styles(pageColors).bannerBase} />
+          {/* Nefes alan overlay */}
+          <Animated.View
+            style={[
+              styles(pageColors).bannerAccent,
+              { opacity: breathAnim.interpolate({ inputRange: [0, 1], outputRange: [0.18, 0.38] }) },
+            ]}
+          />
+          {/* Sol glow — nefes ile büyüyüp küçülür */}
+          <Animated.View
+            style={[
+              styles(pageColors).bannerGlowLeft,
+              {
+                opacity: breathAnim.interpolate({ inputRange: [0, 1], outputRange: [0.22, 0.45] }),
+                transform: [{ scale: breathAnim.interpolate({ inputRange: [0, 1], outputRange: [1, 1.25] }) }],
+              },
+            ]}
+          />
+          {/* Sağ glow — ters fazda */}
+          <Animated.View
+            style={[
+              styles(pageColors).bannerGlowRight,
+              {
+                opacity: breathAnim.interpolate({ inputRange: [0, 1], outputRange: [0.35, 0.15] }),
+                transform: [{ scale: breathAnim.interpolate({ inputRange: [0, 1], outputRange: [1.2, 0.9] }) }],
+              },
+            ]}
+          />
+          {/* Alt soluk geçiş */}
+          <View style={styles(pageColors).bannerFade} />
         </View>
 
-        <Text style={styles(pageColors).title}>{publisher.name}</Text>
-        {publisher.verified ? <Text style={styles(pageColors).badge}>VERIFIED SOURCE</Text> : null}
+        {/* Logo (sol) + Actions (sağ) */}
+        <View style={styles(pageColors).headerLogoRow}>
+          {/* Logo glow halkası */}
+          <View style={styles(pageColors).logoGlowRing}>
+            <View style={styles(pageColors).logoBox}>
+              {publisher.logoUrl ? (
+                <Image source={{ uri: publisher.logoUrl }} style={styles(pageColors).logoImage} resizeMode="cover" />
+              ) : (
+                <Text style={styles(pageColors).logoText}>{publisher.logoText}</Text>
+              )}
+            </View>
+          </View>
 
-        <View style={styles(pageColors).statsRow}>
-          <View style={styles(pageColors).statItem}>
-            <Text style={styles(pageColors).statValue}>{publisher.followers}</Text>
-            <Text style={styles(pageColors).statLabel}>Followers</Text>
-          </View>
-          <View style={styles(pageColors).statItem}>
-            <Text style={styles(pageColors).statValue}>{publisher.articlesCount}</Text>
-            <Text style={styles(pageColors).statLabel}>Articles</Text>
-          </View>
-          <View style={styles(pageColors).statItem}>
-            <Text style={styles(pageColors).statValue}>{publisher.reporters}</Text>
-            <Text style={styles(pageColors).statLabel}>Reporters</Text>
+          <View style={styles(pageColors).headerActions}>
+            {publisher.verified ? (
+              <View style={styles(pageColors).badge}>
+                <Text style={styles(pageColors).badgeText}>✓ Dogrulanmis</Text>
+              </View>
+            ) : null}
+            <Pressable
+              style={[styles(pageColors).followBtn, followed ? styles(pageColors).followBtnActive : null]}
+              onPress={() => toggleFollow(publisher.id)}
+            >
+              <Text style={[styles(pageColors).followBtnText, followed ? styles(pageColors).followBtnTextActive : null]}>
+                {followed ? '✓ Takip Ediliyor' : '+ Takip Et'}
+              </Text>
+            </Pressable>
           </View>
         </View>
 
-        <Text style={styles(pageColors).description}>{publisher.description}</Text>
+        {/* İsim + açıklama */}
+        <View style={styles(pageColors).headerInfo}>
+          <Text style={styles(pageColors).title}>{publisher.name}</Text>
+          <Text style={styles(pageColors).description}>{publisher.description}</Text>
+        </View>
 
-        <View style={styles(pageColors).actionsRow}>
-          <Pressable
-            style={[styles(pageColors).primaryButtonFull, followed ? styles(pageColors).primaryButtonActive : null]}
-            onPress={() => toggleFollow(publisher.id)}
-          >
-            <Text style={styles(pageColors).primaryButtonText}>{followed ? 'Following' : 'Follow Publisher'}</Text>
-          </Pressable>
+        {/* Stats tam genişlik bar */}
+        <View style={styles(pageColors).statsBar}>
+          <View style={styles(pageColors).statItem}>
+            <Text style={styles(pageColors).statValue}>
+              {sourceStats ? sourceStats.readerCount : '—'}
+            </Text>
+            <Text style={styles(pageColors).statLabel}>Okuyucu</Text>
+          </View>
+          <View style={styles(pageColors).statSep} />
+          <View style={styles(pageColors).statItem}>
+            <Text style={styles(pageColors).statValue}>
+              {sourceStats ? sourceStats.articleCount : publisher.articlesCount}
+            </Text>
+            <Text style={styles(pageColors).statLabel}>Makale</Text>
+          </View>
         </View>
       </View>
 
@@ -308,8 +403,6 @@ export default function PublisherProfilePage() {
                 </View>
                 <View style={styles(pageColors).directoryBody}>
                   <Text style={styles(pageColors).directoryName} numberOfLines={1}>{item.name}</Text>
-                  <Text style={styles(pageColors).directoryMeta}>{item.category}</Text>
-                  <Text style={styles(pageColors).directoryFollow}>{item.followers} takipci</Text>
                 </View>
                 <View style={styles(pageColors).directoryActionPill}>
                   <Text style={styles(pageColors).directoryActionText}>Profili Gor</Text>
@@ -339,53 +432,116 @@ export default function PublisherProfilePage() {
 
       <View style={styles(pageColors).sectionHeadRow}>
         <Text style={styles(pageColors).sectionTitle}>Kanal Haberleri</Text>
-        <Text style={styles(pageColors).sectionCount}>{filteredArticles.length} haber</Text>
+        <Text style={styles(pageColors).sectionCount}>{sourceLoading ? '...' : `${filteredArticles.length} haber`}</Text>
       </View>
 
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles(pageColors).topicRow}>
-        {topicFilters.map((topic) => {
-          const active = activeTopic === topic;
-          return (
-            <Pressable
-              key={topic}
-              style={[styles(pageColors).topicChip, active ? styles(pageColors).topicChipActive : null]}
-              onPress={() => setActiveTopic(topic)}
-            >
-              <Text style={[styles(pageColors).topicChipText, active ? styles(pageColors).topicChipTextActive : null]}>
-                {topic}
-              </Text>
-            </Pressable>
-          );
-        })}
-      </ScrollView>
-
-      {visibleArticles.map((article) => (
-        <Pressable key={article.id} style={styles(pageColors).articleCard} onPress={() => openArticlePreview(article)}>
-          {article.imageUrl ? (
-            <Image source={{ uri: article.imageUrl }} style={styles(pageColors).articleImage} resizeMode="cover" />
-          ) : (
-            <View style={styles(pageColors).articleImagePlaceholder}>
-              <Text style={styles(pageColors).articleImagePlaceholderText}>{article.tag.toUpperCase()}</Text>
-            </View>
-          )}
-          <Text style={styles(pageColors).articleTag}>{article.tag.toUpperCase()}</Text>
-          <Text style={styles(pageColors).articleTitleLink}>{article.title}</Text>
-          <Text style={styles(pageColors).articleSummary}>{article.summary}</Text>
-          <View style={styles(pageColors).metaRow}>
-            <View style={styles(pageColors).metaLeft}>
-              <Text style={styles(pageColors).metaText}>{article.likes} likes</Text>
-              <Text style={styles(pageColors).metaText}>{article.comments} comments</Text>
-            </View>
-            {article.publishedAt ? <Text style={styles(pageColors).metaDate}>{formatArticleDateTime(article.publishedAt)}</Text> : null}
+      {/* Filtreler + Arama */}
+      <View style={styles(pageColors).filterRow}>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles(pageColors).topicRow} style={{ flex: 1 }}>
+          {topicFilters.map((topic) => {
+            const active = activeTopic === topic;
+            return (
+              <Pressable
+                key={topic}
+                style={[styles(pageColors).topicChip, active ? styles(pageColors).topicChipActive : null]}
+                onPress={() => setActiveTopic(topic)}
+              >
+                <Text style={[styles(pageColors).topicChipText, active ? styles(pageColors).topicChipTextActive : null]}>
+                  {topic}
+                </Text>
+              </Pressable>
+            );
+          })}
+          {/* Arama — chip sırasına entegre */}
+          <View style={styles(pageColors).searchWrap}>
+            <Text style={styles(pageColors).searchIcon}>⌕</Text>
+            <TextInput
+              style={styles(pageColors).searchInput}
+              placeholder="Ara..."
+              placeholderTextColor={pageColors.textMuted}
+              value={searchQuery}
+              onChangeText={setSearchQuery}
+              returnKeyType="search"
+              clearButtonMode="never"
+            />
+            {searchQuery.length > 0 && (
+              <Pressable onPress={() => setSearchQuery('')} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                <Text style={styles(pageColors).searchClear}>✕</Text>
+              </Pressable>
+            )}
           </View>
-        </Pressable>
-      ))}
+        </ScrollView>
+      </View>
 
-      {hasMore ? (
-        <Pressable style={styles(pageColors).moreButton} onPress={() => setVisibleCount((count) => count + 10)}>
-          <Text style={styles(pageColors).moreButtonText}>Diger Haberler</Text>
-        </Pressable>
-      ) : null}
+      <View style={styles(pageColors).articleGrid}>
+        {sourceLoading && pageArticles.length === 0 ? (
+          <ActivityIndicator color={pageColors.accent} style={{ margin: 32 }} />
+        ) : pageArticles.map((article) => (
+          <Pressable key={article.id} style={styles(pageColors).articleCard} onPress={() => openArticlePreview(article)}>
+            {article.imageUrl ? (
+              <Image source={{ uri: article.imageUrl }} style={styles(pageColors).articleImage} resizeMode="cover" />
+            ) : (
+              <View style={styles(pageColors).articleImagePlaceholder}>
+                <View style={styles(pageColors).articleImagePlaceholderInner}>
+                  <Text style={styles(pageColors).articleImagePlaceholderText}>{article.tag.toUpperCase()}</Text>
+                </View>
+              </View>
+            )}
+            <View style={styles(pageColors).articleBody}>
+              <View style={styles(pageColors).articleTagPill}>
+                <Text style={styles(pageColors).articleTag}>{article.tag.toUpperCase()}</Text>
+              </View>
+              <Text style={styles(pageColors).articleTitleLink} numberOfLines={3}>{article.title}</Text>
+              <View style={styles(pageColors).metaRow}>
+                <Text style={styles(pageColors).metaText}>👁 {article.viewCount ?? 0}</Text>
+                <Text style={styles(pageColors).metaText}>♥ {article.likeCount ?? 0}</Text>
+                {article.publishedAt ? <Text style={styles(pageColors).metaDate}>{formatArticleDateTime(article.publishedAt)}</Text> : null}
+              </View>
+            </View>
+          </Pressable>
+        ))}
+      </View>
+
+      {/* Pagination */}
+      {totalPages > 1 && (
+        <View style={styles(pageColors).paginationRow}>
+          <Pressable
+            style={[styles(pageColors).pageBtn, currentPage === 0 && styles(pageColors).pageBtnDisabled]}
+            onPress={() => currentPage > 0 && setCurrentPage((p) => p - 1)}
+          >
+            <Text style={styles(pageColors).pageBtnText}>‹</Text>
+          </Pressable>
+
+          {Array.from({ length: Math.min(totalPages, 7) }, (_, i) => {
+            let page: number;
+            if (totalPages <= 7) {
+              page = i;
+            } else if (currentPage < 4) {
+              page = i < 5 ? i : i === 5 ? -1 : totalPages - 1;
+            } else if (currentPage > totalPages - 5) {
+              page = i === 0 ? 0 : i === 1 ? -1 : totalPages - (6 - i);
+            } else {
+              page = i === 0 ? 0 : i === 1 ? -1 : i === 5 ? -1 : i === 6 ? totalPages - 1 : currentPage + (i - 3);
+            }
+            if (page === -1) {
+              return <Text key={`ellipsis-${i}`} style={styles(pageColors).pageEllipsis}>…</Text>;
+            }
+            const active = page === currentPage;
+            return (
+              <Pressable key={page} style={[styles(pageColors).pageBtn, active && styles(pageColors).pageBtnActive]} onPress={() => setCurrentPage(page)}>
+                <Text style={[styles(pageColors).pageBtnText, active && styles(pageColors).pageBtnTextActive]}>{page + 1}</Text>
+              </Pressable>
+            );
+          })}
+
+          <Pressable
+            style={[styles(pageColors).pageBtn, currentPage === totalPages - 1 && styles(pageColors).pageBtnDisabled]}
+            onPress={() => currentPage < totalPages - 1 && setCurrentPage((p) => p + 1)}
+          >
+            <Text style={styles(pageColors).pageBtnText}>›</Text>
+          </Pressable>
+        </View>
+      )}
 
       <NewsQuickPreviewModal
         visible={!!previewItem}
@@ -426,31 +582,157 @@ const styles = (colors: any) =>
     },
     content: {
       padding: Spacing.lg,
-      gap: Spacing.md,
+      gap: Spacing.lg,
       paddingBottom: Spacing.xxl,
     },
     headerCard: {
       borderWidth: 1,
-      borderColor: colors.borderSubtle,
+      borderColor: colors.accent + '33',
       backgroundColor: colors.surface,
       borderRadius: Radius.lg,
-      padding: Spacing.lg,
-      gap: Spacing.sm,
+      overflow: 'hidden',
+      shadowColor: colors.accent,
+      shadowOpacity: 0.15,
+      shadowRadius: 24,
+      shadowOffset: { width: 0, height: 6 },
+      elevation: 6,
     },
-    logoBox: {
-      width: 72,
+    /* --- Banner katmanları --- */
+    headerBanner: {
+      height: 140,
+      marginBottom: -82,
+      position: 'relative',
+      overflow: 'hidden',
+    },
+    bannerBase: {
+      ...StyleSheet.absoluteFillObject,
+      backgroundColor: colors.accent,
+      opacity: 0.12,
+    },
+    bannerAccent: {
+      ...StyleSheet.absoluteFillObject,
+      backgroundColor: colors.accent,
+    },
+    bannerGlowLeft: {
+      position: 'absolute',
+      top: -60,
+      left: -60,
+      width: 260,
+      height: 260,
+      borderRadius: 130,
+      backgroundColor: colors.accent,
+    },
+    bannerGlowRight: {
+      position: 'absolute',
+      top: -40,
+      right: -80,
+      width: 280,
+      height: 280,
+      borderRadius: 140,
+      backgroundColor: colors.accent,
+    },
+    bannerFade: {
+      position: 'absolute',
+      bottom: 0,
+      left: 0,
+      right: 0,
       height: 72,
+      backgroundColor: colors.surface,
+      opacity: 0.55,
+    },
+    /* --- Logo satırı --- */
+    headerLogoRow: {
+      flexDirection: 'row',
+      alignItems: 'flex-end',
+      justifyContent: 'space-between',
+      paddingHorizontal: Spacing.lg,
+      paddingBottom: Spacing.sm,
+      zIndex: 2,
+    },
+    logoGlowRing: {
+      padding: 4,
+      borderRadius: Radius.lg + 4,
+      shadowColor: colors.accent,
+      shadowOpacity: 0.55,
+      shadowRadius: 20,
+      shadowOffset: { width: 0, height: 0 },
+      elevation: 12,
+    },
+    headerActions: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: Spacing.sm,
+      paddingBottom: 4,
+    },
+    followBtn: {
+      backgroundColor: colors.accent,
+      borderRadius: Radius.full,
+      paddingVertical: 9,
+      paddingHorizontal: 20,
+      shadowColor: colors.accent,
+      shadowOpacity: 0.45,
+      shadowRadius: 10,
+      shadowOffset: { width: 0, height: 3 },
+      elevation: 4,
+    },
+    followBtnActive: {
+      backgroundColor: 'transparent',
       borderWidth: 1,
-      borderColor: colors.border,
+      borderColor: colors.accent + '88',
+      shadowOpacity: 0,
+      elevation: 0,
+    },
+    followBtnText: {
+      color: colors.white,
+      fontSize: Typography.fontSize.sm,
+      fontWeight: Typography.fontWeight.bold,
+      letterSpacing: 0.5,
+    },
+    followBtnTextActive: {
+      color: colors.accent,
+    },
+    /* --- İsim + açıklama --- */
+    headerInfo: {
+      paddingHorizontal: Spacing.lg,
+      paddingBottom: Spacing.md,
+      gap: Spacing.xs,
+      zIndex: 1,
+    },
+    /* --- Stats tam genişlik bar --- */
+    statsBar: {
+      flexDirection: 'row',
+      borderTopWidth: 1,
+      borderTopColor: colors.accent + '22',
+      backgroundColor: colors.accent + '08',
+    },
+    statsRow: {
+      flexDirection: 'row',
+    },
+    statItem: {
+      flex: 1,
+      alignItems: 'center',
+      paddingVertical: Spacing.md,
+      gap: 2,
+    },
+    statSep: {
+      width: 1,
+      backgroundColor: colors.accent + '22',
+    },
+    /* --- Logo --- */
+    logoBox: {
+      width: 100,
+      height: 100,
+      borderWidth: 3,
+      borderColor: colors.surface,
       backgroundColor: colors.surfaceHigh,
-      borderRadius: Radius.md,
+      borderRadius: Radius.lg,
       alignItems: 'center',
       justifyContent: 'center',
     },
     logoText: {
       color: colors.textPrimary,
       fontWeight: Typography.fontWeight.bold,
-      fontSize: Typography.fontSize.base,
+      fontSize: Typography.fontSize.xl,
     },
     logoImage: {
       width: '100%',
@@ -459,77 +741,41 @@ const styles = (colors: any) =>
     },
     title: {
       color: colors.textPrimary,
-      fontFamily: 'serif',
-      fontSize: 44,
-      lineHeight: 48,
+      fontSize: 36,
+      fontWeight: '900',
+      lineHeight: 42,
+      letterSpacing: -0.5,
     },
     badge: {
-      alignSelf: 'flex-start',
+      backgroundColor: colors.accent + '18',
+      borderWidth: 1,
+      borderColor: colors.accent + '44',
+      borderRadius: Radius.full,
+      paddingVertical: 5,
+      paddingHorizontal: Spacing.md,
+    },
+    badgeText: {
       color: colors.accent,
-      backgroundColor: colors.surfaceHigh,
-      borderRadius: Radius.sm,
-      paddingVertical: Spacing.xs,
-      paddingHorizontal: Spacing.sm,
-      letterSpacing: 1,
+      letterSpacing: 0.5,
       fontSize: Typography.fontSize.xs,
       fontWeight: Typography.fontWeight.bold,
     },
-    statsRow: {
-      flexDirection: 'row',
-      justifyContent: 'space-between',
-      gap: Spacing.sm,
-      marginTop: Spacing.sm,
-    },
-    statItem: {
-      flex: 1,
-    },
     statValue: {
-      color: colors.textPrimary,
-      fontSize: Typography.fontSize.base,
+      color: colors.accent,
+      fontSize: 20,
       fontWeight: Typography.fontWeight.bold,
+      lineHeight: 24,
     },
     statLabel: {
       color: colors.textMuted,
-      fontSize: Typography.fontSize.sm,
+      fontSize: 10,
+      letterSpacing: 1,
+      textTransform: 'uppercase',
     },
     description: {
       color: colors.textSecondary,
-      fontSize: Typography.fontSize.base,
-      lineHeight: 24,
-    },
-    actionsRow: {
-      flexDirection: 'row',
-      gap: Spacing.sm,
-      marginTop: Spacing.sm,
-    },
-    primaryButton: {
-      flex: 1,
-      backgroundColor: colors.accent,
-      borderWidth: 1,
-      borderColor: colors.accent,
-      borderRadius: Radius.md,
-      alignItems: 'center',
-      justifyContent: 'center',
-      paddingVertical: Spacing.md,
-    },
-    primaryButtonFull: {
-      width: '100%',
-      backgroundColor: colors.accent,
-      borderWidth: 1,
-      borderColor: colors.accent,
-      borderRadius: Radius.md,
-      alignItems: 'center',
-      justifyContent: 'center',
-      paddingVertical: Spacing.md,
-    },
-    primaryButtonActive: {
-      backgroundColor: colors.surfaceHigh,
-      borderColor: colors.border,
-    },
-    primaryButtonText: {
-      color: colors.white,
-      fontWeight: Typography.fontWeight.bold,
       fontSize: Typography.fontSize.sm,
+      lineHeight: 20,
     },
     secondaryButton: {
       flex: 1,
@@ -548,19 +794,20 @@ const styles = (colors: any) =>
     },
     sectionTitle: {
       color: colors.textPrimary,
-      fontFamily: 'serif',
-      fontSize: 34,
-      lineHeight: 38,
+      fontSize: 26,
+      fontWeight: '800',
+      lineHeight: 32,
+      letterSpacing: -0.3,
     },
     sectionHeadRow: {
       flexDirection: 'row',
-      alignItems: 'center',
+      alignItems: 'baseline',
       justifyContent: 'space-between',
     },
     sectionCount: {
-      color: colors.textMuted,
+      color: colors.accent,
       fontSize: Typography.fontSize.sm,
-      fontWeight: Typography.fontWeight.medium,
+      fontWeight: Typography.fontWeight.bold,
     },
     topicRow: {
       gap: Spacing.sm,
@@ -568,10 +815,10 @@ const styles = (colors: any) =>
     },
     topicChip: {
       borderWidth: 1,
-      borderColor: colors.border,
+      borderColor: colors.borderSubtle,
       borderRadius: Radius.full,
       paddingHorizontal: Spacing.md,
-      paddingVertical: Spacing.sm,
+      paddingVertical: 7,
       backgroundColor: colors.surface,
     },
     topicChipActive: {
@@ -579,12 +826,13 @@ const styles = (colors: any) =>
       backgroundColor: colors.accent,
     },
     topicChipText: {
-      color: colors.textPrimary,
+      color: colors.textSecondary,
       fontSize: Typography.fontSize.sm,
       fontWeight: Typography.fontWeight.medium,
     },
     topicChipTextActive: {
       color: colors.white,
+      fontWeight: Typography.fontWeight.bold,
     },
     directoryWrap: {
       borderWidth: 1,
@@ -593,16 +841,22 @@ const styles = (colors: any) =>
       borderRadius: Radius.lg,
       padding: Spacing.lg,
       gap: Spacing.sm,
+      shadowColor: colors.black,
+      shadowOpacity: 0.06,
+      shadowRadius: 10,
+      shadowOffset: { width: 0, height: 3 },
+      elevation: 2,
     },
     directoryTitle: {
       color: colors.textPrimary,
-      fontFamily: 'serif',
       fontSize: Typography.fontSize.xl,
-      lineHeight: 30,
+      fontWeight: '800',
+      lineHeight: 28,
     },
     directorySub: {
-      color: colors.textSecondary,
-      fontSize: Typography.fontSize.sm,
+      color: colors.textMuted,
+      fontSize: Typography.fontSize.xs,
+      letterSpacing: 0.3,
     },
     directoryRow: {
       gap: Spacing.sm,
@@ -650,21 +904,31 @@ const styles = (colors: any) =>
       borderWidth: 1,
       borderColor: colors.borderSubtle,
       backgroundColor: colors.surfaceHigh,
-      borderRadius: Radius.md,
+      borderRadius: Radius.lg,
       padding: Spacing.md,
-      width: 190,
-      gap: Spacing.sm,
+      width: 180,
+      gap: Spacing.xs,
       alignItems: 'center',
+      shadowColor: colors.black,
+      shadowOpacity: 0.05,
+      shadowRadius: 6,
+      shadowOffset: { width: 0, height: 2 },
+      elevation: 1,
     },
     directoryLogoBox: {
-      width: 56,
-      height: 56,
-      borderWidth: 1,
-      borderColor: colors.border,
+      width: 60,
+      height: 60,
+      borderWidth: 2,
+      borderColor: colors.accent + '44',
       borderRadius: Radius.full,
       backgroundColor: colors.surface,
       alignItems: 'center',
       justifyContent: 'center',
+      shadowColor: colors.accent,
+      shadowOpacity: 0.15,
+      shadowRadius: 6,
+      shadowOffset: { width: 0, height: 2 },
+      elevation: 2,
     },
     directoryLogoImage: {
       width: '100%',
@@ -678,7 +942,7 @@ const styles = (colors: any) =>
     },
     directoryLogoText: {
       color: colors.textPrimary,
-      fontSize: Typography.fontSize.xs,
+      fontSize: Typography.fontSize.sm,
       fontWeight: Typography.fontWeight.bold,
     },
     directoryName: {
@@ -688,7 +952,7 @@ const styles = (colors: any) =>
       textAlign: 'center',
     },
     directoryMeta: {
-      color: colors.textMuted,
+      color: colors.accent,
       fontSize: Typography.fontSize.xs,
     },
     directoryFollow: {
@@ -697,107 +961,198 @@ const styles = (colors: any) =>
     },
     directoryActionPill: {
       marginTop: Spacing.xs,
-      borderWidth: 1,
-      borderColor: colors.border,
-      backgroundColor: colors.surface,
+      backgroundColor: colors.accent,
       borderRadius: Radius.full,
       paddingVertical: 6,
       paddingHorizontal: Spacing.md,
     },
     directoryActionText: {
-      color: colors.textPrimary,
+      color: colors.white,
       fontSize: Typography.fontSize.xs,
       fontWeight: Typography.fontWeight.bold,
+      letterSpacing: 0.3,
+    },
+    articleGrid: {
+      flexDirection: 'row',
+      flexWrap: 'wrap',
+      gap: Spacing.md,
     },
     articleCard: {
       borderWidth: 1,
       borderColor: colors.borderSubtle,
       backgroundColor: colors.surface,
       borderRadius: Radius.lg,
-      padding: Spacing.lg,
-      gap: Spacing.sm,
+      overflow: 'hidden',
+      flexBasis: '23%',
+      flexGrow: 1,
+      minWidth: 200,
+      shadowColor: colors.black,
+      shadowOpacity: 0.07,
+      shadowRadius: 8,
+      shadowOffset: { width: 0, height: 2 },
+      elevation: 2,
     },
     articleImage: {
       width: '100%',
-      height: 180,
-      borderRadius: Radius.md,
+      height: 150,
+    },
+    articleImageOverlay: {
+      position: 'absolute',
+      bottom: 0,
+      left: 0,
+      right: 0,
+      height: 60,
+      backgroundColor: colors.surface,
+      opacity: 0,
     },
     articleImagePlaceholder: {
       width: '100%',
       height: 120,
-      borderRadius: Radius.md,
-      borderWidth: 1,
-      borderColor: colors.border,
-      backgroundColor: colors.surfaceHigh,
+      backgroundColor: colors.accent + '10',
       alignItems: 'center',
       justifyContent: 'center',
+      borderBottomWidth: 1,
+      borderBottomColor: colors.accent + '22',
+    },
+    articleImagePlaceholderInner: {
+      paddingHorizontal: Spacing.md,
+      paddingVertical: Spacing.xs,
+      borderRadius: Radius.full,
+      borderWidth: 1,
+      borderColor: colors.accent + '44',
     },
     articleImagePlaceholderText: {
-      color: colors.textMuted,
-      fontSize: Typography.fontSize.xs,
-      letterSpacing: 1,
+      color: colors.accent,
+      fontSize: 10,
+      letterSpacing: 2,
       fontWeight: Typography.fontWeight.bold,
     },
+    articleBody: {
+      padding: Spacing.md,
+      gap: Spacing.xs,
+      flex: 1,
+    },
+    articleTagPill: {
+      alignSelf: 'flex-start',
+      backgroundColor: colors.accent + '18',
+      borderRadius: Radius.full,
+      paddingVertical: 2,
+      paddingHorizontal: Spacing.sm,
+    },
     articleTag: {
-      color: colors.textMuted,
-      fontSize: Typography.fontSize.xs,
-      letterSpacing: 1,
+      color: colors.accent,
+      fontSize: 9,
+      letterSpacing: 1.2,
       fontWeight: Typography.fontWeight.bold,
     },
     articleTitle: {
       color: colors.textPrimary,
-      fontFamily: 'serif',
-      fontSize: Typography.fontSize.xl,
-      lineHeight: 30,
+      fontSize: Typography.fontSize.base,
+      fontWeight: '700',
+      lineHeight: 22,
     },
     articleTitleLink: {
       color: colors.textPrimary,
-      fontFamily: 'serif',
-      fontSize: Typography.fontSize.xl,
-      lineHeight: 30,
-      textDecorationLine: 'underline',
-      textDecorationColor: colors.accent,
+      fontSize: Typography.fontSize.base,
+      fontWeight: '700',
+      lineHeight: 22,
     },
     articleSummary: {
       color: colors.textSecondary,
-      fontSize: Typography.fontSize.base,
-      lineHeight: 22,
+      fontSize: Typography.fontSize.sm,
+      lineHeight: 18,
     },
     metaRow: {
       borderTopWidth: 1,
       borderTopColor: colors.borderSubtle,
-      paddingTop: Spacing.sm,
-      marginTop: Spacing.sm,
+      paddingTop: Spacing.xs,
+      marginTop: 'auto' as any,
       flexDirection: 'row',
       justifyContent: 'space-between',
       alignItems: 'center',
     },
-    metaLeft: {
-      flexDirection: 'row',
-      gap: Spacing.md,
-    },
     metaText: {
       color: colors.textMuted,
-      fontSize: Typography.fontSize.sm,
+      fontSize: 11,
     },
     metaDate: {
       color: colors.textMuted,
-      fontSize: 11,
+      fontSize: 10,
       fontWeight: Typography.fontWeight.medium,
     },
-    moreButton: {
+    filterRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+    },
+    searchWrap: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      backgroundColor: colors.surfaceHigh,
       borderWidth: 1,
-      borderColor: colors.accent,
-      borderRadius: Radius.md,
-      backgroundColor: colors.surface,
-      paddingVertical: Spacing.md,
+      borderColor: colors.accent + '55',
+      borderRadius: Radius.full,
+      paddingHorizontal: 16,
+      paddingVertical: 7,
+      gap: 7,
+      minWidth: 240,
+      height: 38,
+    },
+    searchIcon: {
+      fontSize: 18,
+      color: colors.accent,
+      lineHeight: 22,
+    },
+    searchInput: {
+      flex: 1,
+      color: colors.textPrimary,
+      fontSize: 14,
+      minWidth: 160,
+      height: 24,
+      // @ts-ignore
+      outlineStyle: 'none',
+    },
+    searchClear: {
+      color: colors.textMuted,
+      fontSize: 11,
+      paddingHorizontal: 2,
+    },
+    paginationRow: {
+      flexDirection: 'row',
       alignItems: 'center',
       justifyContent: 'center',
+      gap: Spacing.xs,
+      paddingVertical: Spacing.md,
     },
-    moreButtonText: {
-      color: colors.accent,
+    pageBtn: {
+      width: 36,
+      height: 36,
+      borderRadius: Radius.md,
+      borderWidth: 1,
+      borderColor: colors.accent + '44',
+      alignItems: 'center',
+      justifyContent: 'center',
+      backgroundColor: colors.surface,
+    },
+    pageBtnActive: {
+      backgroundColor: colors.accent,
+      borderColor: colors.accent,
+    },
+    pageBtnDisabled: {
+      opacity: 0.3,
+    },
+    pageBtnText: {
+      color: colors.textPrimary,
       fontSize: Typography.fontSize.sm,
-      fontWeight: Typography.fontWeight.bold,
+      fontWeight: '600',
+    },
+    pageBtnTextActive: {
+      color: '#fff',
+    },
+    pageEllipsis: {
+      color: colors.textMuted,
+      fontSize: Typography.fontSize.sm,
+      width: 24,
+      textAlign: 'center',
     },
     emptyWrap: {
       flex: 1,

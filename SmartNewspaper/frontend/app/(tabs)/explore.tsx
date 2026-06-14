@@ -373,6 +373,10 @@ export default function ExploreScreen() {
                 <Text style={styles.heroMetaText}>{heroMain.article.source.name}</Text>
                 <Text style={styles.heroMetaDot}>•</Text>
                 <Text style={styles.heroMetaText}>{timeAgo(heroMain.article.publishedAt)}</Text>
+                <Text style={styles.heroMetaDot}>•</Text>
+                <Text style={styles.heroMetaText}>👁 {heroMain.article.viewCount ?? 0}</Text>
+                <Text style={styles.heroMetaDot}>•</Text>
+                <Text style={styles.heroMetaText}>♥ {heroMain.article.likeCount ?? 0}</Text>
               </View>
             </View>
           </Pressable>
@@ -405,9 +409,14 @@ export default function ExploreScreen() {
                   <Text style={[styles.heroSideTitle, { color: colors.textPrimary }]} numberOfLines={3}>
                     {e.article.title}
                   </Text>
-                  <Text style={[styles.heroSideMeta, { color: colors.textMuted }]} numberOfLines={1}>
-                    {e.article.source.name} • {timeAgo(e.article.publishedAt)}
-                  </Text>
+                  <View style={styles.heroSideMetaRow}>
+                    <Text style={[styles.heroSideMeta, { color: colors.textMuted }]} numberOfLines={1}>
+                      {e.article.source.name} • {timeAgo(e.article.publishedAt)}
+                    </Text>
+                    <Text style={[styles.heroSideMeta, { color: colors.textMuted }]}>
+                      👁 {e.article.viewCount ?? 0}{'  '}♥ {e.article.likeCount ?? 0}
+                    </Text>
+                  </View>
                 </View>
               </Pressable>
               </DragWrap>
@@ -460,9 +469,14 @@ export default function ExploreScreen() {
                         {e.article.description}
                       </Text>
                     )}
-                    <Text style={[styles.gridMeta, { color: colors.textMuted }]}>
-                      {e.article.source.name} • {timeAgo(e.article.publishedAt)}
-                    </Text>
+                    <View style={styles.gridMetaRow}>
+                      <Text style={[styles.gridMeta, { color: colors.textMuted }]}>
+                        {e.article.source.name} • {timeAgo(e.article.publishedAt)}
+                      </Text>
+                      <Text style={[styles.gridMeta, { color: colors.textMuted }]}>
+                        👁 {e.article.viewCount ?? 0}{'  '}♥ {e.article.likeCount ?? 0}
+                      </Text>
+                    </View>
                   </View>
                 </Pressable>
                 </DragWrap>
@@ -511,7 +525,7 @@ export default function ExploreScreen() {
                             <Text style={[styles.miniCatText, { color: getCategoryColor(cat) }]}>{getCategoryLabel(cat)}</Text>
                           </View>
                           <Text style={[styles.rankMeta, { color: colors.textMuted }]}>
-                            {a.source.name} • {timeAgo(a.publishedAt)}
+                            {a.source.name} • {timeAgo(a.publishedAt)} • 👁 {a.viewCount ?? 0}  ♥ {a.likeCount ?? 0}
                           </Text>
                         </View>
                       </View>
@@ -1040,6 +1054,7 @@ const styles = StyleSheet.create({
   heroSideBody: { padding: 14, gap: 8 },
   heroSideTitle: { fontSize: 15, fontWeight: '800', lineHeight: 20 },
   heroSideMeta: { fontSize: 11, fontWeight: '600' },
+  heroSideMetaRow: { gap: 4 },
   miniCatPill: { alignSelf: 'flex-start', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 4 },
   miniCatText: { fontSize: 9, fontWeight: '900', letterSpacing: 1 },
 
@@ -1067,6 +1082,7 @@ const styles = StyleSheet.create({
   gridTitle: { fontSize: 15, fontWeight: '800', lineHeight: 20 },
   gridDesc: { fontSize: 12, lineHeight: 17 },
   gridMeta: { fontSize: 11, fontWeight: '600' },
+  gridMetaRow: { gap: 4 },
 
   // Split row
   splitRow: { gap: 24 },

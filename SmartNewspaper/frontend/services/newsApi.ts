@@ -27,6 +27,8 @@ export interface ApiArticle {
   };
   category?: string;
   language: string;
+  likeCount?: number;
+  viewCount?: number;
 }
 
 export function decodeHtmlEntities(text?: string | null): string {
@@ -1457,14 +1459,12 @@ export async function recordArticleView(
   token: string | null,
   opts: { dwellMs?: number; scrollPct?: number; sourceCtx?: string } = {},
 ): Promise<void> {
-  if (!token) return;
   try {
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (token) headers['Authorization'] = `Bearer ${token}`;
     await fetch(`${API_BASE}/api/news/${encodeURIComponent(articleId)}/view`, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${token}`,
-      },
+      headers,
       body: JSON.stringify(opts),
     });
   } catch {

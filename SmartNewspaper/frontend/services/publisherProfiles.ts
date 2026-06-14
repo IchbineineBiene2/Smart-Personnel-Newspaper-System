@@ -148,7 +148,6 @@ export function buildPublisherDataset(apiArticles: ApiArticle[]): {
       verified: isVerifiedSource(sourceName),
       followers: formatCompact(followersBase),
       articlesCount: formatCompact(articleCount),
-      reporters: String(Math.max(3, Math.round(articleCount / 8))),
     });
 
     sortedByNewest.forEach((item) => {
@@ -161,9 +160,11 @@ export function buildPublisherDataset(apiArticles: ApiArticle[]): {
         tag: mapToContentCategory(item.category, item.title, item.description),
         imageUrl: proxyImageUrl(item.imageUrl) ?? item.imageUrl,
         originalUrl: item.url,
-        likes: 80 + (hash % 1500),
-        comments: 5 + (hash % 120),
+        likes: item.likeCount ?? 0,
+        comments: 0,
         publishedAt: item.publishedAt,
+        likeCount: item.likeCount ?? 0,
+        viewCount: item.viewCount ?? 0,
       });
     });
   });

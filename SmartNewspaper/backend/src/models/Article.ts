@@ -9,6 +9,8 @@ export interface Article {
   source: ArticleSource;
   category?: string;
   language: string;
+  viewCount?: number;
+  likeCount?: number;
 }
 
 export interface ArticleSource {
