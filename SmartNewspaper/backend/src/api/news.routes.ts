@@ -457,13 +457,9 @@ router.get('/for-you', authMiddleware, async (req: Request, res: Response) => {
 });
 
 // (route stays above the /:id catch-all routes so it isn't shadowed)
-// POST /api/news/:id/view - Bir makalenin görüntülendiğini kaydet.
-// Body: { dwellMs?: number, scrollPct?: number (0-100), sourceCtx?: 'feed'|'similar'|'search'|... }
-// Aynı (user, article) çifti için UPSERT — yeniden açılırsa viewed_at güncellenir,
-// dwellMs/scrollPct verildiyse mevcut değerle MAX alınır (sayfada en uzun kalma).
-router.post('/:id/view', authMiddleware, async (req: Request, res: Response) => {
+// POST /api/news/:id/view - Görüntüleme kaydeder. Anonim kullanıcılar view_count'u artırır; auth'lular article_views'e de eklenir.
+router.post('/:id/view', optionalAuth, async (req: Request, res: Response) => {
   try {
-    if (!req.user) return res.status(401).json({ error: 'auth required' });
     const articleId = req.params.id;
     const dwellMs = Number.isFinite(Number(req.body?.dwellMs)) ? Math.max(0, Math.floor(Number(req.body.dwellMs))) : null;
     const scrollPct = Number.isFinite(Number(req.body?.scrollPct))
@@ -471,22 +467,26 @@ router.post('/:id/view', authMiddleware, async (req: Request, res: Response) => 
       : null;
     const sourceCtx = typeof req.body?.sourceCtx === 'string' ? req.body.sourceCtx.slice(0, 50) : null;
 
-    const r = await query(
-      `INSERT INTO article_views (user_id, article_id, viewed_at, dwell_ms, scroll_pct, source_ctx)
-       VALUES ($1, $2, NOW(), $3, $4, $5)
-       ON CONFLICT (user_id, article_id) DO UPDATE
-         SET viewed_at  = NOW(),
-             dwell_ms   = GREATEST(COALESCE(article_views.dwell_ms, 0), COALESCE(EXCLUDED.dwell_ms, 0)),
-             scroll_pct = GREATEST(COALESCE(article_views.scroll_pct, 0), COALESCE(EXCLUDED.scroll_pct, 0)),
-             source_ctx = COALESCE(EXCLUDED.source_ctx, article_views.source_ctx)
-       RETURNING id`,
-      [req.user.userId, articleId, dwellMs, scrollPct, sourceCtx],
-    );
+    // Herkese (anonim dahil) view_count artır
+    void query(`UPDATE articles SET view_count = view_count + 1 WHERE id = $1`, [articleId]).catch(() => {});
 
-    // user.last_seen_at de güncelle (cheap, single row)
-    void query(`UPDATE users SET last_seen_at = NOW() WHERE id = $1`, [req.user.userId]).catch(() => {});
+    if (req.user) {
+      const r = await query(
+        `INSERT INTO article_views (user_id, article_id, viewed_at, dwell_ms, scroll_pct, source_ctx)
+         VALUES ($1, $2, NOW(), $3, $4, $5)
+         ON CONFLICT (user_id, article_id) DO UPDATE
+           SET viewed_at  = NOW(),
+               dwell_ms   = GREATEST(COALESCE(article_views.dwell_ms, 0), COALESCE(EXCLUDED.dwell_ms, 0)),
+               scroll_pct = GREATEST(COALESCE(article_views.scroll_pct, 0), COALESCE(EXCLUDED.scroll_pct, 0)),
+               source_ctx = COALESCE(EXCLUDED.source_ctx, article_views.source_ctx)
+         RETURNING id`,
+        [req.user.userId, articleId, dwellMs, scrollPct, sourceCtx],
+      );
+      void query(`UPDATE users SET last_seen_at = NOW() WHERE id = $1`, [req.user.userId]).catch(() => {});
+      return res.json({ ok: true, viewId: r.rows[0]?.id });
+    }
 
-    return res.json({ ok: true, viewId: r.rows[0]?.id });
+    return res.json({ ok: true });
   } catch (err) {
     console.error('[NewsAPI] view kaydı hatası:', err);
     return res.status(500).json({ error: 'View kaydedilemedi' });
@@ -547,6 +547,40 @@ router.get('/sources', async (_req: Request, res: Response) => {
   } catch (err) {
     console.error('[NewsAPI] Sources hatası:', err);
     res.status(500).json({ error: 'Kaynaklar alınamadı' });
+  }
+});
+
+// GET /api/news/source-stats?source=BBC+News — kaynak bazlı gerçek istatistikler
+// article_count: DB'deki gerçek makale sayısı (son 30 gün)
+// reader_count: bu kaynaktan makale okuyan tekil kullanıcı sayısı
+router.get('/source-stats', async (req: Request, res: Response) => {
+  try {
+    const sourceName = String(req.query.source ?? '').trim();
+    if (!sourceName) return res.status(400).json({ error: 'source parametresi gerekli' });
+
+    const [articleRes, readerRes] = await Promise.all([
+      query<{ article_count: number }>(
+        `SELECT COUNT(*)::int AS article_count
+         FROM articles
+         WHERE LOWER(source_name) = LOWER($1)`,
+        [sourceName]
+      ),
+      query<{ reader_count: number }>(
+        `SELECT COUNT(DISTINCT av.user_id)::int AS reader_count
+         FROM article_views av
+         JOIN articles a ON a.id = av.article_id
+         WHERE LOWER(a.source_name) = LOWER($1)`,
+        [sourceName]
+      ),
+    ]);
+
+    return res.json({
+      article_count: articleRes.rows[0]?.article_count ?? 0,
+      reader_count: readerRes.rows[0]?.reader_count ?? 0,
+    });
+  } catch (err) {
+    console.error('[NewsAPI] source-stats hatası:', err);
+    return res.status(500).json({ error: 'Kaynak istatistikleri alınamadı' });
   }
 });
 

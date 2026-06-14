@@ -643,8 +643,12 @@ export default function FeedScreen() {
                             <Text style={[styles.actionText, { color: colors.textMuted }]}>Paylaş</Text>
                           </Pressable>
                           <View style={styles.action}>
-                            <Ionicons name="pulse-outline" size={18} color={colors.textMuted} />
-                            <Text style={[styles.actionText, { color: colors.textMuted }]}>#{(page - 1) * perPage + index + 1}</Text>
+                            <Ionicons name="eye-outline" size={16} color={colors.textMuted} />
+                            <Text style={[styles.actionText, { color: colors.textMuted }]}>{article.viewCount ?? 0}</Text>
+                          </View>
+                          <View style={styles.action}>
+                            <Ionicons name="heart-outline" size={16} color={colors.textMuted} />
+                            <Text style={[styles.actionText, { color: colors.textMuted }]}>{article.likeCount ?? 0}</Text>
                           </View>
                         </View>
                       </View>
