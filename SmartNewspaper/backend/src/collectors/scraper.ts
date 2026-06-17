@@ -53,7 +53,7 @@ const SITE_RULES: SiteRule[] = [
   },
   {
     domain: 'haberturk.com',
-    contentSelector: '.content, .news-detail, .article-body, figure, .content-text',
+    contentSelector: '.cms-container, article p, .content, .news-detail, .article-body, figure, .content-text',
     removeSelectors: ['script', 'style', '.social-shares', '.tags', '.advertisement'],
   },
   {

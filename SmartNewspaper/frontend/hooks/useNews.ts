@@ -9,7 +9,7 @@ let pendingFetch: Promise<ApiArticle[]> | null = null;
 const languageCache = new Map<string, ApiArticle[]>();
 const languagePendingFetch = new Map<string, Promise<ApiArticle[]>>();
 const BACKGROUND_REFRESH_MS = 60 * 1000;
-const INITIAL_ARTICLE_LIMIT = 80;
+const INITIAL_ARTICLE_LIMIT = 200;
 
 function getArticleSignature(articles: ApiArticle[]): string {
   return articles.map((article) => `${article.id}:${article.publishedAt}`).join('|');

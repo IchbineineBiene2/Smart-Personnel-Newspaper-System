@@ -1,13 +1,19 @@
 export type ContentCategory =
-  | 'Teknoloji'
-  | 'Spor'
-  | 'Ekonomi'
-  | 'Saglik'
-  | 'Kultur'
   | 'Siyaset'
+  | 'Dünya'
+  | 'Ekonomi'
+  | 'Spor'
+  | 'Teknoloji'
+  | 'Bilim'
+  | 'Saglik'
+  | 'Eğitim'
+  | 'Çevre'
+  | 'Kultur'
+  | 'Magazin'
+  | 'Asayiş'
   | 'Kaza'
   | 'Deprem'
-  | 'Magazin';
+  | 'Genel';
 
 export type EventItem = {
   id: string;
@@ -43,15 +49,21 @@ export type NewspaperSource =
   | 'BBC';
 
 export const CATEGORIES: ContentCategory[] = [
-  'Teknoloji',
-  'Spor',
-  'Ekonomi',
-  'Saglik',
-  'Kultur',
   'Siyaset',
+  'Dünya',
+  'Ekonomi',
+  'Spor',
+  'Teknoloji',
+  'Bilim',
+  'Saglik',
+  'Eğitim',
+  'Çevre',
+  'Kultur',
+  'Magazin',
+  'Asayiş',
   'Kaza',
   'Deprem',
-  'Magazin',
+  'Genel',
 ];
 
 export const NEWSPAPERS: NewspaperSource[] = [

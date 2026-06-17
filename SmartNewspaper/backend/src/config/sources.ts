@@ -11,10 +11,10 @@ export const RSS_SOURCES: RssSource[] = [
   // ── Türkçe Genel ────────────────────────────────────────────────────────
   { name: 'Hürriyet', url: 'https://www.hurriyet.com.tr/rss/anasayfa', language: 'tr', category: 'general', logoUrl: 'https://www.google.com/s2/favicons?sz=128&domain_url=https://www.hurriyet.com.tr' },
   { name: 'Milliyet', url: 'https://www.milliyet.com.tr/rss/rssNew/gundemRss.xml', language: 'tr', category: 'general', logoUrl: 'https://www.google.com/s2/favicons?sz=128&domain_url=https://www.milliyet.com.tr' },
-  { name: 'Sabah', url: 'https://news.google.com/rss/search?q=site:sabah.com.tr&hl=tr&gl=TR&ceid=TR:tr', language: 'tr', category: 'general', logoUrl: 'https://www.google.com/s2/favicons?sz=128&domain_url=https://www.sabah.com.tr' },
+  { name: 'Sabah', url: 'https://www.sabah.com.tr/rss/anasayfa.xml', language: 'tr', category: 'general', logoUrl: 'https://www.google.com/s2/favicons?sz=128&domain_url=https://www.sabah.com.tr' },
   { name: 'BBC Türkçe', url: 'https://feeds.bbci.co.uk/turkce/rss.xml', language: 'tr', category: 'general', logoUrl: 'https://www.google.com/s2/favicons?sz=128&domain_url=https://www.bbc.com/turkce' },
   { name: 'NTV', url: 'https://www.ntv.com.tr/son-dakika.rss', language: 'tr', category: 'breaking', logoUrl: 'https://www.google.com/s2/favicons?sz=128&domain_url=https://www.ntv.com.tr' },
-  { name: 'TRT Haber', url: 'https://news.google.com/rss/search?q=site:trthaber.com&hl=tr&gl=TR&ceid=TR:tr', language: 'tr', category: 'general', logoUrl: 'https://www.google.com/s2/favicons?sz=128&domain_url=https://www.trthaber.com' },
+  { name: 'TRT Haber', url: 'https://www.trthaber.com/sondakika.rss', language: 'tr', category: 'general', logoUrl: 'https://www.google.com/s2/favicons?sz=128&domain_url=https://www.trthaber.com' },
   { name: 'Habertürk', url: 'https://www.haberturk.com/rss/manset.xml', language: 'tr', category: 'general', logoUrl: 'https://www.google.com/s2/favicons?sz=128&domain_url=https://www.haberturk.com' },
   { name: 'Cumhuriyet', url: 'https://www.cumhuriyet.com.tr/rss', language: 'tr', category: 'general', logoUrl: 'https://www.google.com/s2/favicons?sz=128&domain_url=https://www.cumhuriyet.com.tr' },
   { name: 'Gazete Duvar', url: 'https://www.gazeteduvar.com.tr/rss', language: 'tr', category: 'general', logoUrl: 'https://www.google.com/s2/favicons?sz=128&domain_url=https://www.gazeteduvar.com.tr' },
@@ -29,7 +29,7 @@ export const RSS_SOURCES: RssSource[] = [
   { name: 'Evrensel', url: 'https://www.evrensel.net/rss/haber.xml', language: 'tr', category: 'general', logoUrl: 'https://www.google.com/s2/favicons?sz=128&domain_url=https://www.evrensel.net' },
   { name: 'Dünya Gazetesi', url: 'https://www.dunya.com/rss', language: 'tr', category: 'general', logoUrl: 'https://www.google.com/s2/favicons?sz=128&domain_url=https://www.dunya.com' },
   { name: 'CNN Türk', url: 'https://www.cnnturk.com/feed/rss/news', language: 'tr', category: 'general', logoUrl: 'https://www.google.com/s2/favicons?sz=128&domain_url=https://www.cnnturk.com' },
-  { name: 'A Haber', url: 'https://news.google.com/rss/search?q=site:ahaber.com.tr&hl=tr&gl=TR&ceid=TR:tr', language: 'tr', category: 'general', logoUrl: 'https://www.google.com/s2/favicons?sz=128&domain_url=https://www.ahaber.com.tr' },
+  { name: 'A Haber', url: 'https://www.ahaber.com.tr/rss/anasayfa.xml', language: 'tr', category: 'general', logoUrl: 'https://www.google.com/s2/favicons?sz=128&domain_url=https://www.ahaber.com.tr' },
   { name: 'TGRT Haber', url: 'https://www.tgrthaber.com/rss/manset', language: 'tr', category: 'general', logoUrl: 'https://www.google.com/s2/favicons?sz=128&domain_url=https://www.tgrthaber.com' },
   
   // ── YENİ EKLENEN TÜRKÇE KAYNAKLAR ─────────────────────────────────────────
@@ -38,55 +38,49 @@ export const RSS_SOURCES: RssSource[] = [
   { name: 'T24', url: 'https://t24.com.tr/rss', language: 'tr', category: 'general', logoUrl: 'https://www.google.com/s2/favicons?sz=128&domain_url=https://t24.com.tr' },
   { name: 'Sözcü', url: 'https://www.sozcu.com.tr/rss/tum-haberler.xml', language: 'tr', category: 'general', logoUrl: 'https://www.google.com/s2/favicons?sz=128&domain_url=https://www.sozcu.com.tr' },
   { name: 'Bundle', url: 'https://www.bundle.app/rss', language: 'tr', category: 'general', logoUrl: 'https://www.google.com/s2/favicons?sz=128&domain_url=https://www.bundle.app' },
+  { name: 'Halk TV', url: 'https://halktv.com.tr/rss', language: 'tr', category: 'general', logoUrl: 'https://www.google.com/s2/favicons?sz=128&domain_url=https://halktv.com.tr' },
+  { name: 'Odatv', url: 'https://odatv4.com/rss', language: 'tr', category: 'general', logoUrl: 'https://www.google.com/s2/favicons?sz=128&domain_url=https://odatv4.com' },
+  { name: 'KRT TV', url: 'https://www.krttv.com.tr/rss', language: 'tr', category: 'general', logoUrl: 'https://www.google.com/s2/favicons?sz=128&domain_url=https://www.krttv.com.tr' },
+  { name: 'Yeniçağ', url: 'https://www.yenicaggazetesi.com.tr/rss', language: 'tr', category: 'general', logoUrl: 'https://www.google.com/s2/favicons?sz=128&domain_url=https://www.yenicaggazetesi.com.tr' },
   
   // ── Türkçe Spor ─────────────────────────────────────────────────────────
   { name: 'Hürriyet Spor', url: 'https://www.hurriyet.com.tr/rss/spor', language: 'tr', category: 'sports', logoUrl: 'https://www.google.com/s2/favicons?sz=128&domain_url=https://www.hurriyet.com.tr' },
-  { name: 'Sabah Spor', url: 'https://news.google.com/rss/search?q=site:sabah.com.tr+spor&hl=tr&gl=TR&ceid=TR:tr', language: 'tr', category: 'sports', logoUrl: 'https://www.google.com/s2/favicons?sz=128&domain_url=https://www.sabah.com.tr' },
-  { name: 'Fanatik', url: 'https://news.google.com/rss/search?q=site:fanatik.com.tr&hl=tr&gl=TR&ceid=TR:tr', language: 'tr', category: 'sports', logoUrl: 'https://www.google.com/s2/favicons?sz=128&domain_url=https://www.fanatik.com.tr' },
-  { name: 'Goal.com Türkiye', url: 'https://news.google.com/rss/search?q=site:goal.com/tr&hl=tr&gl=TR&ceid=TR:tr', language: 'tr', category: 'sports', logoUrl: 'https://www.google.com/s2/favicons?sz=128&domain_url=https://www.goal.com' },
-  { name: 'Sozcusports', url: 'https://news.google.com/rss/search?q=site:sozcu.com.tr+spor&hl=tr&gl=TR&ceid=TR:tr', language: 'tr', category: 'sports', logoUrl: 'https://www.google.com/s2/favicons?sz=128&domain_url=https://www.sozcu.com.tr' },
-  { name: 'A Spor', url: 'https://news.google.com/rss/search?q=site:aspor.com.tr&hl=tr&gl=TR&ceid=TR:tr', language: 'tr', category: 'sports', logoUrl: 'https://www.google.com/s2/favicons?sz=128&domain_url=https://www.aspor.com.tr' },
-  { name: 'TRT Spor', url: 'https://news.google.com/rss/search?q=site:trtspor.com.tr&hl=tr&gl=TR&ceid=TR:tr', language: 'tr', category: 'sports', logoUrl: 'https://www.google.com/s2/favicons?sz=128&domain_url=https://www.trtspor.com.tr' },
-  { name: 'Fotomaç', url: 'https://news.google.com/rss/search?q=site:fotomac.com.tr&hl=tr&gl=TR&ceid=TR:tr', language: 'tr', category: 'sports', logoUrl: 'https://www.google.com/s2/favicons?sz=128&domain_url=https://www.fotomac.com.tr' },
-  { name: 'Sporx', url: 'https://news.google.com/rss/search?q=site:sporx.com&hl=tr&gl=TR&ceid=TR:tr', language: 'tr', category: 'sports', logoUrl: 'https://www.google.com/s2/favicons?sz=128&domain_url=https://www.sporx.com' },
+  { name: 'Sabah Spor', url: 'https://www.sabah.com.tr/rss/spor.xml', language: 'tr', category: 'sports', logoUrl: 'https://www.google.com/s2/favicons?sz=128&domain_url=https://www.sabah.com.tr' },
+  { name: 'Sozcusports', url: 'https://www.sozcu.com.tr/rss/spor.xml', language: 'tr', category: 'sports', logoUrl: 'https://www.google.com/s2/favicons?sz=128&domain_url=https://www.sozcu.com.tr' },
+  { name: 'A Spor', url: 'https://www.aspor.com.tr/rss/anasayfa.xml', language: 'tr', category: 'sports', logoUrl: 'https://www.google.com/s2/favicons?sz=128&domain_url=https://www.aspor.com.tr' },
+  { name: 'Fotomaç', url: 'https://www.fotomac.com.tr/rss/anasayfa.xml', language: 'tr', category: 'sports', logoUrl: 'https://www.google.com/s2/favicons?sz=128&domain_url=https://www.fotomac.com.tr' },
   { name: 'NTV Spor', url: 'https://www.ntvspor.net/rss', language: 'tr', category: 'sports', logoUrl: 'https://www.google.com/s2/favicons?sz=128&domain_url=https://www.ntvspor.net' },
 
-  // ── Türkçe Ekonomi ──────────────────────────────────────────────────────
   { name: 'Hürriyet Ekonomi', url: 'https://www.hurriyet.com.tr/rss/ekonomi', language: 'tr', category: 'business', logoUrl: 'https://www.google.com/s2/favicons?sz=128&domain_url=https://www.hurriyet.com.tr' },
   { name: 'Milliyet Ekonomi', url: 'https://www.milliyet.com.tr/rss/rssNew/ekonomiRss.xml', language: 'tr', category: 'economy', logoUrl: 'https://www.google.com/s2/favicons?sz=128&domain_url=https://www.milliyet.com.tr' },
-  { name: 'BloombergHT', url: 'https://news.google.com/rss/search?q=site:bloomberght.com&hl=tr&gl=TR&ceid=TR:tr', language: 'tr', category: 'business', logoUrl: 'https://www.google.com/s2/favicons?sz=128&domain_url=https://www.bloomberght.com' },
-  { name: 'Para.com.tr', url: 'https://news.google.com/rss/search?q=site:para.com.tr&hl=tr&gl=TR&ceid=TR:tr', language: 'tr', category: 'business', logoUrl: 'https://www.google.com/s2/favicons?sz=128&domain_url=https://www.para.com.tr' },
+  { name: 'BloombergHT', url: 'https://www.bloomberght.com/rss', language: 'tr', category: 'business', logoUrl: 'https://www.google.com/s2/favicons?sz=128&domain_url=https://www.bloomberght.com' },
   { name: 'Dünya Ekonomi', url: 'https://www.dunya.com/rss?dunya', language: 'tr', category: 'economy', logoUrl: 'https://www.google.com/s2/favicons?sz=128&domain_url=https://www.dunya.com' },
 
   // ── Türkçe Sağlık ───────────────────────────────────────────────────────
   { name: 'NTV Sağlık', url: 'https://www.ntv.com.tr/saglik.rss', language: 'tr', category: 'health', logoUrl: 'https://www.google.com/s2/favicons?sz=128&domain_url=https://www.ntv.com.tr' },
-  { name: 'Medicana Sağlık', url: 'https://news.google.com/rss/search?q=site:medicana.com.tr&hl=tr&gl=TR&ceid=TR:tr', language: 'tr', category: 'health', logoUrl: 'https://www.google.com/s2/favicons?sz=128&domain_url=https://www.medicana.com.tr' },
 
   // ── Türkçe Teknoloji ────────────────────────────────────────────────────
   { name: 'Hürriyet Teknoloji', url: 'https://www.hurriyet.com.tr/rss/teknoloji', language: 'tr', category: 'technology', logoUrl: 'https://www.google.com/s2/favicons?sz=128&domain_url=https://www.hurriyet.com.tr' },
-  { name: 'Kristal Soft', url: 'https://news.google.com/rss/search?q=site:kristalsoft.com&hl=tr&gl=TR&ceid=TR:tr', language: 'tr', category: 'technology', logoUrl: 'https://www.google.com/s2/favicons?sz=128&domain_url=https://kristalsoft.com' },
   { name: 'ShiftDelete.Net', url: 'https://shiftdelete.net/feed', language: 'tr', category: 'technology', logoUrl: 'https://www.google.com/s2/favicons?sz=128&domain_url=https://shiftdelete.net' },
   { name: 'DonanımHaber', url: 'https://www.donanimhaber.com/rss/tum/', language: 'tr', category: 'technology', logoUrl: 'https://www.google.com/s2/favicons?sz=128&domain_url=https://www.donanimhaber.com' },
   { name: 'Webtekno', url: 'https://www.webtekno.com/rss.xml', language: 'tr', category: 'technology', logoUrl: 'https://www.google.com/s2/favicons?sz=128&domain_url=https://www.webtekno.com' },
-  { name: 'Technopat', url: 'https://news.google.com/rss/search?q=site:technopat.net&hl=tr&gl=TR&ceid=TR:tr', language: 'tr', category: 'technology', logoUrl: 'https://www.google.com/s2/favicons?sz=128&domain_url=https://www.technopat.net' },
+  { name: 'Technopat', url: 'https://www.technopat.net/rss', language: 'tr', category: 'technology', logoUrl: 'https://www.google.com/s2/favicons?sz=128&domain_url=https://www.technopat.net' },
   { name: 'Chip Online', url: 'https://www.chip.com.tr/rss', language: 'tr', category: 'technology', logoUrl: 'https://www.google.com/s2/favicons?sz=128&domain_url=https://www.chip.com.tr' },
   { name: 'Log', url: 'https://www.log.com.tr/feed/', language: 'tr', category: 'technology', logoUrl: 'https://www.google.com/s2/favicons?sz=128&domain_url=https://www.log.com.tr' },
 
   // ── Türkçe Politika ─────────────────────────────────────────────────────
-  { name: 'Hürriyet Politika', url: 'https://news.google.com/rss/search?q=site:hurriyet.com.tr+politika&hl=tr&gl=TR&ceid=TR:tr', language: 'tr', category: 'politics', logoUrl: 'https://www.google.com/s2/favicons?sz=128&domain_url=https://www.hurriyet.com.tr' },
   { name: 'Milliyet Politika', url: 'https://www.milliyet.com.tr/rss/rssNew/politikaRss.xml', language: 'tr', category: 'politics', logoUrl: 'https://www.google.com/s2/favicons?sz=128&domain_url=https://www.milliyet.com.tr' },
-  { name: 'Sabah Politika', url: 'https://news.google.com/rss/search?q=site:sabah.com.tr+politika&hl=tr&gl=TR&ceid=TR:tr', language: 'tr', category: 'politics', logoUrl: 'https://www.google.com/s2/favicons?sz=128&domain_url=https://www.sabah.com.tr' },
-  { name: 'Sözcü Politika', url: 'https://news.google.com/rss/search?q=site:sozcu.com.tr+politika&hl=tr&gl=TR&ceid=TR:tr', language: 'tr', category: 'politics', logoUrl: 'https://www.google.com/s2/favicons?sz=128&domain_url=https://www.sozcu.com.tr' },
-  { name: 'T24 Politika', url: 'https://news.google.com/rss/search?q=site:t24.com.tr&hl=tr&gl=TR&ceid=TR:tr', language: 'tr', category: 'politics', logoUrl: 'https://www.google.com/s2/favicons?sz=128&domain_url=https://t24.com.tr' },
-  { name: 'Ensonhaber', url: 'https://news.google.com/rss/search?q=site:ensonhaber.com&hl=tr&gl=TR&ceid=TR:tr', language: 'tr', category: 'politics', logoUrl: 'https://www.google.com/s2/favicons?sz=128&domain_url=https://www.ensonhaber.com' },
+  { name: 'Sabah Politika', url: 'https://www.sabah.com.tr/rss/gundem.xml', language: 'tr', category: 'politics', logoUrl: 'https://www.google.com/s2/favicons?sz=128&domain_url=https://www.sabah.com.tr' },
+  { name: 'Sözcü Politika', url: 'https://www.sozcu.com.tr/rss/gundem.xml', language: 'tr', category: 'politics', logoUrl: 'https://www.google.com/s2/favicons?sz=128&domain_url=https://www.sozcu.com.tr' },
+  { name: 'Ensonhaber', url: 'https://www.ensonhaber.com/rss.xml', language: 'tr', category: 'politics', logoUrl: 'https://www.google.com/s2/favicons?sz=128&domain_url=https://www.ensonhaber.com' },
   
   // ── Türkçe Magazin ──────────────────────────────────────────────────────
   { name: 'Hürriyet Yaşam', url: 'https://www.hurriyet.com.tr/rss/yasam', language: 'tr', category: 'entertainment', logoUrl: 'https://www.google.com/s2/favicons?sz=128&domain_url=https://www.hurriyet.com.tr' },
-  { name: 'Sabah Yaşam', url: 'https://news.google.com/rss/search?q=site:sabah.com.tr+yasam&hl=tr&gl=TR&ceid=TR:tr', language: 'tr', category: 'entertainment', logoUrl: 'https://www.google.com/s2/favicons?sz=128&domain_url=https://www.sabah.com.tr' },
+  { name: 'Sabah Yaşam', url: 'https://www.sabah.com.tr/rss/yasam.xml', language: 'tr', category: 'entertainment', logoUrl: 'https://www.google.com/s2/favicons?sz=128&domain_url=https://www.sabah.com.tr' },
   { name: 'Milliyet Yaşam', url: 'https://www.milliyet.com.tr/rss/rssNew/yasam.xml', language: 'tr', category: 'entertainment', logoUrl: 'https://www.google.com/s2/favicons?sz=128&domain_url=https://www.milliyet.com.tr' },
-  { name: 'Sözcü Yaşam', url: 'https://news.google.com/rss/search?q=site:sozcu.com.tr+yasam&hl=tr&gl=TR&ceid=TR:tr', language: 'tr', category: 'entertainment', logoUrl: 'https://www.google.com/s2/favicons?sz=128&domain_url=https://www.sozcu.com.tr' },
-  { name: 'HaberTurk Yaşam', url: 'https://news.google.com/rss/search?q=site:haberturk.com+yasam&hl=tr&gl=TR&ceid=TR:tr', language: 'tr', category: 'entertainment', logoUrl: 'https://www.google.com/s2/favicons?sz=128&domain_url=https://www.haberturk.com' },
-  { name: 'Vatan Yaşam', url: 'https://news.google.com/rss/search?q=site:gazetevatan.com+yasam&hl=tr&gl=TR&ceid=TR:tr', language: 'tr', category: 'entertainment', logoUrl: 'https://www.google.com/s2/favicons?sz=128&domain_url=https://www.gazetevatan.com' },
+  { name: 'Sözcü Yaşam', url: 'https://www.sozcu.com.tr/rss/hayat.xml', language: 'tr', category: 'entertainment', logoUrl: 'https://www.google.com/s2/favicons?sz=128&domain_url=https://www.sozcu.com.tr' },
+  { name: 'HaberTurk Yaşam', url: 'https://www.haberturk.com/rss/kategori/yasam.xml', language: 'tr', category: 'entertainment', logoUrl: 'https://www.google.com/s2/favicons?sz=128&domain_url=https://www.haberturk.com' },
+  { name: 'Vatan Yaşam', url: 'https://www.gazetevatan.com/rss/yasam.xml', language: 'tr', category: 'entertainment', logoUrl: 'https://www.google.com/s2/favicons?sz=128&domain_url=https://www.gazetevatan.com' },
   
   // ── İngilizce ───────────────────────────────────────────────────────────
   { name: 'BBC News', url: 'https://feeds.bbci.co.uk/news/rss.xml', language: 'en', category: 'general', logoUrl: 'https://www.google.com/s2/favicons?sz=128&domain_url=https://www.bbc.com' },
@@ -98,15 +92,13 @@ export const RSS_SOURCES: RssSource[] = [
   { name: 'BBC Business', url: 'https://feeds.bbci.co.uk/news/business/rss.xml', language: 'en', category: 'business', logoUrl: 'https://www.google.com/s2/favicons?sz=128&domain_url=https://www.bbc.com' },
   { name: 'BBC Sport', url: 'https://feeds.bbci.co.uk/sport/rss.xml', language: 'en', category: 'sports', logoUrl: 'https://www.google.com/s2/favicons?sz=128&domain_url=https://www.bbc.com' },
   { name: 'BBC Health', url: 'https://feeds.bbci.co.uk/news/health/rss.xml', language: 'en', category: 'health', logoUrl: 'https://www.google.com/s2/favicons?sz=128&domain_url=https://www.bbc.com' },
-  { name: 'Reuters', url: 'https://news.google.com/rss/search?q=site:reuters.com&hl=en-US&gl=US&ceid=US:en', language: 'en', category: 'general', logoUrl: 'https://www.google.com/s2/favicons?sz=128&domain_url=https://www.reuters.com' },
-  { name: 'Reuters Politics', url: 'https://news.google.com/rss/search?q=site:reuters.com+politics&hl=en-US&gl=US&ceid=US:en', language: 'en', category: 'politics', logoUrl: 'https://www.google.com/s2/favicons?sz=128&domain_url=https://www.reuters.com' },
+  { name: 'Reuters', url: 'https://www.reutersagency.com/feed/?best-topics=political-general&post_type=best', language: 'en', category: 'general', logoUrl: 'https://www.google.com/s2/favicons?sz=128&domain_url=https://www.reuters.com' },
   // Deutsche Welle İngilizce
   { name: 'DW News', url: 'https://rss.dw.com/rdf/rss-en-all', language: 'en', category: 'general', logoUrl: 'https://www.google.com/s2/favicons?sz=128&domain_url=https://www.dw.com' },
   { name: 'DW Europe', url: 'https://rss.dw.com/rdf/rss-en-eu', language: 'en', category: 'general', logoUrl: 'https://www.google.com/s2/favicons?sz=128&domain_url=https://www.dw.com' },
   { name: 'DW Business', url: 'https://rss.dw.com/xml/rss-en-bus', language: 'en', category: 'business', logoUrl: 'https://www.google.com/s2/favicons?sz=128&domain_url=https://www.dw.com' },
   // Spiegel International (İngilizce)
   { name: 'Spiegel International', url: 'https://www.spiegel.de/international/index.rss', language: 'en', category: 'general', logoUrl: 'https://www.google.com/s2/favicons?sz=128&domain_url=https://www.spiegel.de' },
-  { name: 'AP News', url: 'https://news.google.com/rss/search?q=site:apnews.com&hl=en-US&gl=US&ceid=US:en', language: 'en', category: 'general', logoUrl: 'https://www.google.com/s2/favicons?sz=128&domain_url=https://apnews.com' },
   { name: 'Al Jazeera', url: 'https://www.aljazeera.com/xml/rss/all.xml', language: 'en', category: 'general', logoUrl: 'https://www.google.com/s2/favicons?sz=128&domain_url=https://www.aljazeera.com' },
   { name: 'NPR News', url: 'https://feeds.npr.org/1001/rss.xml', language: 'en', category: 'general', logoUrl: 'https://www.google.com/s2/favicons?sz=128&domain_url=https://www.npr.org' },
   { name: 'Euronews', url: 'https://www.euronews.com/rss?format=mrss&level=theme&name=news', language: 'en', category: 'general', logoUrl: 'https://www.google.com/s2/favicons?sz=128&domain_url=https://www.euronews.com' },
@@ -120,13 +112,13 @@ export const RSS_SOURCES: RssSource[] = [
   // ── Almanca ─────────────────────────────────────────────────────────────
   { name: 'DW Deutsch', url: 'https://rss.dw.com/rdf/rss-de-news', language: 'de', category: 'general', logoUrl: 'https://www.google.com/s2/favicons?sz=128&domain_url=https://www.dw.com' },
   { name: 'DW Sport', url: 'https://rss.dw.com/rdf/rss-de-sport', language: 'de', category: 'sports', logoUrl: 'https://www.google.com/s2/favicons?sz=128&domain_url=https://www.dw.com' },
-  { name: 'DW Business', url: 'https://news.google.com/rss/search?q=site:dw.com+wirtschaft&hl=de&gl=DE&ceid=DE:de', language: 'de', category: 'business', logoUrl: 'https://www.google.com/s2/favicons?sz=128&domain_url=https://www.dw.com' },
+  { name: 'DW Business', url: 'https://rss.dw.com/rdf/rss-de-eco', language: 'de', category: 'business', logoUrl: 'https://www.google.com/s2/favicons?sz=128&domain_url=https://www.dw.com' },
   { name: 'Tagesschau', url: 'https://www.tagesschau.de/xml/rss2/', language: 'de', category: 'general', logoUrl: 'https://www.google.com/s2/favicons?sz=128&domain_url=https://www.tagesschau.de' },
   { name: 'Spiegel', url: 'https://www.spiegel.de/schlagzeilen/index.rss', language: 'de', category: 'general', logoUrl: 'https://www.google.com/s2/favicons?sz=128&domain_url=https://www.spiegel.de' },
   { name: 'Spiegel Wirtschaft', url: 'https://www.spiegel.de/wirtschaft/index.rss', language: 'de', category: 'business', logoUrl: 'https://www.google.com/s2/favicons?sz=128&domain_url=https://www.spiegel.de' },
   { name: 'ZDF Heute', url: 'https://www.zdf.de/rss/zdf/nachrichten', language: 'de', category: 'general', logoUrl: 'https://www.google.com/s2/favicons?sz=128&domain_url=https://www.zdf.de' },
   { name: 'Die Zeit', url: 'https://newsfeed.zeit.de/index', language: 'de', category: 'general', logoUrl: 'https://www.google.com/s2/favicons?sz=128&domain_url=https://www.zeit.de' },
-  { name: 'Süddeutsche Zeitung', url: 'https://news.google.com/rss/search?q=site:sueddeutsche.de&hl=de&gl=DE&ceid=DE:de', language: 'de', category: 'general', logoUrl: 'https://www.google.com/s2/favicons?sz=128&domain_url=https://www.sueddeutsche.de' },
+  { name: 'Süddeutsche Zeitung', url: 'https://rss.sueddeutsche.de/rss/Topthemen', language: 'de', category: 'general', logoUrl: 'https://www.google.com/s2/favicons?sz=128&domain_url=https://www.sueddeutsche.de' },
   { name: 'FAZ', url: 'https://www.faz.net/rss/aktuell/', language: 'de', category: 'general', logoUrl: 'https://www.google.com/s2/favicons?sz=128&domain_url=https://www.faz.net' },
 ];
 

@@ -30,7 +30,7 @@ router.get('/', async (req: Request, res: Response) => {
     }
 
     let row = await dbQuery(
-      `SELECT preferred_categories, preferred_languages, preferred_sources, muted_sources,
+      `SELECT preferred_categories, preferred_languages, preferred_sources, muted_sources, custom_tags,
               language, theme, notifications_enabled, email_digest, digest_frequency
        FROM user_preferences WHERE user_id = $1`,
       [req.user.userId],
@@ -39,7 +39,7 @@ router.get('/', async (req: Request, res: Response) => {
     if (row.rows.length === 0) {
       row = await dbQuery(
         `INSERT INTO user_preferences (user_id) VALUES ($1)
-         RETURNING preferred_categories, preferred_languages, preferred_sources, muted_sources,
+         RETURNING preferred_categories, preferred_languages, preferred_sources, muted_sources, custom_tags,
                    language, theme, notifications_enabled, email_digest, digest_frequency`,
         [req.user.userId],
       );
@@ -51,6 +51,7 @@ router.get('/', async (req: Request, res: Response) => {
       preferredLanguages: p.preferred_languages ?? [],
       preferredSources: p.preferred_sources ?? [],
       mutedSources: p.muted_sources ?? [],
+      customTags: p.custom_tags ?? [],
       language: p.language,
       theme: p.theme,
       notificationsEnabled: p.notifications_enabled,
@@ -95,9 +96,10 @@ router.put('/', async (req: Request, res: Response) => {
              notifications_enabled = COALESCE($7, notifications_enabled),
              email_digest          = COALESCE($8, email_digest),
              digest_frequency      = COALESCE($9, digest_frequency),
+             custom_tags           = COALESCE($10, custom_tags),
              updated_at            = NOW()
-       WHERE user_id = $10
-       RETURNING preferred_categories, preferred_languages, preferred_sources, muted_sources,
+       WHERE user_id = $11
+       RETURNING preferred_categories, preferred_languages, preferred_sources, muted_sources, custom_tags,
                  language, theme, notifications_enabled, email_digest, digest_frequency`,
       [
         Array.isArray(b.preferredCategories) ? b.preferredCategories : null,
@@ -109,6 +111,7 @@ router.put('/', async (req: Request, res: Response) => {
         typeof b.notificationsEnabled === 'boolean' ? b.notificationsEnabled : null,
         typeof b.emailDigest === 'boolean' ? b.emailDigest : null,
         typeof b.digestFrequency === 'string' ? b.digestFrequency : null,
+        Array.isArray(b.customTags) ? b.customTags : null,
         req.user.userId,
       ],
     );
@@ -119,6 +122,7 @@ router.put('/', async (req: Request, res: Response) => {
       preferredLanguages: p.preferred_languages ?? [],
       preferredSources: p.preferred_sources ?? [],
       mutedSources: p.muted_sources ?? [],
+      customTags: p.custom_tags ?? [],
       language: p.language,
       theme: p.theme,
       notificationsEnabled: p.notifications_enabled,

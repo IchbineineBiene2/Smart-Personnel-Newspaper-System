@@ -388,6 +388,24 @@ export default function NotificationsScreen() {
         },
       }));
 
+    const customTagNotifications: FeedNotification[] = apiNotifications
+      .filter((item) => item.type === 'custom_tag_match')
+      .map((item) => ({
+        id: `api-${item.id}`,
+        tab: 'news',
+        icon: 'pricetag',
+        accent: '#f59e0b',
+        title: item.title,
+        content: item.content,
+        createdAt: item.created_at,
+        unread: !item.is_read,
+        badge: item.is_read ? undefined : 'İlgi Alanı',
+        apiId: item.id,
+        onPress: () => {
+          if (!item.is_read) markAsRead(item.id);
+        },
+      }));
+
     const enabledPublisherIds = new Set(
       notificationEnabledIds.filter((id) => followedIds.includes(id))
     );
@@ -462,6 +480,7 @@ export default function NotificationsScreen() {
     return [
       ...friendNotifications,
       ...commentNotifications,
+      ...customTagNotifications,
       ...newsNotifs,
       ...eventNotifs,
     ].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());

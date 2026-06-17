@@ -138,14 +138,16 @@ async function ensurePublisherSystemUser(sourceName: string): Promise<void> {
 }
 
 /** Birden fazla makaleyi tek transaction içinde toplu ekler */
-export async function upsertArticles(articles: Article[]): Promise<{ inserted: number; skipped: number }> {
+export async function upsertArticles(articles: Article[]): Promise<{ inserted: number; skipped: number; processedArticles: Article[] }> {
   let inserted = 0;
   let skipped = 0;
+  const processedArticles: Article[] = [];
 
   for (const article of articles) {
     try {
       await upsertArticle(article);
       inserted++;
+      processedArticles.push(article);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       console.warn(`[ArticleRepo] UPSERT atlandı (${article.id}): ${msg}`);
@@ -153,7 +155,7 @@ export async function upsertArticles(articles: Article[]): Promise<{ inserted: n
     }
   }
 
-  return { inserted, skipped };
+  return { inserted, skipped, processedArticles };
 }
 
 /** DB'deki makalelerin URL hash setini döndürür — duplicate tespiti için */

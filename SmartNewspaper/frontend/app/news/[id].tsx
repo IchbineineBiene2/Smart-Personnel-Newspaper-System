@@ -17,6 +17,7 @@ import {
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
+import { HamsterLoader } from '@/components/ui/HamsterLoader';
 
 import { requireAuth } from '@/contexts/AuthGate';
 import { Radius, Spacing, Typography } from '@/constants/theme';
@@ -70,7 +71,7 @@ function isLikelyArticleBody(value: string | null | undefined): boolean {
   if (!value) return false;
 
   const text = stripHtml(value);
-  if (text.length < 120) return false;
+  if (text.length < 40) return false;
 
   const codeSignals = [
     /\bimport\s+[\w*{]/,
@@ -91,13 +92,11 @@ function isLikelyArticleBody(value: string | null | undefined): boolean {
   const punctuationDensity = punctuationChars / Math.max(text.length, 1);
   const words = text.split(/\s+/).filter(Boolean);
   const proseWords = words.filter((word) => /[a-zA-ZğüşıöçĞÜŞİÖÇäöüßÄÖÜ]{3,}/.test(word)).length;
-  const sentenceCount = (text.match(/[.!?](\s|$)/g) ?? []).length;
 
   if (codeSignals >= 2) return false;
   if (codeSignals >= 1 && punctuationDensity > 0.025) return false;
-  if (punctuationDensity > 0.055) return false;
-  if (words.length >= 30 && proseWords / words.length < 0.62) return false;
-  if (text.length > 240 && sentenceCount < 2) return false;
+  if (punctuationDensity > 0.08) return false;
+  if (words.length >= 30 && proseWords / words.length < 0.5) return false;
 
   return true;
 }
@@ -731,9 +730,16 @@ export default function NewsDetailPage() {
   const resolvedSummary = articleFromCache?.description ?? params.summary ?? '';
   const fallbackContent = articleFromCache?.content ?? params.content ?? '';
   const safeFallbackContent = !contentUnavailable && isLikelyArticleBody(fallbackContent) ? fallbackContent : null;
-  const rawContent = fullContent ?? safeFallbackContent ?? '';
-  const body = stripHtml(rawContent);
-  const hasUsableBody = isLikelyArticleBody(body);
+  
+  let rawContent = fullContent ?? safeFallbackContent ?? '';
+  let body = stripHtml(rawContent);
+  let hasUsableBody = isLikelyArticleBody(body);
+
+  if (!hasUsableBody && resolvedSummary && resolvedSummary.length > 10) {
+    rawContent = resolvedSummary;
+    body = stripHtml(rawContent);
+    hasUsableBody = true;
+  }
   const category = mapToContentCategory(
     articleFromCache?.category ?? params.category,
     resolvedTitle,
@@ -1691,7 +1697,7 @@ export default function NewsDetailPage() {
             <View style={styles(colors).sourcePreviewFrameWrap}>
               {!sourcePreviewLoaded ? (
                 <View style={styles(colors).sourcePreviewLoading}>
-                  <ActivityIndicator color={colors.accent} />
+                  <HamsterLoader />
                   <Text style={styles(colors).statusText}>{'Kaynak sayfa y\u00fckleniyor...'}</Text>
                 </View>
               ) : null}
@@ -1727,7 +1733,7 @@ export default function NewsDetailPage() {
           <View style={styles(colors).bodyCard}>
             {loadingContent ? (
               <View style={styles(colors).loadingWrap}>
-                <ActivityIndicator color={colors.accent} />
+                <HamsterLoader />
                 <Text style={styles(colors).statusText}>Kaynak içeriği yükleniyor...</Text>
               </View>
             ) : hasUsableBody && (isWeb ? editorialParagraphs.length : paragraphs.length) ? (
