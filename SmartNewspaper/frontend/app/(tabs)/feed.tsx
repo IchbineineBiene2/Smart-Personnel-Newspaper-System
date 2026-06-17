@@ -121,7 +121,94 @@ export default function FeedScreen() {
   const requestedLanguages = viewMode === 'followed'
     ? selLangs
     : (selLangs.length > 0 ? selLangs : preferredNewsLanguages);
-  const { articles, loading } = useApiNews(requestedLanguages);
+  const { articles, loading: mainLoading } = useApiNews(requestedLanguages);
+
+  const [customTagArticles, setCustomTagArticles] = useState<ApiArticle[]>([]);
+  const [backendSuggestions, setBackendSuggestions] = useState<ApiArticle[]>([]);
+  const [customTagsLoading, setCustomTagsLoading] = useState(false);
+
+  const loading = mainLoading || customTagsLoading;
+
+  // Fetch articles from backend database for all user custom tags when in personal feed mode,
+  // or specifically selected tags.
+  useEffect(() => {
+    const tagsToFetch = viewMode === 'personal'
+      ? (selCustomTags.length > 0 ? selCustomTags : customTags)
+      : selCustomTags;
+
+    if (!tagsToFetch || tagsToFetch.length === 0) {
+      setCustomTagArticles([]);
+      return;
+    }
+
+    let active = true;
+    setCustomTagsLoading(true);
+
+    const fetchTagArticles = async () => {
+      try {
+        const promises = tagsToFetch.map(async (tag) => {
+          const cleanTag = tag.startsWith('#') ? tag.substring(1) : tag;
+          const response = await fetch(`http://localhost:3000/api/news/search?q=${encodeURIComponent(cleanTag)}&limit=50`);
+          if (!response.ok) return [];
+          const data = await response.json();
+          return (data.articles || []) as ApiArticle[];
+        });
+
+        const results = await Promise.all(promises);
+        if (!active) return;
+
+        // Flatten and deduplicate
+        const seen = new Set<string>();
+        const flat: ApiArticle[] = [];
+        results.flat().forEach((art) => {
+          if (!seen.has(art.id)) {
+            seen.add(art.id);
+            flat.push(art);
+          }
+        });
+
+        setCustomTagArticles(flat);
+      } catch (err) {
+        console.error('Failed to fetch custom tag articles:', err);
+      } finally {
+        if (active) setCustomTagsLoading(false);
+      }
+    };
+
+    fetchTagArticles();
+
+    return () => {
+      active = false;
+    };
+  }, [viewMode, customTags, selCustomTags]);
+
+  // Debounced search suggestions from backend database
+  useEffect(() => {
+    const query = searchQuery.trim();
+    if (query.length < 2) {
+      setBackendSuggestions([]);
+      return;
+    }
+
+    let active = true;
+    const timer = setTimeout(async () => {
+      try {
+        const response = await fetch(`http://localhost:3000/api/news/search?q=${encodeURIComponent(query)}&limit=10`);
+        if (!response.ok) return;
+        const data = await response.json();
+        if (active) {
+          setBackendSuggestions(data.articles || []);
+        }
+      } catch (err) {
+        console.error('Error fetching search suggestions:', err);
+      }
+    }, 250);
+
+    return () => {
+      active = false;
+      clearTimeout(timer);
+    };
+  }, [searchQuery]);
 
   const drawerAnim = useRef(new Animated.Value(320)).current;
   const [drawerRendered, setDrawerRendered] = useState(false);
@@ -170,7 +257,20 @@ export default function FeedScreen() {
     }
   };
 
-  const visibleArticles = articles;
+  const visibleArticles = useMemo(() => {
+    if (customTagArticles.length === 0) return articles;
+    const seen = new Set<string>();
+    const merged: ApiArticle[] = [];
+
+    [...customTagArticles, ...articles].forEach((item) => {
+      if (!seen.has(item.id)) {
+        seen.add(item.id);
+        merged.push(item);
+      }
+    });
+
+    return merged.sort((a, b) => new Date(b.publishedAt).getTime() - new Date(a.publishedAt).getTime());
+  }, [articles, customTagArticles]);
 
   // ── Derived filter data ────────────────────────────────────────────────────
 
@@ -197,11 +297,14 @@ export default function FeedScreen() {
     const query = searchQuery.trim().toLocaleLowerCase('tr-TR');
     if (query.length < 2) return [];
 
-    const articleMatches: SearchSuggestion[] = articles
+    const sourceArticles = backendSuggestions.length > 0 ? backendSuggestions : articles;
+
+    const articleMatches: SearchSuggestion[] = sourceArticles
       .filter((article) => {
         const category = mapToContentCategory(article.category, article.title, article.description);
-        const haystack = `${article.title} ${article.description} ${article.source.name} ${category}`.toLocaleLowerCase('tr-TR');
-        return haystack.includes(query);
+        const haystack = normalizeSearchText(`${article.title} ${article.description} ${article.source.name} ${category}`);
+        const cleanQuery = normalizeSearchText(query);
+        return haystack.includes(cleanQuery);
       })
       .slice(0, 4)
       .map((article) => ({
@@ -214,8 +317,9 @@ export default function FeedScreen() {
 
     const publisherMatches: SearchSuggestion[] = buildPublisherDataset(articles).publishers
       .filter((publisher) => {
-        const haystack = `${publisher.name} ${publisher.category} ${publisher.description}`.toLocaleLowerCase('tr-TR');
-        return haystack.includes(query);
+        const haystack = normalizeSearchText(`${publisher.name} ${publisher.category} ${publisher.description}`);
+        const cleanQuery = normalizeSearchText(query);
+        return haystack.includes(cleanQuery);
       })
       .slice(0, 3)
       .map((publisher) => ({
@@ -227,7 +331,7 @@ export default function FeedScreen() {
       }));
 
     return [...articleMatches, ...publisherMatches].slice(0, 6);
-  }, [articles, router, searchQuery]);
+  }, [articles, backendSuggestions, router, searchQuery]);
 
   // ── Filtered + paginated feed ──────────────────────────────────────────────
 
@@ -547,8 +651,8 @@ export default function FeedScreen() {
                 <Ionicons name="chevron-forward" size={14} color={colors.textMuted} />
               </Pressable>
             </View>
-            {customTags && customTags.length > 0 && (
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 12, gap: 8 }}>
+            {viewMode === 'personal' && (
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 12, gap: 8, alignItems: 'center' }}>
                 {customTags.map((tag) => {
                   const active = selCustomTags.includes(tag);
                   return (
@@ -570,6 +674,23 @@ export default function FeedScreen() {
                     </Pressable>
                   );
                 })}
+                <Pressable
+                  onPress={() => router.push('/(tabs)/profile' as any)}
+                  style={[
+                    styles.toolTab,
+                    {
+                      backgroundColor: colors.surface,
+                      borderColor: colors.accent + '90',
+                      borderStyle: 'dashed',
+                      borderWidth: 1.2,
+                    },
+                  ]}
+                >
+                  <Ionicons name="add-outline" size={13} color={colors.accent} />
+                  <Text style={[styles.toolTabText, { color: colors.accent, fontWeight: 'bold' }]}>
+                    Etiket Ekle/Düzenle
+                  </Text>
+                </Pressable>
               </ScrollView>
             )}
 

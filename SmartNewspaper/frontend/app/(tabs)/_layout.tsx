@@ -30,7 +30,6 @@ const NAV_ROUTES: { name: string; label: string; icon: string; iconFilled: strin
 const HIDDEN_ROUTES = [
   'index',
   'search',
-  'profile',
   'notifications',
   'messages',
   'publisherpage',

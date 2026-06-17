@@ -646,12 +646,20 @@ router.get('/', optionalAuth, async (req: Request, res: Response) => {
     const useUserSources = personalized && prefs && prefs.preferredSources.length > 0 && !source;
     const useMutedSources = !!prefs && prefs.mutedSources.length > 0;
 
+    let parsedLanguages: string[] | undefined = undefined;
+    if (language) {
+      const langStr = String(language).trim();
+      if (langStr.includes(',')) {
+        parsedLanguages = langStr.split(',').map((l) => l.trim()).filter(Boolean);
+      }
+    }
+
     const resultPromise = getArticles({
         category: category ? String(category) : undefined,
-        language: language ? String(language) : undefined,
+        language: language && !parsedLanguages ? String(language) : undefined,
+        languages: parsedLanguages || (useUserLanguages ? prefs!.preferredLanguages : undefined),
         source: source ? String(source) : undefined,
         categories: useUserCategories ? prefs!.preferredCategories : undefined,
-        languages: useUserLanguages ? prefs!.preferredLanguages : undefined,
         sources: useUserSources ? prefs!.preferredSources : undefined,
         mutedSources: useMutedSources ? prefs!.mutedSources : undefined,
         limit: Number(limit),

@@ -77,6 +77,38 @@ export default function ExploreScreen() {
   const [searchQuery, setSearchQuery] = useState('');
   const [realTrendingTopics, setRealTrendingTopics] = useState<{tag: string; count: number}[]>([]);
 
+  const [extraArticles, setExtraArticles] = useState<ApiArticle[]>([]);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [maxItemsPerBand, setMaxItemsPerBand] = useState(5);
+
+  const allArticles = useMemo(() => {
+    const seen = new Set<string>();
+    const merged = [...articles, ...extraArticles];
+    return merged.filter((a) => {
+      if (seen.has(a.id)) return false;
+      seen.add(a.id);
+      return true;
+    });
+  }, [articles, extraArticles]);
+
+  const loadMore = async () => {
+    setLoadingMore(true);
+    try {
+      const currentOffset = articles.length + extraArticles.length;
+      const more = await fetchArticles({
+        language: preferredNewsLanguages.join(',') || 'tr',
+        limit: 100,
+        offset: currentOffset,
+      });
+      setExtraArticles((prev) => [...prev, ...more]);
+      setMaxItemsPerBand((prev) => prev + 5);
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setLoadingMore(false);
+    }
+  };
+
   const headerFade = useRef(new Animated.Value(0)).current;
   const heroFade = useRef(new Animated.Value(0)).current;
   const bodyFade = useRef(new Animated.Value(0)).current;
@@ -150,11 +182,11 @@ export default function ExploreScreen() {
   // Articles enriched with normalized category
   const enriched = useMemo(
     () =>
-      articles.map((a) => ({
+      allArticles.map((a) => ({
         article: a,
         cat: mapToContentCategory(a.category, a.title, a.description),
       })),
-    [articles]
+    [allArticles]
   );
 
   // Filter for main feed
@@ -181,10 +213,10 @@ export default function ExploreScreen() {
   // Per-category bands (only show categories with content)
   const bands = useMemo(() => {
     return CATEGORY_META.map((meta) => {
-      const items = enriched.filter((e) => e.cat === meta.key).slice(0, 5);
+      const items = enriched.filter((e) => e.cat === meta.key).slice(0, maxItemsPerBand);
       return { meta, items };
     }).filter((b) => b.items.length >= 2);
-  }, [enriched]);
+  }, [enriched, maxItemsPerBand]);
 
   const openArticle = (a: ApiArticle) => {
     const cat = mapToContentCategory(a.category, a.title, a.description);
@@ -705,6 +737,35 @@ export default function ExploreScreen() {
               </View>
             );
           })}
+        <View style={{ alignItems: 'center', marginVertical: 24 }}>
+          <Pressable
+            onPress={loadMore}
+            disabled={loadingMore}
+            style={({ pressed }) => [
+              {
+                flexDirection: 'row',
+                alignItems: 'center',
+                backgroundColor: colors.surface,
+                borderColor: colors.accent + '80',
+                borderWidth: 1.5,
+                borderRadius: 20,
+                paddingHorizontal: 24,
+                paddingVertical: 12,
+                gap: 8,
+                opacity: pressed ? 0.8 : 1,
+              },
+            ]}
+          >
+            {loadingMore ? (
+              <ActivityIndicator size="small" color={colors.accent} />
+            ) : (
+              <Ionicons name="reload-outline" size={16} color={colors.accent} />
+            )}
+            <Text style={{ color: colors.accent, fontWeight: 'bold', fontSize: 15 }}>
+              {loadingMore ? 'Haberler Yükleniyor...' : 'Daha Fazla Haber Yükle'}
+            </Text>
+          </Pressable>
+        </View>
 
         {/* ─────────────────── FOOTER CTA ─────────────────── */}
         <View style={[styles.footerCta, { backgroundColor: colors.accent + '12', borderColor: colors.accent + '30' }]}>
