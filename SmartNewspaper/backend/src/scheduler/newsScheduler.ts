@@ -11,6 +11,7 @@ import { query } from '../db/index';
 import { findAndSaveSimilarArticles } from '../processors/similarity-processor';
 import { findAndSaveSimilarArticlesV2 } from '../processors/similarityProcessorV2';
 import { computeAndSaveEmbeddingsV2 } from '../processors/embeddingV2';
+import { processCustomTagNotifications } from '../services/notificationService';
 
 const STARTUP_NEWSAPI_DELAY_MS = 10 * 60 * 1000;
 const MIN_NEWSAPI_STARTUP_INTERVAL_MS = 2 * 60 * 60 * 1000;
@@ -138,7 +139,12 @@ export async function runCollection(includeNewsApi = false): Promise<CollectionR
       ...unique.filter((a) => !enrichedIds.has(a.id)),
     ];
 
-    const { inserted, skipped } = await upsertArticles(finalArticles);
+    const { inserted, skipped, processedArticles } = await upsertArticles(finalArticles);
+
+    if (inserted > 0 && processedArticles.length > 0) {
+      void processCustomTagNotifications(processedArticles)
+        .catch((e) => console.error('[Scheduler] Custom Tag Notification error:', (e as Error).message));
+    }
 
     // V2 embedding (multilingual-e5-base) — fire-and-forget so collection doesn't
     // hold the API connection pool. Errors logged but don't fail the run.

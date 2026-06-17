@@ -1,6 +1,6 @@
 import { useRouter } from 'expo-router';
 import { useMemo, useState } from 'react';
-import { Platform, Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
+import { Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View, useWindowDimensions } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 
 import { AuthButton } from '@/components/auth/AuthButton';
@@ -75,6 +75,7 @@ export default function OnboardingScreen() {
 
   const [step, setStep] = useState<Step>(0);
   const [completing, setCompleting] = useState(false);
+  const [sourceSearch, setSourceSearch] = useState('');
 
   const canAdvance = useMemo(() => {
     if (step === 0) return preferredCategories.length > 0;
@@ -260,8 +261,20 @@ export default function OnboardingScreen() {
                   </Text>
                 </View>
               </View>
+
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.borderSubtle, borderRadius: 16, paddingHorizontal: 16, height: 56, marginBottom: 16 }}>
+                <Ionicons name="search-outline" size={20} color={colors.textMuted} />
+                <TextInput
+                  placeholder="Kaynak ara..."
+                  placeholderTextColor={colors.textMuted}
+                  value={sourceSearch}
+                  onChangeText={setSourceSearch}
+                  style={{ flex: 1, fontSize: 16, color: colors.textPrimary, height: '100%', outlineStyle: 'none' as any }}
+                />
+              </View>
+
               <View style={[styles.choiceGrid, isWide && styles.choiceGridWide]}>
-                {NEWSPAPERS.map((paper: NewspaperSource) => {
+                {NEWSPAPERS.filter((p: string) => p.toLowerCase().includes(sourceSearch.toLowerCase())).map((paper: NewspaperSource) => {
                   const selected = preferredNewspapers.includes(paper);
                   const meta = SOURCE_META[paper] ?? SOURCE_META.BBC;
                   return (

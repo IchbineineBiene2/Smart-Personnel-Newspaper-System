@@ -19,6 +19,7 @@ export interface BackendPreferences {
   preferredLanguages: string[];
   preferredSources: string[];
   mutedSources: string[];
+  customTags: string[];
   language: string | null;
   theme: string | null;
   notificationsEnabled: boolean;

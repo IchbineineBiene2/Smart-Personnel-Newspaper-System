@@ -31,14 +31,20 @@ import { LoadingGreetingOverlay } from '@/components/ui/LoadingGreetingOverlay';
 // ── Constants ──────────────────────────────────────────────────────────────────
 
 const ALL_CATEGORIES = [
-  { key: 'Teknoloji', icon: 'laptop-outline',       color: '#6254FF' },
-  { key: 'Spor',      icon: 'trophy-outline',        color: '#10b981' },
-  { key: 'Ekonomi',   icon: 'trending-up-outline',   color: '#f59e0b' },
-  { key: 'Sağlık',    icon: 'heart-outline',         color: '#ef4444' },
   { key: 'Siyaset',   icon: 'business-outline',      color: '#3b82f6' },
   { key: 'Dünya',     icon: 'globe-outline',         color: '#8b5cf6' },
+  { key: 'Ekonomi',   icon: 'trending-up-outline',   color: '#f59e0b' },
+  { key: 'Spor',      icon: 'trophy-outline',        color: '#10b981' },
+  { key: 'Teknoloji', icon: 'laptop-outline',        color: '#6254FF' },
   { key: 'Bilim',     icon: 'flask-outline',         color: '#06b6d4' },
+  { key: 'Sağlık',    icon: 'heart-outline',         color: '#ef4444' },
+  { key: 'Eğitim',    icon: 'school-outline',        color: '#0ea5e9' },
+  { key: 'Çevre',     icon: 'leaf-outline',          color: '#22c55e' },
   { key: 'Kültür',    icon: 'color-palette-outline', color: '#ec4899' },
+  { key: 'Magazin',   icon: 'star-outline',          color: '#d946ef' },
+  { key: 'Asayiş',    icon: 'shield-checkmark-outline', color: '#dc2626' },
+  { key: 'Kaza',      icon: 'warning-outline',       color: '#f97316' },
+  { key: 'Deprem',    icon: 'pulse-outline',         color: '#ef4444' },
   { key: 'Genel',     icon: 'newspaper-outline',     color: '#6b7280' },
 ];
 
@@ -61,12 +67,30 @@ type SearchSuggestion = {
   onPress: () => void;
 };
 
+function normalizeSearchText(value: string): string {
+  if (!value) return '';
+  return value
+    .toLocaleLowerCase('tr-TR')
+    .replace(/ı/g, 'i')
+    .replace(/İ/g, 'i')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/ğ/g, 'g')
+    .replace(/ü/g, 'u')
+    .replace(/ş/g, 's')
+    .replace(/ö/g, 'o')
+    .replace(/ç/g, 'c')
+    .replace(/[^a-z0-9\s&-]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 // ── Component ──────────────────────────────────────────────────────────────────
 
 export default function FeedScreen() {
   const router   = useRouter();
   const { colors } = useTheme();
-  const { preferredCategories, preferredNewsLanguages, reload: reloadPreferences } = usePreferences();
+  const { preferredCategories, preferredNewsLanguages, customTags, reload: reloadPreferences } = usePreferences();
   const { followedIds, reload: reloadPublisherState } = usePublisherState();
   const [profileName, setProfileName] = useState('Kullanici');
 
@@ -87,6 +111,7 @@ export default function FeedScreen() {
   const [selCats,    setSelCats]    = useState<string[]>([]);
   const [selLangs,   setSelLangs]   = useState<string[]>([]);
   const [selSources, setSelSources] = useState<string[]>([]);
+  const [selCustomTags, setSelCustomTags] = useState<string[]>([]);
   const [perPage,    setPerPage]    = useState(40);
   const [page,       setPage]       = useState(1);
   const [sidebarVisible, setSidebarVisible] = useState(false);
@@ -207,9 +232,23 @@ export default function FeedScreen() {
   // ── Filtered + paginated feed ──────────────────────────────────────────────
 
   const { feedItems, totalCount } = useMemo(() => {
+    const hasCustomTags = customTags && customTags.length > 0;
+
     let ranked = visibleArticles.map((article, index) => {
       const category = mapToContentCategory(article.category, article.title, article.description);
-      return { article, category, index };
+      let isCustomTagMatch = false;
+      let matchedCustomTags: string[] = [];
+      
+      if (hasCustomTags) {
+        const articleText = normalizeSearchText(`${article.title} ${article.description} ${article.source.name} ${category}`);
+        matchedCustomTags = customTags.filter((tag) => {
+          const cleanTag = normalizeSearchText(tag.startsWith('#') ? tag.substring(1) : tag);
+          return articleText.includes(cleanTag);
+        });
+        isCustomTagMatch = matchedCustomTags.length > 0;
+      }
+      
+      return { article, category, index, isCustomTagMatch, matchedCustomTags };
     });
 
     if (viewMode === 'followed') {
@@ -222,16 +261,30 @@ export default function FeedScreen() {
           ranked = ranked.filter((r) => selCats.includes(r.category));
         }
       }
-    } else {
+    } else if (viewMode === 'personal') {
       // personal mode
       const effectiveCats = selCats.length > 0 ? selCats : preferredCategories;
-      if (effectiveCats.length === 0) {
+      const catSet = new Set(effectiveCats);
+      
+      ranked = ranked.filter((r) => {
+        const matchesCategory = effectiveCats.length === 0 ? false : catSet.has(r.category);
+        return matchesCategory || r.isCustomTagMatch;
+      });
+      
+      if (effectiveCats.length === 0 && !hasCustomTags) {
         ranked = [];
-      } else {
-        const catSet = new Set(effectiveCats);
-        ranked = ranked.filter((r) => catSet.has(r.category));
+      }
+    } else {
+      // all mode
+      if (selCats.length > 0) {
+        ranked = ranked.filter((r) => selCats.includes(r.category));
       }
     }
+    
+    if (selCustomTags.length > 0) {
+      ranked = ranked.filter((r) => selCustomTags.some(tag => r.matchedCustomTags.includes(tag)));
+    }
+
     if (selLangs.length > 0) {
       ranked = ranked.filter((r) => selLangs.includes((r.article as any).language ?? ''));
     }
@@ -242,21 +295,23 @@ export default function FeedScreen() {
     const totalCount = ranked.length;
     const start = (page - 1) * perPage;
     return { feedItems: ranked.slice(start, start + perPage), totalCount };
-  }, [visibleArticles, viewMode, selCats, selLangs, selSources, followedIds, preferredCategories, page, perPage]);
+  }, [visibleArticles, viewMode, selCats, selLangs, selSources, selCustomTags, followedIds, preferredCategories, customTags, page, perPage]);
 
   const totalPages = Math.max(1, Math.ceil(totalCount / perPage));
-  const activeFilterCount = selCats.length + selLangs.length + selSources.length;
+  const activeFilterCount = selCats.length + selLangs.length + selSources.length + selCustomTags.length;
 
   const resetFilters = () => {
     setSelCats([]);
     setSelLangs([]);
     setSelSources([]);
+    setSelCustomTags([]);
     setPage(1);
   };
 
   const toggleCat    = (c: string) => { setPage(1); setSelCats((p)    => p.includes(c) ? p.filter((x) => x !== c) : [...p, c]); };
   const toggleLang   = (l: string) => { setPage(1); setSelLangs((p)   => p.includes(l) ? p.filter((x) => x !== l) : [...p, l]); };
   const toggleSource = (s: string) => { setPage(1); setSelSources((p) => p.includes(s) ? p.filter((x) => x !== s) : [...p, s]); };
+  const toggleCustomTag = (t: string) => { setPage(1); setSelCustomTags((p) => p.includes(t) ? p.filter((x) => x !== t) : [...p, t]); };
 
   // ── Article helpers ───────────────────────────────────────────────────────
 
@@ -464,7 +519,7 @@ export default function FeedScreen() {
                     style={[styles.tabBtn, viewMode === m && { backgroundColor: colors.accent }]}
                   >
                     <Text style={[styles.tabText, { color: viewMode === m ? '#fff' : colors.textMuted }]}>
-                      {m === 'personal' ? 'Kişisel Akış' : 'Takip Edilenler'}
+                      {m === 'personal' ? 'İlgi Alanlarım' : 'Takip Ettiklerim'}
                     </Text>
                   </Pressable>
                 ))}
@@ -492,6 +547,31 @@ export default function FeedScreen() {
                 <Ionicons name="chevron-forward" size={14} color={colors.textMuted} />
               </Pressable>
             </View>
+            {customTags && customTags.length > 0 && (
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 12, gap: 8 }}>
+                {customTags.map((tag) => {
+                  const active = selCustomTags.includes(tag);
+                  return (
+                    <Pressable
+                      key={tag}
+                      onPress={() => toggleCustomTag(tag)}
+                      style={[
+                        styles.toolTab,
+                        {
+                          backgroundColor: active ? colors.accent : colors.surface,
+                          borderColor: active ? colors.accent : colors.accent + '45',
+                        },
+                      ]}
+                    >
+                      <Ionicons name="pricetag-outline" size={12} color={active ? '#fff' : colors.textPrimary} />
+                      <Text style={[styles.toolTabText, { color: active ? '#fff' : colors.textPrimary }]}>
+                        {tag}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </ScrollView>
+            )}
 
             <View style={styles.toolTabs}>
               {([
@@ -572,9 +652,9 @@ export default function FeedScreen() {
                 {viewMode === 'personal' && preferredCategories.length === 0 && selCats.length === 0 ? (
                   <>
                     <Ionicons name="options-outline" size={36} color={colors.textMuted} />
-                    <Text style={[styles.emptyTitle, { color: colors.textPrimary }]}>Kategori seçilmedi</Text>
+                    <Text style={[styles.emptyTitle, { color: colors.textPrimary }]}>İlgi Alanı seçilmedi</Text>
                     <Text style={[styles.emptyDesc, { color: colors.textMuted }]}>
-                      Kişisel akışınızı görmek için Profil → Tercihler sayfasından ilgilendiğiniz kategorileri seçin.
+                      İlgi alanlarınıza özel haberleri görmek için Profil → Tercihler sayfasından ilgilendiğiniz kategorileri seçin.
                     </Text>
                     <Pressable onPress={() => router.push('/(tabs)/profile' as any)} style={[styles.emptyBtn, { backgroundColor: colors.accent }]}>
                       <Text style={styles.emptyBtnText}>Tercihlere Git</Text>
@@ -617,7 +697,11 @@ export default function FeedScreen() {
                       onPress={() => openArticle(item)}
                       style={({ pressed }) => [
                         styles.post,
-                        { backgroundColor: pressed ? colors.surfaceHigh : colors.surface, borderColor: colors.borderSubtle },
+                        { 
+                          backgroundColor: pressed ? colors.surfaceHigh : colors.surface, 
+                          borderColor: (item as any).isCustomTagMatch ? '#ec489980' : colors.borderSubtle,
+                          borderWidth: (item as any).isCustomTagMatch ? 1.5 : 1
+                        },
                       ]}
                     >
                       {logo ? (
@@ -649,6 +733,16 @@ export default function FeedScreen() {
                         </View>
 
                         <Text style={[styles.postTitle, { color: colors.textPrimary }]}>{article.title}</Text>
+                        
+                        {(item as any).isCustomTagMatch && (
+                          <View style={{ flexDirection: 'row', alignItems: 'center', marginVertical: 6 }}>
+                            <View style={{ backgroundColor: '#ec489920', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 12, flexDirection: 'row', alignItems: 'center' }}>
+                              <Ionicons name="sparkles" size={12} color="#ec4899" style={{ marginRight: 4 }} />
+                              <Text style={{ fontSize: 11, fontWeight: '800', color: '#ec4899', letterSpacing: 0.3 }}>ÖZEL İLGİ ALANI</Text>
+                            </View>
+                          </View>
+                        )}
+
                         {!!article.description && (
                           <Text style={[styles.description, { color: colors.textSecondary }]} numberOfLines={3}>
                             {article.description}

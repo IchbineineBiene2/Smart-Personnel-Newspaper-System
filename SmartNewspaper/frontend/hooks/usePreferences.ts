@@ -11,6 +11,7 @@ const CATEGORIES_STORAGE_KEY = 'preferred-categories';
 const NEWSPAPERS_STORAGE_KEY = 'preferred-newspapers';
 const NEWS_LANGUAGES_STORAGE_KEY = 'preferred-news-languages';
 const MUTED_SOURCES_STORAGE_KEY = 'muted-newspapers';
+const CUSTOM_TAGS_STORAGE_KEY = 'custom-tags';
 
 /**
  * Preferences hook.
@@ -24,20 +25,23 @@ export function usePreferences() {
   const [preferredNewspapers, setPreferredNewspapers] = useState<NewspaperSource[]>([]);
   const [preferredNewsLanguages, setPreferredNewsLanguages] = useState<string[]>([]);
   const [mutedNewspapers, setMutedNewspapers] = useState<NewspaperSource[]>([]);
+  const [customTags, setCustomTags] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
 
   // --- LOCAL (AsyncStorage) ---
   const loadFromLocal = useCallback(async () => {
-    const [rawCategories, rawNewspapers, rawNewsLanguages, rawMuted] = await Promise.all([
+    const [rawCategories, rawNewspapers, rawNewsLanguages, rawMuted, rawTags] = await Promise.all([
       AsyncStorage.getItem(CATEGORIES_STORAGE_KEY),
       AsyncStorage.getItem(NEWSPAPERS_STORAGE_KEY),
       AsyncStorage.getItem(NEWS_LANGUAGES_STORAGE_KEY),
       AsyncStorage.getItem(MUTED_SOURCES_STORAGE_KEY),
+      AsyncStorage.getItem(CUSTOM_TAGS_STORAGE_KEY),
     ]);
     setPreferredCategories(rawCategories ? (JSON.parse(rawCategories) as ContentCategory[]) : []);
     setPreferredNewspapers(rawNewspapers ? (JSON.parse(rawNewspapers) as NewspaperSource[]) : []);
     setPreferredNewsLanguages(rawNewsLanguages ? (JSON.parse(rawNewsLanguages) as string[]) : []);
     setMutedNewspapers(rawMuted ? (JSON.parse(rawMuted) as NewspaperSource[]) : []);
+    setCustomTags(rawTags ? (JSON.parse(rawTags) as string[]) : []);
   }, []);
 
   // --- BACKEND (when logged in) — overwrites local state + storage if returns data ---
@@ -48,16 +52,19 @@ export function usePreferences() {
     const langs = remote.preferredLanguages ?? [];
     const srcs = (remote.preferredSources ?? []) as NewspaperSource[];
     const muted = (remote.mutedSources ?? []) as NewspaperSource[];
+    const tags = remote.customTags ?? [];
     setPreferredCategories(cats);
     setPreferredNewsLanguages(langs);
     setPreferredNewspapers(srcs);
     setMutedNewspapers(muted);
+    setCustomTags(tags);
     // Local cache da güncelle — sonraki açılışta hemen geri-yüklensin
     await Promise.all([
       AsyncStorage.setItem(CATEGORIES_STORAGE_KEY, JSON.stringify(cats)),
       AsyncStorage.setItem(NEWS_LANGUAGES_STORAGE_KEY, JSON.stringify(langs)),
       AsyncStorage.setItem(NEWSPAPERS_STORAGE_KEY, JSON.stringify(srcs)),
       AsyncStorage.setItem(MUTED_SOURCES_STORAGE_KEY, JSON.stringify(muted)),
+      AsyncStorage.setItem(CUSTOM_TAGS_STORAGE_KEY, JSON.stringify(tags)),
     ]);
     return true;
   }, []);
@@ -102,6 +109,12 @@ export function usePreferences() {
     void pushPreferencesToBackend({ mutedSources: muted as string[] });
   }, []);
 
+  const persistCustomTags = useCallback(async (tags: string[]) => {
+    setCustomTags(tags);
+    await AsyncStorage.setItem(CUSTOM_TAGS_STORAGE_KEY, JSON.stringify(tags));
+    void pushPreferencesToBackend({ customTags: tags });
+  }, []);
+
   const toggleCategory = useCallback(
     async (category: ContentCategory) => {
       const next = preferredCategories.includes(category)
@@ -142,16 +155,36 @@ export function usePreferences() {
     [mutedNewspapers, persistMutedNewspapers],
   );
 
+  const addCustomTag = useCallback(
+    async (tag: string) => {
+      const cleanTag = tag.startsWith('#') ? tag : '#' + tag;
+      if (!customTags.includes(cleanTag)) {
+        await persistCustomTags([...customTags, cleanTag]);
+      }
+    },
+    [customTags, persistCustomTags],
+  );
+
+  const removeCustomTag = useCallback(
+    async (tag: string) => {
+      await persistCustomTags(customTags.filter((t) => t !== tag));
+    },
+    [customTags, persistCustomTags],
+  );
+
   return {
     preferredCategories,
     preferredNewspapers,
     preferredNewsLanguages,
     mutedNewspapers,
+    customTags,
     loading,
     toggleCategory,
     toggleNewspaper,
     toggleNewsLanguage,
     toggleMutedNewspaper,
+    addCustomTag,
+    removeCustomTag,
     reload: loadPreferences,
   };
 }

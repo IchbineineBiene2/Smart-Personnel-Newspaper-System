@@ -89,6 +89,9 @@ export default function ProfileScreen() {
     toggleNewsLanguage,
     toggleNewspaper,
     toggleMutedNewspaper,
+    customTags,
+    addCustomTag,
+    removeCustomTag,
     reload: reloadPreferences,
   } = usePreferences();
   const { savedIds } = useBookmarks();
@@ -127,6 +130,7 @@ export default function ProfileScreen() {
   const [confirmPassword, setConfirmPassword] = useState('');
   const [passwordError, setPasswordError] = useState('');
   const [passwordSuccess, setPasswordSuccess] = useState('');
+  const [customTagInput, setCustomTagInput] = useState('');
 
   const headerFade = useRef(new Animated.Value(0)).current;
   const contentFade = useRef(new Animated.Value(0)).current;
@@ -875,6 +879,86 @@ export default function ProfileScreen() {
                       </Pressable>
                     );
                   })}
+                </View>
+              </View>
+
+              {/* Özel İlgi Alanları (Hashtag) */}
+              <View style={[styles.panelCard, { backgroundColor: colors.surface, borderColor: colors.borderSubtle }]}>
+                <View style={styles.panelHeader}>
+                  <Ionicons name="pricetag-outline" size={20} color={colors.accent} />
+                  <Text style={[styles.panelTitle, { color: colors.textPrimary }]}>Özel İlgi Alanları</Text>
+                </View>
+                <Text style={[styles.panelSubtitle, { color: colors.textMuted }]}>
+                  İstediğiniz kelime veya cümleyi hashtag olarak ekleyerek haber akışınızı daraltabilirsiniz (Örn: #nvidia, #taylor swift).
+                </Text>
+                
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+                  <TextInput
+                    style={[{
+                      flex: 1,
+                      height: 44,
+                      borderWidth: 1,
+                      borderRadius: 12,
+                      paddingHorizontal: 16,
+                      backgroundColor: colors.surfaceHigh,
+                      borderColor: colors.borderSubtle,
+                      color: colors.textPrimary,
+                    }]}
+                    placeholder="Kelime yazın..."
+                    placeholderTextColor={colors.textMuted}
+                    value={customTagInput}
+                    onChangeText={setCustomTagInput}
+                    onSubmitEditing={() => {
+                      if (customTagInput.trim()) {
+                        addCustomTag(customTagInput.trim());
+                        setCustomTagInput('');
+                      }
+                    }}
+                  />
+                  <Pressable
+                    style={[{
+                      height: 44,
+                      paddingHorizontal: 16,
+                      borderRadius: 12,
+                      backgroundColor: colors.accent,
+                      justifyContent: 'center',
+                      alignItems: 'center'
+                    }]}
+                    onPress={() => {
+                      if (customTagInput.trim()) {
+                        addCustomTag(customTagInput.trim());
+                        setCustomTagInput('');
+                      }
+                    }}
+                  >
+                    <Text style={{ color: '#fff', fontWeight: '600' }}>Ekle</Text>
+                  </Pressable>
+                </View>
+
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+                  {(customTags || []).map((tag) => (
+                    <Pressable
+                      key={tag}
+                      onPress={() => removeCustomTag(tag)}
+                      style={{
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        backgroundColor: colors.accent + '20',
+                        borderColor: colors.accent,
+                        borderWidth: 1,
+                        borderRadius: 16,
+                        paddingHorizontal: 12,
+                        paddingVertical: 6,
+                        gap: 4
+                      }}
+                    >
+                      <Text style={{ color: colors.accent, fontWeight: '500' }}>{tag}</Text>
+                      <Ionicons name="close-circle" size={16} color={colors.accent} />
+                    </Pressable>
+                  ))}
+                  {(!customTags || customTags.length === 0) && (
+                    <Text style={{ color: colors.textMuted, fontSize: 13 }}>Henüz özel kelime eklenmedi.</Text>
+                  )}
                 </View>
               </View>
 
