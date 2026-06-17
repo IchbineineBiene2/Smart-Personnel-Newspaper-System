@@ -59,6 +59,8 @@ interface TicketmasterResponse {
     events?: TicketmasterEvent[];
   };
   page?: {
+    number?: number;
+    totalPages?: number;
     totalElements: number;
     size: number;
   };
@@ -88,7 +90,7 @@ class TicketmasterCollector {
   /**
    * Ticketmaster'dan etkinlikleri çek (Public API) - Türkiye marketplace
    */
-  async fetchEvents(pageSize: number = 50): Promise<ConcertEvent[]> {
+  async fetchEvents(pageSize: number = 200): Promise<ConcertEvent[]> {
     // Ticketmaster env değişkeni yoksa boş array döner
     if (!this.isAvailable) {
       console.log('ℹ️ Ticketmaster API key bulunamadı, boş veri döndürülüyor...');
@@ -99,6 +101,44 @@ class TicketmasterCollector {
       console.log(`📍 Ticketmaster (Türkiye) konserler çekiliyor...`);
 
       const url = `${this.DISCOVERY_URL}/events.json`;
+
+      {
+        const events: ConcertEvent[] = [];
+        const seenIds = new Set<string>();
+        const perPage = Math.min(pageSize, 50);
+        const maxPages = Math.ceil(pageSize / perPage);
+
+        for (let page = 0; page < maxPages; page += 1) {
+          const response = await axios.get<TicketmasterResponse>(url, {
+            params: {
+              apikey: this.consumerKey,
+              source: 'wts-tr',
+              size: perPage,
+              page,
+              sort: 'date,asc',
+              locale: 'tr-TR,*'
+            },
+            timeout: 15000
+          });
+
+          const pageEvents = response.data._embedded?.events || [];
+          for (const event of pageEvents) {
+            const concertEvent = this.parseTicketmasterEvent(event);
+            if (concertEvent && !seenIds.has(concertEvent.id)) {
+              seenIds.add(concertEvent.id);
+              events.push(concertEvent);
+            }
+          }
+
+          const totalPages = response.data.page?.totalPages ?? 0;
+          if (pageEvents.length === 0 || events.length >= pageSize || (totalPages > 0 && page >= totalPages - 1)) {
+            break;
+          }
+        }
+
+        console.log(`âœ… Ticketmaster'dan ${events.length} etkinlik bulundu`);
+        return events;
+      }
 
       // Türkiye için doğru parametreler
       const response = await axios.get<TicketmasterResponse>(url, {
@@ -114,11 +154,12 @@ class TicketmasterCollector {
 
       const events: ConcertEvent[] = [];
 
-      if (response.data._embedded?.events) {
-        for (const event of response.data._embedded.events) {
+      const pageEvents = response.data._embedded?.events || [];
+      if (pageEvents.length > 0) {
+        for (const event of pageEvents) {
           const concertEvent = this.parseTicketmasterEvent(event);
-          if (concertEvent) {
-            events.push(concertEvent);
+          if (concertEvent !== null) {
+            events.push(concertEvent as ConcertEvent);
           }
         }
       }

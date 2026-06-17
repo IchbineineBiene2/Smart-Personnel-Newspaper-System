@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Animated,
   Pressable,
@@ -36,6 +36,30 @@ const CATEGORY_FILTERS: { key: FilterCat; label: string; icon: string }[] = [
 ];
 
 const MONTHS_TR = ['Oca','Şub','Mar','Nis','May','Haz','Tem','Ağu','Eyl','Eki','Kas','Ara'];
+
+const TURKEY_CITIES = [
+  'Adana', 'Adıyaman', 'Afyonkarahisar', 'Ağrı', 'Aksaray', 'Amasya', 'Ankara', 'Antalya',
+  'Ardahan', 'Artvin', 'Aydın', 'Balıkesir', 'Bartın', 'Batman', 'Bayburt', 'Bilecik',
+  'Bingöl', 'Bitlis', 'Bolu', 'Burdur', 'Bursa', 'Çanakkale', 'Çankırı', 'Çorum',
+  'Denizli', 'Diyarbakır', 'Düzce', 'Edirne', 'Elazığ', 'Erzincan', 'Erzurum', 'Eskişehir',
+  'Gaziantep', 'Giresun', 'Gümüşhane', 'Hakkari', 'Hatay', 'Iğdır', 'Isparta', 'İstanbul',
+  'İzmir', 'Kahramanmaraş', 'Karabük', 'Karaman', 'Kars', 'Kastamonu', 'Kayseri', 'Kilis',
+  'Kırıkkale', 'Kırklareli', 'Kırşehir', 'Kocaeli', 'Konya', 'Kütahya', 'Malatya', 'Manisa',
+  'Mardin', 'Mersin', 'Muğla', 'Muş', 'Nevşehir', 'Niğde', 'Ordu', 'Osmaniye', 'Rize',
+  'Sakarya', 'Samsun', 'Şanlıurfa', 'Siirt', 'Sinop', 'Şırnak', 'Sivas', 'Tekirdağ',
+  'Tokat', 'Trabzon', 'Tunceli', 'Uşak', 'Van', 'Yalova', 'Yozgat', 'Zonguldak',
+];
+
+function normalizeCityText(value: string) {
+  return value
+    .toLocaleLowerCase('tr-TR')
+    .replace(/ç/g, 'c')
+    .replace(/ğ/g, 'g')
+    .replace(/ı/g, 'i')
+    .replace(/ö/g, 'o')
+    .replace(/ş/g, 's')
+    .replace(/ü/g, 'u');
+}
 
 function formatEventDate(isoDate: string) {
   const d = new Date(isoDate);
@@ -78,6 +102,8 @@ export default function DiscoverTab() {
   const [selectedConcert, setSelectedConcert] = useState<ConcertEvent | null>(null);
   const [showModal, setShowModal] = useState(false);
   const [calendarError, setCalendarError] = useState<string>('');
+  const [citySearch, setCitySearch] = useState('');
+  const [selectedCity, setSelectedCity] = useState('');
   const [categoryNotifications, setCategoryNotifications] = useState<Record<FilterCat, boolean>>({
     tumu: false,
     akademik: true,
@@ -124,16 +150,30 @@ export default function DiscoverTab() {
     setCalendarError('');
   };
 
-  const filteredEvents = filterCat === 'tumu'
-    ? events
-    : events.filter((e) => e.category === filterCat);
+  const citySuggestions = useMemo(() => {
+    const query = normalizeCityText(citySearch.trim());
+    if (!query || citySearch.trim() === selectedCity) return [];
+    return TURKEY_CITIES.filter((city) => normalizeCityText(city).startsWith(query)).slice(0, 8);
+  }, [citySearch, selectedCity]);
 
-  const filteredConcerts =
-    filterCat === 'tumu'
-      ? concerts
-      : ['konser', 'tiyatro', 'stand-up'].includes(filterCat)
-      ? concerts.filter((c) => c.category === filterCat)
-      : [];
+  const matchesSelectedCity = (item: { title?: string; location?: string; venue?: string }) => {
+    const selectedCityNormalized = normalizeCityText(selectedCity);
+    if (!selectedCityNormalized) return true;
+    const searchableText = normalizeCityText(`${item.title || ''} ${item.location || ''} ${item.venue || ''}`);
+    return searchableText.includes(selectedCityNormalized);
+  };
+
+  const filteredEvents = (filterCat === 'tumu'
+    ? events
+    : events.filter((e) => e.category === filterCat)
+  ).filter(matchesSelectedCity);
+
+  const filteredConcerts = (filterCat === 'tumu'
+    ? concerts
+    : ['konser', 'tiyatro', 'stand-up'].includes(filterCat)
+    ? concerts.filter((c) => c.category === filterCat)
+    : []
+  ).filter(matchesSelectedCity);
 
   const getDateRange = (): { start: Date; end: Date } => {
     const today = new Date();
@@ -141,7 +181,7 @@ export default function DiscoverTab() {
       return { start: startOfDay(today), end: endOfDay(today) };
     }
     if (viewFilter === 'week') {
-      return { start: startOfDay(today), end: endOfDay(addDays(today, 7)) };
+      return { start: startOfDay(addDays(today, 1)), end: endOfDay(addDays(today, 7)) };
     }
     if (viewFilter === 'month') {
       return { start: startOfDay(today), end: endOfMonth(today) };
@@ -299,6 +339,58 @@ export default function DiscoverTab() {
               </View>
             ))}
           </ScrollView>
+        )}
+      </Animated.View>
+
+      <Animated.View style={[styles.citySearchBlock, { opacity: headerFade }]}>
+        <Text style={[styles.citySearchLabel, { color: colors.textPrimary }]}>
+          Hangi şehri istiyorsun?
+        </Text>
+        <View style={[styles.citySearchBox, { backgroundColor: colors.surface, borderColor: colors.borderSubtle }]}>
+          <Ionicons name="search" size={16} color={colors.textMuted} />
+          <TextInput
+            value={citySearch}
+            onChangeText={(text) => {
+              setCitySearch(text);
+              if (selectedCity && text.trim() !== selectedCity) {
+                setSelectedCity('');
+              }
+            }}
+            placeholder="Şehir ara"
+            placeholderTextColor={colors.textMuted}
+            style={[styles.cityInput, { color: colors.textPrimary }]}
+            autoCorrect={false}
+            autoCapitalize="words"
+          />
+          {citySearch ? (
+            <Pressable
+              style={styles.cityClearButton}
+              onPress={() => {
+                setCitySearch('');
+                setSelectedCity('');
+              }}
+            >
+              <Ionicons name="close-circle" size={18} color={colors.textMuted} />
+            </Pressable>
+          ) : null}
+        </View>
+
+        {citySuggestions.length > 0 && (
+          <View style={[styles.citySuggestionPanel, { backgroundColor: colors.surface, borderColor: colors.borderSubtle }]}>
+            {citySuggestions.map((city) => (
+              <Pressable
+                key={city}
+                style={({ pressed }) => [styles.citySuggestionItem, { opacity: pressed ? 0.65 : 1 }]}
+                onPress={() => {
+                  setCitySearch(city);
+                  setSelectedCity(city);
+                }}
+              >
+                <Ionicons name="location-outline" size={15} color={colors.accent} />
+                <Text style={[styles.citySuggestionText, { color: colors.textPrimary }]}>{city}</Text>
+              </Pressable>
+            ))}
+          </View>
         )}
       </Animated.View>
 
@@ -626,7 +718,54 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12, paddingVertical: 7,
     borderRadius: 20, borderWidth: 1,
   },
+  categoryChipContainer: {
+    flexShrink: 0,
+  },
   filterChipText: { fontSize: 11, fontWeight: '700' },
+  citySearchBlock: {
+    gap: 8,
+    maxWidth: 520,
+  },
+  citySearchLabel: {
+    fontSize: 13,
+    fontWeight: '800',
+  },
+  citySearchBox: {
+    minHeight: 44,
+    borderRadius: 12,
+    borderWidth: 1,
+    paddingHorizontal: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  cityInput: {
+    flex: 1,
+    minWidth: 0,
+    fontSize: 14,
+    fontWeight: '700',
+    paddingVertical: Platform.OS === 'web' ? 10 : 8,
+    outlineStyle: 'none' as any,
+  },
+  cityClearButton: {
+    padding: 4,
+  },
+  citySuggestionPanel: {
+    borderRadius: 12,
+    borderWidth: 1,
+    overflow: 'hidden',
+  },
+  citySuggestionItem: {
+    minHeight: 40,
+    paddingHorizontal: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  citySuggestionText: {
+    fontSize: 13,
+    fontWeight: '800',
+  },
 
   // Calendar Range
   calendarPanel: {

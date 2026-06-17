@@ -58,7 +58,7 @@ class ConcertCollector {
 
     let ticketmasterEvents: ConcertEvent[] = [];
     try {
-      ticketmasterEvents = await ticketmasterCollector.fetchTurkeyEvents(50);
+      ticketmasterEvents = await ticketmasterCollector.fetchTurkeyEvents(200);
       console.log(`[Concert Collector] Ticketmaster'dan ${ticketmasterEvents.length} etkinlik yüklendi`);
     } catch (error) {
       console.error(

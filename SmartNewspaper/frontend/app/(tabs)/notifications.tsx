@@ -7,6 +7,7 @@ import {
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   TouchableOpacity,
   View,
   Platform,
@@ -91,6 +92,101 @@ const EVENT_CATEGORIES: EventCategoryType[] = [
   'genel',
 ];
 
+const TURKEY_CITIES = [
+  'Adana',
+  'Adıyaman',
+  'Afyonkarahisar',
+  'Ağrı',
+  'Aksaray',
+  'Amasya',
+  'Ankara',
+  'Antalya',
+  'Ardahan',
+  'Artvin',
+  'Aydın',
+  'Balıkesir',
+  'Bartin',
+  'Batman',
+  'Bayburt',
+  'Bilecik',
+  'Bingöl',
+  'Bitlis',
+  'Bolu',
+  'Burdur',
+  'Bursa',
+  'Çanakkale',
+  'Çankırı',
+  'Çorum',
+  'Denizli',
+  'Diyarbakır',
+  'Düzce',
+  'Edirne',
+  'Elazığ',
+  'Erzincan',
+  'Erzurum',
+  'Eskişehir',
+  'Gaziantep',
+  'Giresun',
+  'Gümüşhane',
+  'Hakkari',
+  'Hatay',
+  'Iğdır',
+  'Isparta',
+  'İstanbul',
+  'İzmir',
+  'Kahramanmaraş',
+  'Karabük',
+  'Karaman',
+  'Kars',
+  'Kastamonu',
+  'Kayseri',
+  'Kilis',
+  'Kırıkkale',
+  'Kırklareli',
+  'Kırşehir',
+  'Kocaeli',
+  'Konya',
+  'Kütahya',
+  'Malatya',
+  'Manisa',
+  'Mardin',
+  'Mersin',
+  'Muğla',
+  'Muş',
+  'Nevşehir',
+  'Niğde',
+  'Ordu',
+  'Osmaniye',
+  'Rize',
+  'Sakarya',
+  'Samsun',
+  'Şanlıurfa',
+  'Siirt',
+  'Sinop',
+  'Şırnak',
+  'Sivas',
+  'Tekirdağ',
+  'Tokat',
+  'Trabzon',
+  'Tunceli',
+  'Uşak',
+  'Van',
+  'Yalova',
+  'Yozgat',
+  'Zonguldak',
+];
+
+function normalizeCityText(value: string) {
+  return value
+    .toLocaleLowerCase('tr-TR')
+    .replace(/ç/g, 'c')
+    .replace(/ğ/g, 'g')
+    .replace(/ı/g, 'i')
+    .replace(/ö/g, 'o')
+    .replace(/ş/g, 's')
+    .replace(/ü/g, 'u');
+}
+
 function formatTime(value: string) {
   const date = new Date(value);
   const diff = Date.now() - date.getTime();
@@ -126,6 +222,8 @@ export default function NotificationsScreen() {
   const [selectedEventCategories, setSelectedEventCategories] = useState<Set<EventCategoryType>>(
     new Set(EVENT_CATEGORIES)
   );
+  const [citySearch, setCitySearch] = useState('');
+  const [selectedCity, setSelectedCity] = useState('');
 
   const loadRemoteData = useCallback(async (tokenOverride?: string) => {
     const token = tokenOverride || authToken;
@@ -318,10 +416,17 @@ export default function NotificationsScreen() {
 
     const eventNotifs: FeedNotification[] = [
       ...events
-        .filter((e) => selectedEventCategories.has(e.category as EventCategoryType))
+        .filter((e) => {
+          const selectedCityNormalized = normalizeCityText(selectedCity);
+          const locationText = normalizeCityText(`${e.location || ''} ${e.venue || ''}`);
+          return (
+            selectedEventCategories.has(e.category as EventCategoryType) &&
+            (!selectedCityNormalized || locationText.includes(selectedCityNormalized))
+          );
+        })
         .map((event) => ({
           id: `event-${event.id}`,
-          tab: 'events',
+          tab: 'events' as const,
           icon: 'calendar',
           accent: EVENT_CATEGORY_COLORS[event.category as EventCategoryType] || '#8b5cf6',
           title: event.title,
@@ -332,10 +437,17 @@ export default function NotificationsScreen() {
           onPress: () => router.push({ pathname: '/events/[id]', params: { id: event.id } }),
         })),
       ...concerts
-        .filter((c) => selectedEventCategories.has(c.category as EventCategoryType))
+        .filter((c) => {
+          const selectedCityNormalized = normalizeCityText(selectedCity);
+          const locationText = normalizeCityText(`${c.location || ''} ${c.venue || ''}`);
+          return (
+            selectedEventCategories.has(c.category as EventCategoryType) &&
+            (!selectedCityNormalized || locationText.includes(selectedCityNormalized))
+          );
+        })
         .map((concert) => ({
           id: `concert-${concert.id}`,
-          tab: 'events',
+          tab: 'events' as const,
           icon: 'musical-notes',
           accent: '#f59e0b',
           title: concert.title,
@@ -353,7 +465,13 @@ export default function NotificationsScreen() {
       ...newsNotifs,
       ...eventNotifs,
     ].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-  }, [apiNotifications, articles, concerts, events, followedIds, notificationEnabledIds, selectedNewsCategories, selectedEventCategories, router]);
+  }, [apiNotifications, articles, concerts, events, followedIds, notificationEnabledIds, selectedNewsCategories, selectedEventCategories, selectedCity, router]);
+
+  const citySuggestions = useMemo(() => {
+    const query = normalizeCityText(citySearch.trim());
+    if (!query || selectedCity === citySearch.trim()) return [];
+    return TURKEY_CITIES.filter((city) => normalizeCityText(city).startsWith(query)).slice(0, 8);
+  }, [citySearch, selectedCity]);
 
   const filteredItems = useMemo(() => {
     if (activeTab === 'all') return feedItems;
@@ -456,41 +574,110 @@ export default function NotificationsScreen() {
 
       {/* Events Tab Category Filter */}
       {activeTab === 'events' && (
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.categoryRow}
-        >
-          {EVENT_CATEGORIES.map((cat) => {
-            const selected = selectedEventCategories.has(cat);
-            const label = EVENT_CATEGORY_LABELS[cat] || cat;
-            return (
-              <Pressable
-                key={cat}
-                style={[
-                  styles.categoryChip,
-                  {
-                    backgroundColor: selected ? colors.accent : colors.surface,
-                    borderColor: selected ? colors.accent : colors.borderSubtle,
-                  },
-                ]}
-                onPress={() => {
-                  const newSet = new Set(selectedEventCategories);
-                  if (newSet.has(cat)) {
-                    newSet.delete(cat);
-                  } else {
-                    newSet.add(cat);
+        <>
+          <View style={styles.citySearchBlock}>
+            <Text style={[styles.citySearchLabel, { color: colors.textPrimary }]}>
+              Hangi şehri istiyorsun?
+            </Text>
+            <View
+              style={[
+                styles.citySearchBox,
+                { backgroundColor: colors.surface, borderColor: colors.borderSubtle },
+              ]}
+            >
+              <Ionicons name="search" size={16} color={colors.textMuted} />
+              <TextInput
+                value={citySearch}
+                onChangeText={(text) => {
+                  setCitySearch(text);
+                  if (selectedCity && text.trim() !== selectedCity) {
+                    setSelectedCity('');
                   }
-                  setSelectedEventCategories(newSet);
                 }}
+                placeholder="Şehir ara"
+                placeholderTextColor={colors.textMuted}
+                style={[styles.cityInput, { color: colors.textPrimary }]}
+                autoCorrect={false}
+                autoCapitalize="words"
+              />
+              {citySearch ? (
+                <Pressable
+                  style={styles.cityClearButton}
+                  onPress={() => {
+                    setCitySearch('');
+                    setSelectedCity('');
+                  }}
+                >
+                  <Ionicons name="close-circle" size={18} color={colors.textMuted} />
+                </Pressable>
+              ) : null}
+            </View>
+
+            {citySuggestions.length > 0 && (
+              <View
+                style={[
+                  styles.citySuggestionPanel,
+                  { backgroundColor: colors.surface, borderColor: colors.borderSubtle },
+                ]}
               >
-                <Text style={[styles.categoryChipText, { color: selected ? '#fff' : colors.textMuted }]}>
-                  {label}
-                </Text>
-              </Pressable>
-            );
-          })}
-        </ScrollView>
+                {citySuggestions.map((city) => (
+                  <Pressable
+                    key={city}
+                    style={({ pressed }) => [
+                      styles.citySuggestionItem,
+                      { opacity: pressed ? 0.65 : 1 },
+                    ]}
+                    onPress={() => {
+                      setCitySearch(city);
+                      setSelectedCity(city);
+                    }}
+                  >
+                    <Ionicons name="location-outline" size={15} color={colors.accent} />
+                    <Text style={[styles.citySuggestionText, { color: colors.textPrimary }]}>
+                      {city}
+                    </Text>
+                  </Pressable>
+                ))}
+              </View>
+            )}
+          </View>
+
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.categoryRow}
+          >
+            {EVENT_CATEGORIES.map((cat) => {
+              const selected = selectedEventCategories.has(cat);
+              const label = EVENT_CATEGORY_LABELS[cat] || cat;
+              return (
+                <Pressable
+                  key={cat}
+                  style={[
+                    styles.categoryChip,
+                    {
+                      backgroundColor: selected ? colors.accent : colors.surface,
+                      borderColor: selected ? colors.accent : colors.borderSubtle,
+                    },
+                  ]}
+                  onPress={() => {
+                    const newSet = new Set(selectedEventCategories);
+                    if (newSet.has(cat)) {
+                      newSet.delete(cat);
+                    } else {
+                      newSet.add(cat);
+                    }
+                    setSelectedEventCategories(newSet);
+                  }}
+                >
+                  <Text style={[styles.categoryChipText, { color: selected ? '#fff' : colors.textMuted }]}>
+                    {label}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </ScrollView>
+        </>
       )}
     </View>
   );
@@ -722,6 +909,49 @@ const styles = StyleSheet.create({
   categoryChipText: {
     fontSize: 12,
     fontWeight: '700',
+  },
+  citySearchBlock: {
+    gap: 8,
+  },
+  citySearchLabel: {
+    fontSize: 13,
+    fontWeight: '800',
+  },
+  citySearchBox: {
+    minHeight: 44,
+    borderRadius: 12,
+    borderWidth: 1,
+    paddingHorizontal: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  cityInput: {
+    flex: 1,
+    minWidth: 0,
+    fontSize: 14,
+    fontWeight: '700',
+    paddingVertical: Platform.OS === 'web' ? 10 : 8,
+    outlineStyle: 'none' as any,
+  },
+  cityClearButton: {
+    padding: 4,
+  },
+  citySuggestionPanel: {
+    borderRadius: 12,
+    borderWidth: 1,
+    overflow: 'hidden',
+  },
+  citySuggestionItem: {
+    minHeight: 40,
+    paddingHorizontal: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  citySuggestionText: {
+    fontSize: 13,
+    fontWeight: '800',
   },
   notificationItem: {
     flexDirection: 'row',
