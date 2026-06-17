@@ -35,11 +35,34 @@ const SOURCE_META: Record<string, { icon: keyof typeof Ionicons.glyphMap; tone: 
   Sabah: { icon: 'sunny-outline', tone: '#f97316', description: 'Gündem ve popüler haberler' },
   Cumhuriyet: { icon: 'library-outline', tone: '#ef4444', description: 'Siyaset ve yorum ağırlığı' },
   Hurriyet: { icon: 'newspaper-outline', tone: '#2563eb', description: 'Geniş haber havuzu' },
+  Hürriyet: { icon: 'newspaper-outline', tone: '#2563eb', description: 'Geniş haber havuzu' },
   Sozcu: { icon: 'megaphone-outline', tone: '#dc2626', description: 'Sert gündem ve manşetler' },
+  Sözcü: { icon: 'megaphone-outline', tone: '#dc2626', description: 'Sert gündem ve manşetler' },
   Milliyet: { icon: 'albums-outline', tone: '#0ea5e9', description: 'Güncel haber ve yaşam' },
   Reuters: { icon: 'earth-outline', tone: '#f59e0b', description: 'Küresel ajans haberleri' },
   BBC: { icon: 'radio-outline', tone: '#a855f7', description: 'Uluslararası perspektif' },
+  T24: { icon: 'flash-outline', tone: '#3b82f6', description: 'Bağımsız ve güncel haberler' },
+  'Halk TV': { icon: 'tv-outline', tone: '#ef4444', description: 'Halkın ve gündemin sesi' },
+  Odatv: { icon: 'glasses-outline', tone: '#f59e0b', description: 'Özel haber ve analizler' },
+  'KRT TV': { icon: 'tv-outline', tone: '#8b5cf6', description: 'Kültür ve güncel haberler' },
+  Yeniçağ: { icon: 'newspaper-outline', tone: '#10b981', description: 'Milliyetçi ve güncel haberler' },
 };
+
+function getSourceMeta(name: string) {
+  const existing = SOURCE_META[name];
+  if (existing) return existing;
+  let hash = 0;
+  for (let i = 0; i < name.length; i++) {
+    hash = name.charCodeAt(i) + ((hash << 5) - hash);
+  }
+  const colors = ['#38bdf8', '#22c55e', '#f59e0b', '#ef4444', '#a855f7', '#6366f1', '#14b8a6', '#ec4899'];
+  const tone = colors[Math.abs(hash) % colors.length];
+  return {
+    icon: 'newspaper-outline' as keyof typeof Ionicons.glyphMap,
+    tone,
+    description: `${name} kaynağından son haberler`,
+  };
+}
 
 const LANGUAGES = [
   { code: 'tr', label: 'Türkçe', flag: '🇹🇷' },
@@ -50,12 +73,13 @@ const LANGUAGES = [
   { code: 'ar', label: 'Arapça', flag: '🇸🇦' },
 ];
 
-type Step = 0 | 1 | 2;
+type Step = 0 | 1 | 2 | 3;
 
 const STEPS = [
   { title: 'İlgi alanların', subtitle: 'Hangi konuların akışında öne çıksın istersin?' },
   { title: 'Dil tercihleri', subtitle: 'Hangi dillerdeki haberleri görmek istersin?' },
   { title: 'Favori kaynaklar', subtitle: 'Seçtiklerini feed üstünde öne çıkaralım — sonra değiştirebilirsin.' },
+  { title: 'Özel Konu Takibi', subtitle: 'Gündeme dair merak ettiğin özel kelime ve etiketleri belirleyerek akışını tamamen kişiselleştir.' },
 ];
 
 export default function OnboardingScreen() {
@@ -68,23 +92,34 @@ export default function OnboardingScreen() {
     preferredCategories,
     preferredNewsLanguages,
     preferredNewspapers,
+    customTags,
     toggleCategory,
     toggleNewsLanguage,
     toggleNewspaper,
+    addCustomTag,
+    removeCustomTag,
   } = usePreferences();
 
   const [step, setStep] = useState<Step>(0);
   const [completing, setCompleting] = useState(false);
   const [sourceSearch, setSourceSearch] = useState('');
+  const [tagInput, setTagInput] = useState('');
 
   const canAdvance = useMemo(() => {
     if (step === 0) return preferredCategories.length > 0;
     if (step === 1) return preferredNewsLanguages.length > 0;
-    return true; // step 2 atlanabilir
+    return true; // step 2 ve 3 atlanabilir
   }, [step, preferredCategories.length, preferredNewsLanguages.length]);
 
+  const handleAddTag = async () => {
+    const trimmed = tagInput.trim();
+    if (!trimmed) return;
+    await addCustomTag(trimmed);
+    setTagInput('');
+  };
+
   const handleNext = async () => {
-    if (step < 2) {
+    if (step < 3) {
       setStep((s) => (s + 1) as Step);
       return;
     }
@@ -157,7 +192,7 @@ export default function OnboardingScreen() {
           ]}
         >
           <View style={styles.progressRow}>
-            {[0, 1, 2].map((i) => (
+            {[0, 1, 2, 3].map((i) => (
               <View
                 key={i}
                 style={[
@@ -167,7 +202,7 @@ export default function OnboardingScreen() {
               />
             ))}
           </View>
-          <Text style={[styles.stepCounter, { color: colors.textMuted }]}>{step + 1} / 3</Text>
+          <Text style={[styles.stepCounter, { color: colors.textMuted }]}>{step + 1} / 4</Text>
 
           <Text style={[styles.title, { color: colors.textPrimary }]}>{STEPS[step].title}</Text>
           <Text style={[styles.subtitle, { color: colors.textSecondary }]}>{STEPS[step].subtitle}</Text>
@@ -276,7 +311,7 @@ export default function OnboardingScreen() {
               <View style={[styles.choiceGrid, isWide && styles.choiceGridWide]}>
                 {NEWSPAPERS.filter((p: string) => p.toLowerCase().includes(sourceSearch.toLowerCase())).map((paper: NewspaperSource) => {
                   const selected = preferredNewspapers.includes(paper);
-                  const meta = SOURCE_META[paper] ?? SOURCE_META.BBC;
+                  const meta = getSourceMeta(paper);
                   return (
                     <ChoiceCard
                       key={paper}
@@ -297,6 +332,70 @@ export default function OnboardingScreen() {
               </Text>
             </>
           )}
+          {step === 3 && (
+            <>
+              <View style={[styles.categoryHero, { backgroundColor: '#ec489912', borderColor: '#ec48992E' }]}>
+                <View style={[styles.categoryHeroIcon, { backgroundColor: '#ec4899' }]}>
+                  <Ionicons name="pricetag-outline" size={22} color={colors.white} />
+                </View>
+                <View style={{ flex: 1, minWidth: 0 }}>
+                  <Text style={[styles.categoryHeroTitle, { color: colors.textPrimary }]}>
+                    Özelleştirilmiş Kelime Takibi
+                  </Text>
+                  <Text style={[styles.categoryHeroText, { color: colors.textSecondary }]}>
+                    Buraya ekleyeceğin her kelime veya etiket, veritabanındaki tüm haberler arasında anlık olarak aranır ve eşleşen haberleri "İlgi Alanlarım" akışına taşır.
+                  </Text>
+                </View>
+              </View>
+
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.borderSubtle, borderRadius: 16, paddingHorizontal: 16, height: 56, marginBottom: 16 }}>
+                <Ionicons name="add-circle-outline" size={20} color={colors.accent} />
+                <TextInput
+                  placeholder="Etiket ekle... (örn: nvidia, milli takım)"
+                  placeholderTextColor={colors.textMuted}
+                  value={tagInput}
+                  onChangeText={setTagInput}
+                  onSubmitEditing={handleAddTag}
+                  returnKeyType="done"
+                  style={{ flex: 1, fontSize: 16, color: colors.textPrimary, height: '100%', outlineStyle: 'none' as any }}
+                />
+                {tagInput.trim().length > 0 && (
+                  <Pressable onPress={handleAddTag} style={{ backgroundColor: colors.accent, paddingHorizontal: 16, paddingVertical: 8, borderRadius: 12 }}>
+                    <Text style={{ color: '#fff', fontWeight: 'bold' }}>Ekle</Text>
+                  </Pressable>
+                )}
+              </View>
+
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 16 }}>
+                {customTags.map((tag) => (
+                  <View
+                    key={tag}
+                    style={{
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                      backgroundColor: colors.surface,
+                      borderWidth: 1,
+                      borderColor: colors.accent + '55',
+                      borderRadius: 20,
+                      paddingHorizontal: 12,
+                      paddingVertical: 6,
+                      gap: 6,
+                    }}
+                  >
+                    <Ionicons name="pricetag" size={12} color={colors.accent} />
+                    <Text style={{ color: colors.textPrimary, fontSize: 14 }}>{tag}</Text>
+                    <Pressable onPress={() => removeCustomTag(tag)}>
+                      <Ionicons name="close-circle" size={16} color={colors.textMuted} />
+                    </Pressable>
+                  </View>
+                ))}
+              </View>
+
+              <Text style={[styles.hint, { color: colors.textMuted }]}>
+                Bu adım zorunlu değil — daha sonra da profil sayfasından yeni etiketler ekleyebilirsin.
+              </Text>
+            </>
+          )}
 
           <View style={styles.footerRow}>
             {step > 0 ? (
@@ -309,7 +408,7 @@ export default function OnboardingScreen() {
             )}
             <View style={{ minWidth: 180 }}>
               <AuthButton
-                label={step < 2 ? 'Devam Et' : 'Tamamla'}
+                label={step < 3 ? 'Devam Et' : 'Tamamla'}
                 onPress={handleNext}
                 disabled={!canAdvance}
                 loading={completing}

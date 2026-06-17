@@ -39,14 +39,7 @@ export type NewsItem = {
   category: ContentCategory;
 };
 
-export type NewspaperSource =
-  | 'Sabah'
-  | 'Cumhuriyet'
-  | 'Hurriyet'
-  | 'Sozcu'
-  | 'Milliyet'
-  | 'Reuters'
-  | 'BBC';
+export type NewspaperSource = string;
 
 export const CATEGORIES: ContentCategory[] = [
   'Siyaset',
@@ -69,11 +62,49 @@ export const CATEGORIES: ContentCategory[] = [
 export const NEWSPAPERS: NewspaperSource[] = [
   'Sabah',
   'Cumhuriyet',
-  'Hurriyet',
-  'Sozcu',
+  'Hürriyet',
+  'Sözcü',
   'Milliyet',
   'Reuters',
   'BBC',
+  'NTV',
+  'TRT Haber',
+  'Habertürk',
+  'Gazete Duvar',
+  'Karar',
+  'Independent Türkçe',
+  'Diken',
+  'Yeni Şafak',
+  'Takvim',
+  'Türkiye Gazetesi',
+  'Posta',
+  'Birgun',
+  'Evrensel',
+  'Dünya Gazetesi',
+  'CNN Türk',
+  'A Haber',
+  'TGRT Haber',
+  'Haberler.com',
+  'Onedio',
+  'T24',
+  'Halk TV',
+  'Odatv',
+  'KRT TV',
+  'Yeniçağ',
+  'BBC News',
+  'DW News',
+  'Spiegel International',
+  'Al Jazeera',
+  'NPR News',
+  'Euronews',
+  'France 24',
+  'Sky News',
+  'Tagesschau',
+  'Spiegel',
+  'ZDF Heute',
+  'Die Zeit',
+  'Süddeutsche Zeitung',
+  'FAZ'
 ];
 
 export const EVENTS: EventItem[] = [
