@@ -21,7 +21,7 @@ import { useApiNews } from '@/hooks/useNews';
 import { usePublisherState } from '@/hooks/usePublisherState';
 import { usePreferences } from '@/hooks/usePreferences';
 import { useTheme } from '@/hooks/useTheme';
-import { mapToContentCategory, proxyImageUrl } from '@/services/newsApi';
+import { ApiArticle, mapToContentCategory, proxyImageUrl } from '@/services/newsApi';
 import { getUserProfile } from '@/services/auth';
 import { buildPublisherDataset, getPublisherIdFromSourceName } from '@/services/publisherProfiles';
 import { CurrencyWidget } from '@/components/widgets/CurrencyWidget';

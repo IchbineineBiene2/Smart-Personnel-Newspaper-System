@@ -576,12 +576,12 @@ export default function DiscoverTab() {
         <View style={{ flexDirection: 'row', gap: 16, alignItems: 'center' }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
             <Ionicons name="sparkles" size={11} color={colors.accent} />
-            <Text style={[styles.footerText, { color: colors.textMuted }]}>AI Destekli Gazete</Text>
+            <Text style={[styles.footerText, { color: colors.textMuted }]}>Haberdar</Text>
           </View>
           <Text style={[styles.footerText, { color: colors.textMuted }]}>Gizlilik</Text>
           <Text style={[styles.footerText, { color: colors.textMuted }]}>Destek</Text>
         </View>
-        <Text style={[styles.footerText, { color: colors.textMuted }]}>© 2026 GazeteAI Hub v2.0</Text>
+        <Text style={[styles.footerText, { color: colors.textMuted }]}>© 2026 Haberdar v2.0</Text>
       </View>
 
       <ConcertTicketModal

@@ -30,6 +30,28 @@ export interface ThemeColors {
   transparent: string;
 }
 
+export const darkTheme: ThemeColors = {
+  // Haberdar Midnight Theme
+  background: '#070A12',
+  surface: '#151821',
+  surfaceHigh: '#222530',
+  surfaceInput: '#1B1E28',
+  border: '#353947',
+  borderSubtle: '#2A2E3A',
+  textPrimary: '#F5F7FB',
+  textSecondary: '#AAB7CC',
+  textMuted: '#6F80A0',
+  accent: '#6254FF',
+  accentLight: '#7D72FF',
+  success: '#13C38B',
+  warning: '#F4B740',
+  error: '#FF3B6B',
+  info: '#73A7FF',
+  white: '#FFFFFF',
+  black: '#05060B',
+  transparent: 'transparent',
+};
+
 export const THEMES: Record<ThemeName, ThemeColors> = {
   // Gazete.AI Midnight Theme
   midnight: {

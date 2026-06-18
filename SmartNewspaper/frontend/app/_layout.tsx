@@ -157,7 +157,6 @@ function RootLayoutNav({ initialRouteName }: RootLayoutNavProps) {
               color: colors.textPrimary,
               fontSize: 17,
               fontWeight: '700',
-              letterSpacing: 0.3,
             },
             headerShadowVisible: false,
           }}

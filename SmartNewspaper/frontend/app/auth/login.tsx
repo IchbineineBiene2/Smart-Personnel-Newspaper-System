@@ -48,7 +48,7 @@ export default function LoginScreen() {
       <AuthInput
         label="E-posta"
         icon="mail-outline"
-        placeholder="ornek@gazete.ai"
+        placeholder="ornek@haberdar.com"
         value={email}
         onChangeText={setEmail}
         keyboardType="email-address"
