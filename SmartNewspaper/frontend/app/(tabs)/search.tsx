@@ -512,9 +512,9 @@ export default function SearchTab() {
         <View style={styles.footerLeft}>
           <Text style={[styles.footerText, { color: colors.textMuted }]}>AI Destekli Gazete</Text>
           <Text style={[styles.footerText, { color: colors.textMuted }]}>Gizlilik</Text>
-          <Text style={[styles.footerText, { color: colors.textMuted }]}>Destek</Text>
+          <Text style={[styles.footerText, { color: colors.textMuted }]}>Haberdar</Text>
         </View>
-        <Text style={[styles.footerText, { color: colors.textMuted }]}>2026 GazeteAI Hub v2.0</Text>
+        <Text style={[styles.footerText, { color: colors.textMuted }]}>2026 Haberdar v2.0</Text>
       </View>
     </ScrollView>
   );

@@ -34,7 +34,7 @@ export function LoadingGreetingOverlay({ languageCode, userName }: LoadingGreeti
   
   const formattedUserName = userName && userName.trim() !== 'Kullanici' && userName.trim().length > 0 
     ? userName.trim().toUpperCase() 
-    : 'GAZETE.AI';
+    : 'HABERDAR';
 
   if (!isWeb) {
     return (
@@ -63,15 +63,15 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     zIndex: 99999,
   },
-  fixedWeb: {
-    position: 'fixed' as any,
+  fixedWeb: Platform.OS === 'web' ? {
+    position: 'fixed',
     top: 0,
     left: 0,
     right: 0,
     bottom: 0,
-    width: '100vw',
-    height: '100vh',
-  },
+    width: '100%',
+    height: '100%',
+  } as any : {},
   absoluteNative: {
     ...StyleSheet.absoluteFillObject,
   },

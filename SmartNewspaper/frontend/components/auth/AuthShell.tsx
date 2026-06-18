@@ -89,7 +89,7 @@ export function AuthShell({ title, subtitle, children }: Props) {
             </View>
             <View>
               <Text style={[styles.brandWord, { color: colors.textPrimary }]}>
-                GAZETE<Text style={{ color: colors.accent }}>.AI</Text>
+                HABERDAR
               </Text>
               <Text style={[styles.brandTag, { color: colors.textMuted }]}>Akıllı haber akışı</Text>
             </View>

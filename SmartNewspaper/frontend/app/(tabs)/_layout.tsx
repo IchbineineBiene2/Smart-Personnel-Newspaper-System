@@ -1,7 +1,7 @@
 import { Tabs, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { BottomTabBar, BottomTabBarProps } from '@react-navigation/bottom-tabs';
-import { Animated, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Animated, Platform, Pressable, StyleSheet, Text, View, Image } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRef, useEffect, useState } from 'react';
 
@@ -250,12 +250,12 @@ function WebSidebarTabBar({
     >
       {/* Brand */}
       <View style={[styles.brand, { borderBottomColor: colors.borderSubtle }]}>
-        <View style={[styles.brandIcon, { backgroundColor: colors.accent }]}>
-          <Ionicons name="newspaper" size={18} color="#fff" />
+        <View style={[styles.brandIcon, { overflow: 'hidden', backgroundColor: '#fff', alignItems: 'center', justifyContent: 'center' }]}>
+          <Image source={require('@/assets/images/icon.png')} style={{ width: '135%', height: '135%' }} resizeMode="contain" />
         </View>
         <View>
           <Text style={[styles.brandTitle, { color: colors.textPrimary }]}>
-            GAZETTE
+            HABERDAR
           </Text>
         </View>
       </View>
@@ -500,14 +500,14 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
   },
   brandIcon: {
-    width: 40,
-    height: 40,
-    borderRadius: 12,
+    width: 52,
+    height: 52,
+    borderRadius: 14,
     alignItems: 'center',
     justifyContent: 'center',
   },
   brandTitle: {
-    fontSize: 17,
+    fontSize: 24,
     fontWeight: '900',
     letterSpacing: 0.5,
   },

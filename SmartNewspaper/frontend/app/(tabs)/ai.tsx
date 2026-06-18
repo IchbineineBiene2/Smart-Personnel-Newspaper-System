@@ -35,7 +35,7 @@ function buildInitialMessages(articleTitle: string, articleSummary: string, arti
     return [
       {
         id: 'welcome',
-        role: 'assistant',
+        role: 'assistant' as const,
         content: 'Bir haber açtığında, o haberin detaylarıyla ilgili sana odaklı sorular sorabilir ve cevaplar alabilirsin.',
       },
     ];
@@ -46,14 +46,14 @@ function buildInitialMessages(articleTitle: string, articleSummary: string, arti
   return [
     {
       id: 'welcome',
-      role: 'assistant',
+      role: 'assistant' as const,
       content: `${articleTitle || 'Seçilen haber'} hakkında soru sorabilirsin.${contextBits ? ` (${contextBits})` : ''}`,
     },
     ...(articleAiSummary
       ? [
           {
             id: 'article-summary',
-            role: 'assistant',
+            role: 'assistant' as const,
             content: articleAiSummary,
           },
         ]
@@ -62,7 +62,7 @@ function buildInitialMessages(articleTitle: string, articleSummary: string, arti
       ? [
           {
             id: 'article-summary-brief',
-            role: 'assistant',
+            role: 'assistant' as const,
             content: articleSummary,
           },
         ]

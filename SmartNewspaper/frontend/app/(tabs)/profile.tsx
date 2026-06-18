@@ -1813,7 +1813,7 @@ export default function ProfileScreen() {
         <View style={{ flexDirection: 'row', gap: 16, alignItems: 'center' }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
             <Ionicons name="sparkles" size={11} color={colors.accent} />
-            <Text style={[styles.footerText, { color: colors.textMuted }]}>AI Destekli Gazete</Text>
+            <Text style={[styles.footerText, { color: colors.textMuted }]}>Haberdar</Text>
           </View>
           <Text style={[styles.footerText, { color: colors.textMuted }]}>Gizlilik</Text>
           <Text style={[styles.footerText, { color: colors.textMuted }]}>Destek</Text>

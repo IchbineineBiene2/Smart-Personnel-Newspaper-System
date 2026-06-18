@@ -26,12 +26,12 @@ router.post('/seed', async (req: Request, res: Response) => {
     await dbQuery(
       `INSERT INTO users (username, full_name, email, password_hash, role, status)
        VALUES ($1, $2, $3, $4, 'admin', 'active')`,
-      ['admin', 'Admin', 'admin@gazete.ai', passwordHash]
+      ['admin', 'Admin', 'admin@haberdar.com', passwordHash]
     );
 
     res.status(201).json({
       message: 'Admin created',
-      email: 'admin@gazete.ai',
+      email: 'admin@haberdar.com',
       password: 'Admin123!',
     });
   } catch (err) {

@@ -20,6 +20,7 @@ import { usePreferences } from '@/hooks/usePreferences';
 import { useTheme } from '@/hooks/useTheme';
 import {
   ApiArticle,
+  fetchArticles,
   fetchBreakingArticles,
   fetchNewsSources,
   fetchTrendingArticles,
